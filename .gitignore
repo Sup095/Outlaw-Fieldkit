@@ -76,3 +76,6 @@ answers.env
 
 # Personal words for tools/publish-github.js
 tools/publish-private.json
+
+# Local editor and preview settings
+.claude/

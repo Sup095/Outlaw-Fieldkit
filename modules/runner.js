@@ -58,6 +58,7 @@
   var scroll = [];          // terminal scrollback, as { k, d } pieces
   var scrollChars = 0;
   var retry = null;
+  var goodUrl = null;       // the run server address that last answered, tried first
   var renewTimer = null;
   var adminView = false;    // an admin looking at the ADMIN screen
   var adminUser = null;     // whose files that screen is showing
@@ -346,15 +347,40 @@
     }
     if (!guard()) return;
 
-    var url = String(t.url || "").replace(/^http:/i, "ws:").replace(/^https:/i, "wss:") +
-      "/attach?t=" + encodeURIComponent(t.ticket);
-    var sock;
-    try { sock = new window.WebSocket(url); }
-    catch (e) { phase = "lost"; problem = "could not reach the run server"; return render(); }
-    sock.binaryType = "arraybuffer";
-    var mine = { sock: sock, ready: false, tier: t.tier, limits: null, files: [], usage: null,
+    /* The run server may answer on more than one address (the relay's
+       runner.alsoUrls), in case one is blocked where this panel is. Each
+       is tried in turn until one opens, the last one that did first. The
+       ticket is only spent by a run server that was reached. */
+    var urls = (Array.isArray(t.urls) && t.urls.length ? t.urls : [t.url]).map(String);
+    if (goodUrl && urls.indexOf(goodUrl) > 0) urls = [goodUrl].concat(urls.filter(function (u) { return u !== goodUrl; }));
+    var mine = { sock: null, ready: false, opened: false, tier: t.tier, limits: null, files: [], usage: null,
       jobs: {}, waiting: {}, windows: false };
     conn = mine;
+    dial(0);
+    function dial(i) {
+      var url = urls[i].replace(/^http:/i, "ws:").replace(/^https:/i, "wss:") + "/attach?t=" + encodeURIComponent(t.ticket);
+      var sock;
+      try { sock = new window.WebSocket(url); }
+      catch (e) {
+        if (i + 1 < urls.length) return dial(i + 1);
+        conn = null; phase = "lost"; problem = "could not reach the run server"; return render();
+      }
+      sock.binaryType = "arraybuffer";
+      mine.sock = sock;
+      sock.onopen = function () { mine.opened = true; goodUrl = urls[i]; sock.send(JSON.stringify({ t: "hello" })); };
+      sock.onmessage = function (e) {
+        if (conn !== mine) return;
+        if (typeof e.data !== "string") return onFrame(e.data);
+        var m;
+        try { m = JSON.parse(e.data); } catch (x) { return; }
+        onMessage(mine, m);
+      };
+      sock.onclose = function () {
+        if (conn !== mine) return;
+        if (!mine.opened && i + 1 < urls.length) return dial(i + 1);
+        closed();
+      };
+    }
     if (renewTimer) clearInterval(renewTimer);
     renewTimer = setInterval(function () {
       var a = account();
@@ -365,16 +391,7 @@
         function () {});
     }, RENEW_MS);
 
-    sock.onopen = function () { sock.send(JSON.stringify({ t: "hello" })); };
-    sock.onmessage = function (e) {
-      if (conn !== mine) return;
-      if (typeof e.data !== "string") return onFrame(e.data);
-      var m;
-      try { m = JSON.parse(e.data); } catch (x) { return; }
-      onMessage(mine, m);
-    };
-    sock.onclose = function () {
-      if (conn !== mine) return;
+    function closed() {
       conn = null; busy = null;
       if (renewTimer) { clearInterval(renewTimer); renewTimer = null; }
       if (!guard()) return;
@@ -392,7 +409,7 @@
           : "the connection closed. Your files are still on the server.")
         : "could not connect to the run server";
       render();
-    };
+    }
   }
 
   /* ---- what the run server says ---------------------------------- */

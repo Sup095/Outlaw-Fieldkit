@@ -46,6 +46,7 @@
      and the failure mode of forgetting is a credential on a stick. */
   var PORTABLE = [
     "relayUrl",        // where the vault lives. Not a credential by itself.
+    "relayUrls",       // spare addresses for the same relay (core/relay-choice.js)
     "displayName",     // who you are on a shared vault
     "theme", "crt", "ambient", "sound", "wallpaper", "bootFlavor",
     "perfMode",

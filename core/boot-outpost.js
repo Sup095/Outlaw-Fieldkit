@@ -110,6 +110,19 @@
     await wait(140);
   }
 
+  /* Which relay address (core/relay-choice.js). OUTPOST has no RELAY
+     LINK panel, so this is where it is set or changed. */
+  async function relayAddress() {
+    var choice = FieldKit.service("relayChoice");
+    if (!choice) return;
+    if (settings.get("relayAskAtBoot") !== false) await choice.ask(consoleEl);
+    var r = await choice.reachable(line);
+    var row = pair("RELAY", "");
+    setValue(row,!r.url ? "NONE SET" : (r.ok ? "ANSWERS — " : "NO ANSWER — ") + r.url.replace(/^https?:\/\//, ""),
+      !r.url ? "dim" : r.ok ? "pass" : "warn");
+    await wait(120);
+  }
+
   async function quickTest() {
     line("RUNNING QUICK SELF-TEST", "accent");
     var selftest = FieldKit.need("selftest");
@@ -176,6 +189,7 @@
 
     try {
       await post();
+      await relayAddress();
       await storage();
       await quickTest();
       await splash();

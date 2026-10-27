@@ -131,6 +131,13 @@ function deliver() {
 
 const b64u = (b) => Buffer.from(b).toString("base64url");
 const base = () => String(cfg.publicUrl || "").trim().replace(/\/+$/, "");
+/* The run server's address first, then any others it also answers on
+   (runner.alsoUrls), so a panel that cannot reach one tries the next.
+   https only, and no paths. */
+const urls = () => [base()].concat((Array.isArray(cfg.alsoUrls) ? cfg.alsoUrls : [])
+  .map((u) => String(u || "").trim().replace(/\/+$/, ""))
+  .filter((u) => /^https:\/\/[a-z0-9.-]+(:\d+)?$/i.test(u)))
+  .filter((u, i, a) => u && a.indexOf(u) === i);
 
 function loadKeys(dir) {
   const file = path.join(dir, "ticket-key.pem");
@@ -294,7 +301,7 @@ async function route(req, res, url, helpers) {
       send(res, 503, { error: st.why || "the run server is offline", offline: true });
       return true;
     }
-    send(res, 201, { ticket: signTicket(me.handle, me.tier), url: base(), tier: me.tier,
+    send(res, 201, { ticket: signTicket(me.handle, me.tier), url: base(), urls: urls(), tier: me.tier,
       expiresIn: TICKET_MS / 1000 });
     return true;
   }

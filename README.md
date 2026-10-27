@@ -12,10 +12,12 @@ Everything that leaves your machine is either encrypted before it goes, or
 says plainly that it is not.
 
 > **Get it:** download `OUTPOST-STANDALONE.html` from the
-> [latest release](../../releases/latest), open it in Chrome, and set a relay
-> address in SETTINGS. The repository owner runs a relay; accounts on it
-> are approved by hand. It answers at each of these addresses, so if one
-> does not load, try the next:
+> [latest release](../../releases/latest) and open it in Chrome. While it
+> starts, it shows the relay address it is about to use: press **C** (or
+> CHANGE OR ADD ADDRESS) to add or change one. Add more than one and, if the
+> one in use does not answer, the others are tried by themselves. The
+> repository owner runs a relay; accounts on it are approved by hand. It
+> answers at each of these addresses:
 >
 > - `https://relay.outlawfieldkit.com`
 
@@ -110,7 +112,10 @@ self-test.
    run a relay) from [Releases](../../releases/latest).
 2. Open it in Chrome or another Chromium browser. It runs from `file://`; no
    web server is needed.
-3. **SETTINGS → relay address**: the `https://` address of a relay.
+3. **The relay address**: while it starts, press **C** (or CHANGE OR ADD
+   ADDRESS) and type the relay's address, such as `relay.example.com`. You
+   can save several; if the one in use does not answer, the others are
+   tried in turn. In the full build, RELAY LINK changes it too.
 4. **MESSAGES → create an account.** On a relay that approves accounts, you
    can sign in once a moderator has approved you.
 5. BROWSER and RUNNER use the same account.

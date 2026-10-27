@@ -53,7 +53,9 @@ let wakes = 0, wakeAnswer = () => ({ waking: true });
 FieldKit.provide("messages", {
   signedIn: () => signedIn,
   runnerWake: async () => { wakes++; const a = wakeAnswer(); if (a instanceof Error) throw a; return a; },
-  runnerTicket: async () => ({ url: "http://127.0.0.1:" + port, tier: tier,
+  /* The run server's first address answers nothing (blocked, say): the
+     panel tries the next. */
+  runnerTicket: async () => ({ url: "http://127.0.0.1:1", urls: ["http://127.0.0.1:1", "http://127.0.0.1:" + port], tier: tier,
     ticket: ticket.sign(pair.privateKey, { handle: "tester", tier: tier, exp: Date.now() + 30000 }) })
 });
 
@@ -160,7 +162,8 @@ const remount = () => { def.unmount(); host = fakeElement("div"); def.mount(host
     signedIn = true; tier = "guest";
     remount();
     await until(() => byClass("rn-drop").length === 1);
-    ok("the drop area appears once connected", byClass("rn-drop").length === 1);
+    ok("the drop area appears once connected, through the run server's second address: the first answers nothing (FIELDKIT_PROJECT.md §14.39)",
+      byClass("rn-drop").length === 1);
     ok("the guest is told plainly that nothing is kept",
       /GUEST SANDBOX/.test(text()) && /deleted when you close this panel/.test(text()), text().slice(0, 160));
     ok("and that there is no GPU", /no GPU/.test(text()));

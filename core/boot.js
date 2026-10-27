@@ -199,6 +199,13 @@
     await wait(120);
 
     var store = FieldKit.need("store");
+    /* Which address (core/relay-choice.js): shown, changeable, and if it
+       does not answer here, the saved others are tried. */
+    var choice = FieldKit.service("relayChoice");
+    if (choice) {
+      if (settings.get("relayAskAtBoot") !== false) await choice.ask(consoleEl);
+      await choice.reachable(line);
+    }
     var relayUrl = settings.get("relayUrl");
     var relay = FieldKit.service("transportRelay");
 
