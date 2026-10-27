@@ -1,0 +1,1217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FIELDKIT // PREFLIGHT</title>
+<style>
+  :root{
+    --bg:#0b0d0c; --panel:#111513; --line:#1e2420; --line2:#2b332d;
+    --fg:#b9c4ba; --dim:#5d6a60; --accent:#e0a63c;
+    --pass:#4fbf6a; --fail:#e0503c; --warn:#e0a63c; --info:#4a9ad4;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--fg);
+    font-family:ui-monospace,"Cascadia Mono","Consolas","DejaVu Sans Mono",monospace;
+    font-size:13px;line-height:1.5}
+  .wrap{max-width:1040px;margin:0 auto;padding:18px 14px 70px}
+  h1{font-size:15px;letter-spacing:.22em;color:var(--accent);margin:0 0 2px;font-weight:700}
+  .sub{color:var(--dim);font-size:11px;letter-spacing:.1em;margin-bottom:14px}
+
+  /* ---- verdict: the only thing that has to be readable across a room ---- */
+  .verdict{border:2px solid var(--line2);background:var(--panel);padding:14px 16px;margin-bottom:14px}
+  .verdict .big{font-size:20px;letter-spacing:.18em;font-weight:700;display:block}
+  .verdict .why{color:var(--dim);font-size:11px;margin-top:6px;white-space:pre-wrap}
+  .verdict.v-clear{border-color:var(--pass)} .verdict.v-clear .big{color:var(--pass)}
+  .verdict.v-caution{border-color:var(--warn)} .verdict.v-caution .big{color:var(--warn)}
+  .verdict.v-stop{border-color:var(--fail)} .verdict.v-stop .big{color:var(--fail)}
+  .verdict.v-idle .big{color:var(--dim)}
+
+  .banner{border:1px solid var(--line);background:var(--panel);padding:10px 12px;margin-bottom:14px}
+  .banner b{color:var(--accent)}
+  .banner ol,.banner ul{margin:6px 0 0;padding-left:20px;color:var(--dim)}
+  .banner li{margin:3px 0}
+  .banner.limits{border-color:#3a2b2b}
+  .banner.limits b{color:var(--fail)}
+
+  .bar{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;align-items:center}
+  button{background:#171c19;color:var(--fg);border:1px solid var(--line2);padding:9px 14px;
+    font:inherit;letter-spacing:.1em;cursor:pointer}
+  button:hover:not(:disabled){border-color:var(--accent);color:var(--accent)}
+  button:disabled{opacity:.3;cursor:not-allowed}
+  button.go{border-color:var(--accent);color:var(--accent)}
+  button.launch{border-color:var(--pass);color:var(--pass);font-weight:700}
+  button.danger{border-color:var(--fail);color:var(--fail)}
+  input[type=text]{background:#0e1210;color:var(--fg);border:1px solid var(--line2);
+    padding:9px 10px;font:inherit;min-width:260px;flex:1}
+  label.ack{display:flex;gap:8px;align-items:flex-start;color:var(--dim);font-size:11px;
+    border:1px dashed var(--line2);padding:8px 10px;margin-bottom:12px}
+
+  .fp{border:1px solid var(--line);background:var(--panel);padding:10px 12px;margin-bottom:14px}
+  .fp code{color:var(--accent);font-size:16px;letter-spacing:.2em}
+  .fp .note{color:var(--dim);font-size:11px;margin-top:4px}
+
+  .grp{margin-top:16px}
+  .grp>h2{font-size:11px;letter-spacing:.24em;color:var(--accent);
+    border-bottom:1px solid var(--line);padding-bottom:5px;margin:0 0 6px;font-weight:700}
+  .grp>h2 .n{color:var(--dim);letter-spacing:.1em;float:right}
+  .row{display:grid;grid-template-columns:74px 230px 1fr;gap:10px;padding:3px 0;
+    align-items:baseline;border-bottom:1px dotted #171d19}
+  .row .st{font-weight:700;letter-spacing:.08em}
+  .row .nm{color:var(--fg)}
+  .row .dt{color:var(--dim);word-break:break-word;white-space:pre-wrap}
+  .row.block .nm{color:var(--fail)}
+  .PASS{color:var(--pass)} .FAIL{color:var(--fail)} .WARN{color:var(--warn)}
+  .INFO{color:var(--info)} .SKIP{color:var(--dim)}
+
+  .tally{margin-top:16px;padding:10px 12px;border:1px solid var(--line);background:var(--panel)}
+  .tally span{margin-right:16px;font-weight:700}
+  textarea{width:100%;height:230px;margin-top:10px;background:#0e1210;color:var(--dim);
+    border:1px solid var(--line2);padding:10px;font:inherit;resize:vertical}
+  .hint{color:var(--dim);font-size:11px;margin-top:6px}
+  @media(max-width:640px){.row{grid-template-columns:64px 1fr}.row .dt{grid-column:1/-1;padding-left:64px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>FIELDKIT // PREFLIGHT</h1>
+<div class="sub">RUN THIS BEFORE YOU OPEN FIELDKIT &mdash; v2 &mdash; nothing here touches your vault</div>
+
+<div class="verdict v-idle" id="verdict">
+  <span class="big" id="verdictBig">NOT YET CHECKED</span>
+  <div class="why" id="verdictWhy">Press RUN CHECKS. The drive and relay checks need one click each because the browser will only open a folder picker or hit the network from a real button press.</div>
+</div>
+
+<div class="bar">
+  <button class="go" id="btnRun">RUN CHECKS</button>
+  <button id="btnDrive" disabled>CHECK THIS DRIVE</button>
+  <button id="btnCopy" disabled>COPY REPORT</button>
+  <button id="btnSave" disabled>SAVE REPORT .TXT</button>
+</div>
+
+<div class="bar">
+  <input type="text" id="relayUrl" placeholder="relay URL (https://fieldkit.example.com) — blank skips the relay checks">
+  <button id="btnRelay" disabled>CHECK RELAY</button>
+</div>
+
+<div class="fp" id="fpBox" style="display:none">
+  DRIVE FINGERPRINT &nbsp; <code id="fpVal">—</code>
+  <div class="note" id="fpNote"></div>
+</div>
+
+<label class="ack" id="ackBox" style="display:none">
+  <input type="checkbox" id="ackChk">
+  <span id="ackText"></span>
+</label>
+
+<div class="bar">
+  <button class="launch" id="btnLaunch" disabled>OPEN FIELDKIT &rarr;</button>
+  <span class="hint" id="launchNote">Unlocked once the checks come back clear.</span>
+</div>
+
+<div class="banner limits">
+  <b>WHAT THIS CANNOT SEE</b>
+  <ul>
+    <li>It cannot see a keylogger, a screen recorder, or anything reading your keystrokes. A web page has no way to look at the machine it is running on.</li>
+    <li>It cannot tell whether this PC <i>copied</i> files off the drive. Reads leave no trace on the drive.</li>
+    <li>A fingerprint mismatch proves something wrote to the drive. A fingerprint match proves nothing wrote to it <i>in a way that also failed to update the manifest</i> — someone who knows FieldKit is on this stick could do both.</li>
+    <li>If the machine belongs to someone else and you would not type your bank password into it, do not type your vault passphrase into it either. No test on this page changes that.</li>
+  </ul>
+</div>
+
+<div class="banner">
+  <b>WHAT IT IS ACTUALLY FOR</b>
+  <ul>
+    <li>Catching a PC that wrote to your drive &mdash; an autorun dropper, a modified core file, a half-finished copy.</li>
+    <li>Catching a browser that has something sitting between FieldKit and the crypto it depends on.</li>
+    <li>Catching FieldKit data left behind on this PC by an earlier session, and wiping it.</li>
+    <li>Confirming the relay is the relay, and that this machine's clock is close enough for TLS to work.</li>
+  </ul>
+</div>
+
+<div id="out"></div>
+
+<div class="tally" id="tally" style="display:none">
+  <span class="PASS">PASS <b id="cPASS">0</b></span>
+  <span class="FAIL">FAIL <b id="cFAIL">0</b></span>
+  <span class="WARN">WARN <b id="cWARN">0</b></span>
+  <span class="INFO">INFO <b id="cINFO">0</b></span>
+  <span class="SKIP">SKIP <b id="cSKIP">0</b></span>
+</div>
+
+<textarea id="report" readonly placeholder="report appears here after the checks run"></textarea>
+<div class="hint">If COPY is blocked, select the text above and copy it by hand.</div>
+
+</div>
+
+<script>
+/* ============================================================
+   FieldKit PREFLIGHT
+
+   This runs before FIELDKIT.html, on a machine you may not own,
+   and its job is to answer one question: is it safe to unlock the
+   vault here?
+
+   Three rules shaped everything below.
+
+   1. It is honest about its reach. A page in a browser sandbox
+      cannot see processes, files it was not handed, or anything
+      typed outside it. Every claim on this page is something the
+      browser can actually observe. The limits are printed at the
+      top rather than buried, because a security tool that oversells
+      itself is worse than no tool — it gets you to unlock a vault
+      on a machine you would otherwise have walked away from.
+
+   2. It leaves nothing behind. Every probe that writes cleans up
+      after itself, and none of them writes anything that came from
+      the drive. The relay URL is deliberately NOT remembered.
+
+   3. It is self-contained. It is the thing that vouches for the
+      other files, so it cannot depend on them.
+   ============================================================ */
+"use strict";
+
+/* Captured before anything else has had a chance to run. If a
+   content script patched these, we want the patched versions to
+   be what we inspect — the point is to notice, not to dodge. */
+var NATIVE_RE = /\{\s*\[native code\]\s*\}/;
+var fnToString = Function.prototype.toString;
+
+var GROUPS = [
+  "THIS MACHINE",
+  "BROWSER INTEGRITY",
+  "TRACES LEFT ON THIS PC",
+  "THE DRIVE",
+  "THE RELAY",
+  "CAN FIELDKIT EVEN RUN HERE"
+];
+
+var results = [];
+var out = document.getElementById("out");
+var groupEls = {};
+var driveChecked = false, relayChecked = false, ranAuto = false;
+var manifestInfo = null;
+
+GROUPS.forEach(function (g) {
+  var d = document.createElement("div");
+  d.className = "grp";
+  d.innerHTML = '<h2>' + g + '<span class="n"></span></h2>';
+  out.appendChild(d);
+  groupEls[g] = d;
+});
+
+/* `block: true` means this finding alone is enough to say DO NOT
+   UNLOCK. Reserved for things that are actually about the safety of
+   the vault — a missing WebGPU adapter is a FAIL for the in-browser
+   model and has nothing to do with whether your passphrase is safe
+   here, so it does not block. */
+function rec(group, name, status, detail, block) {
+  var r = {
+    group: group, name: name, status: status,
+    detail: detail === undefined ? "" : String(detail),
+    block: !!block && status === "FAIL"
+  };
+  results.push(r);
+
+  var row = document.createElement("div");
+  row.className = "row" + (r.block ? " block" : "");
+  row.innerHTML = '<div class="st ' + status + '">' + status + '</div>' +
+                  '<div class="nm"></div><div class="dt"></div>';
+  row.children[1].textContent = name;
+  row.children[2].textContent = r.detail;
+  groupEls[group].appendChild(row);
+  return r;
+}
+
+function clearGroup(g) {
+  results = results.filter(function (r) { return r.group !== g; });
+  groupEls[g].innerHTML = '<h2>' + g + '<span class="n"></span></h2>';
+}
+
+/* Nothing may hang the page. Every probe goes through here. */
+function guard(ms, fn) {
+  return new Promise(function (resolve) {
+    var done = false;
+    var t = setTimeout(function () { if (!done) { done = true; resolve({ to: true }); } }, ms);
+    Promise.resolve().then(fn).then(function (v) {
+      if (!done) { done = true; clearTimeout(t); resolve({ v: v }); }
+    }, function (e) {
+      if (!done) { done = true; clearTimeout(t); resolve({ e: e }); }
+    });
+  });
+}
+function errStr(e) {
+  if (!e) return "unknown error";
+  return (e.name ? e.name + ": " : "") + (e.message || String(e));
+}
+/* The report is meant to be pasted into a message. A file:// path is
+   short, but this page can also be opened from somewhere that makes
+   location.href thousands of characters long, and a report that opens
+   with a wall of percent-encoding is a report nobody reads. */
+function shortUrl(u) {
+  u = String(u);
+  return u.length > 160 ? u.slice(0, 120) + " ...[" + (u.length - 120) + " more chars]" : u;
+}
+
+function hex(buf) {
+  var b = new Uint8Array(buf), s = "";
+  for (var i = 0; i < b.length; i++) s += (b[i] < 16 ? "0" : "") + b[i].toString(16);
+  return s;
+}
+async function sha256(bytes) {
+  return hex(await crypto.subtle.digest("SHA-256", bytes));
+}
+
+/* ============================================================
+   1. THIS MACHINE
+   ============================================================ */
+async function checkMachine() {
+  var G = "THIS MACHINE";
+
+  rec(G, "page location", "INFO", shortUrl(location.href));
+  rec(G, "browser", "INFO", navigator.userAgent);
+  rec(G, "local clock", "INFO", new Date().toString() +
+    "   (checked against the relay further down, if you give it one)");
+
+  /* A browser under remote control. On a machine that is being
+     driven by something else, everything you type is visible to
+     whatever is driving it. */
+  var wd = navigator.webdriver === true;
+  rec(G, "remote control (webdriver)", wd ? "FAIL" : "PASS",
+    wd ? "navigator.webdriver is TRUE — this browser is being driven by automation software. " +
+         "Anything typed into it can be read by whatever is driving it."
+       : "not automated", true);
+
+  /* A preflight page inside a frame is a preflight page someone
+     else is wrapping. */
+  var framed = false;
+  try { framed = window.top !== window.self; } catch (e) { framed = true; }
+  rec(G, "running in a frame", framed ? "FAIL" : "PASS",
+    framed ? "this page is embedded in another page, which can read and rewrite it. " +
+             "Open PREFLIGHT.html directly from the drive."
+           : "top-level document", true);
+
+  var sc = window.isSecureContext;
+  rec(G, "secure context", sc ? "PASS" : "FAIL",
+    sc ? "crypto.subtle is permitted here"
+       : "NOT a secure context — the vault's encryption cannot run. FieldKit will not work on this origin.", true);
+
+  /* Not a fault. On a borrowed machine it is the better state, so
+     it is worth saying which one you are in. */
+  var priv = await guard(3000, async function () {
+    if (!navigator.storage || !navigator.storage.estimate) throw new Error("estimate unavailable");
+    var e = await navigator.storage.estimate();
+    return { quota: e.quota || 0, usage: e.usage || 0 };
+  });
+  if (priv.v) {
+    var mb = Math.round(priv.v.quota / 1048576);
+    rec(G, "private / incognito window", "INFO",
+      (mb < 200 ? "probably yes — origin quota is only " + mb + " MB, which is what a private window looks like. " +
+                  "On a machine that is not yours, that is the right way to run this."
+                : "probably not — origin quota is " + mb + " MB. On a borrowed machine, consider re-opening the drive " +
+                  "in a private window so nothing survives the session."));
+  } else {
+    rec(G, "private / incognito window", "SKIP", "cannot tell — storage.estimate is unavailable here");
+  }
+
+  rec(G, "screen and CPU", "INFO",
+    screen.width + "x" + screen.height + " @dpr " + (window.devicePixelRatio || 1) +
+    ", " + (navigator.hardwareConcurrency || "?") + " threads, " +
+    (navigator.deviceMemory ? navigator.deviceMemory + " GB" : "memory unreported"));
+  rec(G, "timezone", "INFO",
+    (Intl.DateTimeFormat().resolvedOptions().timeZone || "?") + " / " + navigator.language);
+}
+
+/* ============================================================
+   2. BROWSER INTEGRITY
+
+   The realistic browser-side attack on FieldKit is not exotic: an
+   extension with host permissions replaces crypto.subtle.encrypt,
+   or clipboard.writeText, or fetch, and reads your data on the way
+   past. A replaced function does not stringify to [native code],
+   which is a thing this page can check and a thing the attacker
+   has to go out of their way to defeat.
+   ============================================================ */
+function isNative(fn) {
+  if (typeof fn !== "function") return null;
+  /* A bound function stringifies as "[native code]" even when it
+     wraps something hostile — `subtle.encrypt = steal.bind(null)`
+     would otherwise sail straight through the check below. Bound
+     functions carry "bound " on the front of their name, and none
+     of the real browser methods do. */
+  try { if (/^bound\b/.test(fn.name || "")) return false; } catch (e) { return false; }
+  try { return NATIVE_RE.test(fnToString.call(fn)); } catch (e) { return false; }
+}
+
+async function checkIntegrity() {
+  var G = "BROWSER INTEGRITY";
+
+  /* Everything below leans on toString, so it is checked first.
+     A hook that also patches toString to lie about itself will
+     normally fail to lie about toString itself. */
+  var tsOk = false;
+  try { tsOk = NATIVE_RE.test(fnToString.call(fnToString)); } catch (e) { tsOk = false; }
+  rec(G, "Function.prototype.toString", tsOk ? "PASS" : "FAIL",
+    tsOk ? "reports itself as native — the checks below can be trusted as far as this method goes"
+         : "does NOT report itself as native. Something has replaced the one method every other check " +
+           "on this page depends on. Treat every PASS below as meaningless.", true);
+
+  /* The set that matters, in rough order of what an attacker would
+     want: the crypto that protects the vault, the clipboard you
+     paste your passphrase through, the network the ciphertext
+     travels over, and the storage it rests in. */
+  var targets = [
+    ["crypto.getRandomValues", window.crypto && crypto.getRandomValues, true],
+    ["crypto.subtle.digest", window.crypto && crypto.subtle && crypto.subtle.digest, true],
+    ["crypto.subtle.importKey", window.crypto && crypto.subtle && crypto.subtle.importKey, true],
+    ["crypto.subtle.deriveKey", window.crypto && crypto.subtle && crypto.subtle.deriveKey, true],
+    ["crypto.subtle.deriveBits", window.crypto && crypto.subtle && crypto.subtle.deriveBits, true],
+    ["crypto.subtle.encrypt", window.crypto && crypto.subtle && crypto.subtle.encrypt, true],
+    ["crypto.subtle.decrypt", window.crypto && crypto.subtle && crypto.subtle.decrypt, true],
+    ["fetch", window.fetch, true],
+    ["XMLHttpRequest.open", window.XMLHttpRequest && XMLHttpRequest.prototype.open, true],
+    ["XMLHttpRequest.send", window.XMLHttpRequest && XMLHttpRequest.prototype.send, true],
+    ["navigator.clipboard.writeText", navigator.clipboard && navigator.clipboard.writeText, true],
+    ["navigator.clipboard.readText", navigator.clipboard && navigator.clipboard.readText, true],
+    ["Storage.setItem", window.Storage && Storage.prototype.setItem, true],
+    ["Storage.getItem", window.Storage && Storage.prototype.getItem, true],
+    ["JSON.stringify", JSON.stringify, true],
+    ["JSON.parse", JSON.parse, true],
+    ["TextEncoder.encode", window.TextEncoder && TextEncoder.prototype.encode, true],
+    ["EventTarget.addEventListener", window.EventTarget && EventTarget.prototype.addEventListener, true],
+    ["document.createElement", document.createElement, false],
+    ["Element.attachShadow", window.Element && Element.prototype.attachShadow, false],
+    ["window.open", window.open, false],
+    ["history.pushState", window.history && history.pushState, false]
+  ];
+
+  var patched = [], absent = [];
+  targets.forEach(function (t) {
+    var n = isNative(t[1]);
+    if (n === null) { absent.push(t[0]); return; }
+    if (!n) patched.push({ name: t[0], blocks: t[2] });
+  });
+
+  var blocking = patched.filter(function (p) { return p.blocks; });
+
+  if (!patched.length) {
+    rec(G, "native code check", "PASS",
+      (targets.length - absent.length) + " browser methods checked, all report as native — " +
+      "no extension or script is sitting in front of the crypto, the clipboard, or the network.");
+  } else {
+    rec(G, "native code check", blocking.length ? "FAIL" : "WARN",
+      patched.map(function (p) { return p.name; }).join(", ") +
+      (blocking.length
+        ? "  <-- REPLACED. Something is intercepting these. Do not unlock the vault in this browser. " +
+          "The usual cause is a browser extension; try a clean profile or a private window with extensions off."
+        : "  replaced, but none of these carry vault data. Most likely a harmless extension."),
+      blocking.length > 0);
+  }
+
+  if (absent.length) {
+    rec(G, "methods not present", "INFO", absent.join(", ") +
+      " — not available on this browser or origin, so nothing to check.");
+  }
+
+  /* Content scripts inject DOM. Ours is all built from this file,
+     so anything at the top level we did not write is worth naming.
+     Reported, never blocking: plenty of benign extensions do this. */
+  var mine = ["SCRIPT", "STYLE", "LINK", "META", "TITLE", "TEMPLATE"];
+  var strangers = [];
+  Array.prototype.slice.call(document.body.children).forEach(function (n) {
+    if (n.className === "wrap") return;
+    if (mine.indexOf(n.tagName) >= 0) return;
+    strangers.push(n.tagName.toLowerCase() +
+      (n.id ? "#" + n.id : "") +
+      (n.className ? "." + String(n.className).split(/\s+/)[0] : ""));
+  });
+  Array.prototype.slice.call(document.documentElement.children).forEach(function (n) {
+    if (n.tagName === "HEAD" || n.tagName === "BODY") return;
+    strangers.push("<html> > " + n.tagName.toLowerCase());
+  });
+  rec(G, "injected page elements", strangers.length ? "WARN" : "PASS",
+    strangers.length
+      ? strangers.join(", ") + " — an extension has added elements to this page. " +
+        "Usually harmless (password managers, dark-mode tools), but it means extensions can reach this page's DOM."
+      : "nothing has been injected into this page");
+
+  /* Cheap and occasionally decisive: a getRandomValues that has
+     been replaced with something predictable is the quietest way to
+     break a vault, and a stuck one shows up immediately. */
+  var rnd = await guard(3000, function () {
+    var a = crypto.getRandomValues(new Uint8Array(32));
+    var b = crypto.getRandomValues(new Uint8Array(32));
+    var same = a.every(function (x, i) { return x === b[i]; });
+    if (same) throw new Error("two draws came back identical");
+    var zero = a.every(function (x) { return x === 0; });
+    if (zero) throw new Error("32 bytes of zero");
+    return true;
+  });
+  rec(G, "randomness is not stuck", rnd.v ? "PASS" : "FAIL",
+    rnd.v ? "two independent draws differ and are not all-zero"
+          : (rnd.to ? "timed out" : errStr(rnd.e)) +
+            " — the random source is not behaving. Every key FieldKit makes would be suspect.", true);
+}
+
+/* ============================================================
+   3. TRACES LEFT ON THIS PC
+
+   FieldKit keeps everything sensitive inside the encrypted vault,
+   but it does write ordinary settings to this browser's storage —
+   window positions, the theme, which easter eggs have been found,
+   when it last launched. None of that is secret. All of it says
+   "this drive was used on this machine", which on a shared or
+   school PC is worth knowing about and worth being able to erase.
+   ============================================================ */
+var FK_PREFIX = "fieldkit.";
+var FK_DB = "fieldkit";
+
+function fkKeys() {
+  var found = [];
+  try {
+    for (var i = 0; i < localStorage.length; i++) {
+      var k = localStorage.key(i);
+      if (k && k.indexOf(FK_PREFIX) === 0) found.push(k);
+    }
+  } catch (e) { /* storage may be denied entirely; that is its own answer */ }
+  return found;
+}
+
+async function checkResidue() {
+  var G = "TRACES LEFT ON THIS PC";
+
+  var keys = fkKeys();
+  rec(G, "FieldKit settings in this browser", keys.length ? "WARN" : "PASS",
+    keys.length
+      ? keys.length + " key(s): " + keys.join(", ") +
+        "  — a previous session on this machine. Nothing here is secret and none of it is vault content, " +
+        "but it does record that the drive has been used here. Press WIPE TRACES below to remove it."
+      : "none — this machine has no record of FieldKit having been run on it");
+
+  var dbs = await guard(4000, async function () {
+    if (!indexedDB.databases) throw new Error("indexedDB.databases() unsupported on this browser");
+    return (await indexedDB.databases()).map(function (d) { return d.name; }).filter(Boolean);
+  });
+  if (dbs.v) {
+    var fk = dbs.v.filter(function (n) { return n === FK_DB || n.indexOf("fieldkit") === 0 || n.indexOf("__fk") === 0; });
+    rec(G, "FieldKit databases in this browser", fk.length ? "WARN" : "PASS",
+      fk.length ? fk.join(", ") + " — held file handles and cached blobs from an earlier session"
+                : "none");
+  } else {
+    rec(G, "FieldKit databases in this browser", "SKIP",
+      "this browser will not list databases (" + (dbs.to ? "timed out" : errStr(dbs.e)) +
+      "), so an earlier session cannot be ruled out from here");
+  }
+
+  /* Everything FieldKit writes is namespaced, so a stray key with
+     the prefix is either ours or something pretending to be. */
+  var wipeBtn = document.createElement("button");
+  wipeBtn.className = "danger";
+  wipeBtn.textContent = "WIPE TRACES FROM THIS PC";
+  wipeBtn.style.marginTop = "8px";
+  wipeBtn.addEventListener("click", async function () {
+    wipeBtn.disabled = true;
+    var removed = 0;
+    fkKeys().forEach(function (k) { try { localStorage.removeItem(k); removed++; } catch (e) {} });
+    var dropped = [];
+    try {
+      var names = indexedDB.databases ? (await indexedDB.databases()).map(function (d) { return d.name; }) : [FK_DB];
+      for (var i = 0; i < names.length; i++) {
+        var n = names[i];
+        if (!n) continue;
+        if (n !== FK_DB && n.indexOf("fieldkit") !== 0 && n.indexOf("__fk") !== 0) continue;
+        indexedDB.deleteDatabase(n);
+        dropped.push(n);
+      }
+    } catch (e) { /* reported below by what did not get dropped */ }
+    rec(G, "wipe", "INFO",
+      "removed " + removed + " settings key(s)" +
+      (dropped.length ? " and asked the browser to drop " + dropped.join(", ") : "") +
+      ". Re-run the checks to confirm.");
+    wipeBtn.textContent = "WIPED — RE-RUN TO CONFIRM";
+    finish();
+  });
+  groupEls[G].appendChild(wipeBtn);
+}
+
+/* ============================================================
+   4. THE DRIVE
+
+   Needs a click: the folder picker only opens from a real user
+   gesture. Everything here compares what is on the stick against
+   drive-manifest.json, which `node build.js --deploy` writes.
+   ============================================================ */
+
+/* Names that have no business being on a FieldKit stick.
+   `hard` means this alone is enough to say do not use the drive;
+   everything else is evidence that a PC wrote here, which is worth
+   seeing but is not on its own an attack.
+
+   The split matters. A check that shouts at desktop.ini is a check
+   you learn to click past, and then it is not a check at all. */
+var SUSPICIOUS = [
+  { re: /^autorun\.inf$/i, hard: true,
+    why: "autorun descriptor — the classic USB infection vector" },
+  { re: /\.(exe|scr|com|pif|bat|cmd|vbe|wsf|hta|ps1|msi|jar|cpl|dll)$/i, hard: true,
+    why: "executable dropped on the drive" },
+  { re: /\.lnk$/i, hard: true,
+    why: "shortcut file — used to hide the real folders and run something else instead" },
+  /* A stray .js at the ROOT of the drive is a dropper; the hundreds
+     of .js files under core/ and modules/ are the app itself and are
+     covered by the manifest, so they never reach this list. */
+  { re: /\.(js|jse)$/i, hard: true, rootOnly: true,
+    why: "loose script at the top of the drive — Windows will run this on a double-click" },
+  { re: /^desktop\.ini$/i, why: "folder-appearance file written BY this PC, not by the build" },
+  { re: /^thumbs\.db$/i, why: "Windows thumbnail cache — this PC indexed the drive" },
+  { re: /^\._/, why: "macOS resource fork — a Mac wrote here" },
+  { re: /^~\$/, why: "Office lock file left behind by an editor" }
+];
+
+function suspicionFor(rel) {
+  var base = rel.split("/").pop();
+  var atRoot = rel.indexOf("/") < 0;
+  for (var i = 0; i < SUSPICIOUS.length; i++) {
+    var s = SUSPICIOUS[i];
+    if (s.rootOnly && !atRoot) continue;
+    if (s.re.test(base)) return s;
+  }
+  return null;
+}
+
+/* Folders Windows creates on any removable drive. Present on
+   every stick that has ever been plugged into Windows; flagging
+   them would make the check cry wolf on the first run. */
+var BENIGN_DIRS = /^(System Volume Information|\$RECYCLE\.BIN|RECYCLER|found\.\d+|\.Spotlight-V100|\.Trashes|\.fseventsd)$/i;
+
+async function readManifest(dir) {
+  var fh;
+  try { fh = await dir.getFileHandle("drive-manifest.json"); }
+  catch (e) { return null; }
+  var txt = await (await fh.getFile()).text();
+  return { json: JSON.parse(txt), raw: txt };
+}
+
+/* Depth-first walk of the picked directory, returning every file
+   as `path -> {size, handle}`. Bounded so a wrong folder — someone
+   picks C:\ by mistake — cannot run forever. */
+async function walk(dir, prefix, acc, budget) {
+  for await (var entry of dir.values()) {
+    if (budget.n++ > 20000) return acc;
+    var rel = prefix ? prefix + "/" + entry.name : entry.name;
+    if (entry.kind === "directory") {
+      if (!prefix && BENIGN_DIRS.test(entry.name)) { acc.skipped.push(entry.name); continue; }
+      await walk(entry, rel, acc, budget);
+    } else {
+      var f = await entry.getFile();
+      acc.files[rel] = { size: f.size, file: f };
+    }
+  }
+  return acc;
+}
+
+async function checkDrive() {
+  var G = "THE DRIVE";
+  clearGroup(G);
+
+  if (typeof window.showDirectoryPicker !== "function") {
+    rec(G, "folder access", "WARN",
+      "this browser cannot open a folder picker (showDirectoryPicker is not available), so the drive's " +
+      "contents cannot be verified here. Firefox and Safari do not support it; Chrome and Edge do. " +
+      "Run PREFLIGHT in Chrome or Edge if you want this check.");
+    driveChecked = true;
+    finish();
+    return;
+  }
+
+  var picked = await guard(180000, function () {
+    return window.showDirectoryPicker({ mode: "read" });
+  });
+  if (!picked.v) {
+    rec(G, "folder access", picked.to ? "WARN" : "SKIP",
+      picked.to ? "the picker never came back — it was blocked, or left open"
+                : "cancelled: " + errStr(picked.e));
+    finish();
+    return;
+  }
+  var dir = picked.v;
+  rec(G, "folder access", "PASS", "reading '" + dir.name + "'");
+
+  var man = await guard(15000, function () { return readManifest(dir); });
+  if (!man.v) {
+    rec(G, "drive-manifest.json", "WARN",
+      man.e ? "present but unreadable: " + errStr(man.e)
+            : "not found in this folder. Either you picked a folder other than the FieldKit one, " +
+              "or this drive was written before manifests existed. Re-run `node build.js --deploy` " +
+              "from the SSD to create one — without it, nothing here can tell a modified file from an original.");
+    driveChecked = true;
+    finish();
+    return;
+  }
+
+  var manifest = man.v.json;
+  var expected = manifest.files || {};
+  var expectedCount = Object.keys(expected).length;
+
+  /* The manifest's own fingerprint, recomputed rather than trusted:
+     the value inside the file is what the build claimed, and this is
+     what the file actually is. They agreeing is the point. */
+  var stated = manifest.fingerprint || "";
+  var recomputed = await guard(10000, async function () {
+    var body = { algorithm: manifest.algorithm, version: manifest.version, files: manifest.files };
+    return sha256(new TextEncoder().encode(JSON.stringify(body, null, 1)));
+  });
+  manifestInfo = { stated: stated, actual: recomputed.v || null, version: manifest.version,
+                   generated: manifest.generated };
+
+  if (recomputed.v && stated) {
+    rec(G, "manifest fingerprint", recomputed.v === stated ? "PASS" : "FAIL",
+      recomputed.v === stated
+        ? recomputed.v.slice(0, 16) + "  (build " + (manifest.version || "?") +
+          ", written " + (manifest.generated || "?") + ")"
+        : "the manifest's stated fingerprint does not match its own contents. " +
+          "stated " + stated.slice(0, 16) + ", actual " + recomputed.v.slice(0, 16) +
+          " — the file list has been edited.", true);
+    showFingerprint(recomputed.v, recomputed.v === stated);
+  }
+
+  var scanned = await guard(180000, function () {
+    return walk(dir, "", { files: {}, skipped: [] }, { n: 0 });
+  });
+  if (!scanned.v) {
+    rec(G, "read the drive", "FAIL",
+      scanned.to ? "reading the folder took too long — is this the FieldKit folder, or the whole drive?"
+                 : errStr(scanned.e));
+    driveChecked = true;
+    finish();
+    return;
+  }
+  var onDisk = scanned.v.files;
+  if (scanned.v.skipped.length) {
+    rec(G, "skipped system folders", "INFO", scanned.v.skipped.join(", ") +
+      " — Windows creates these on any removable drive");
+  }
+
+  /* ---- hash every file the manifest knows about ---- */
+  var names = Object.keys(expected).sort();
+  var missing = [], resized = [], changed = [], okCount = 0;
+
+  for (var i = 0; i < names.length; i++) {
+    var rel = names[i];
+    var here = onDisk[rel];
+    if (!here) { missing.push(rel); continue; }
+    if (here.size !== expected[rel].size) {
+      resized.push(rel + " (" + expected[rel].size + " -> " + here.size + ")");
+      continue;
+    }
+    var got = await guard(30000, async function () {
+      return sha256(await here.file.arrayBuffer());
+    });
+    if (!got.v) { changed.push(rel + " (could not be read: " + (got.to ? "timeout" : errStr(got.e)) + ")"); continue; }
+    if (got.v !== expected[rel].sha256) changed.push(rel);
+    else okCount++;
+  }
+
+  rec(G, "files verified byte for byte", changed.length || resized.length ? "FAIL" : "PASS",
+    okCount + " of " + expectedCount + " files match the manifest exactly" +
+    (changed.length ? "\nCONTENT CHANGED: " + changed.join(", ") : "") +
+    (resized.length ? "\nSIZE CHANGED: " + resized.join(", ") : "") +
+    (changed.length || resized.length
+      ? "\nSomething has written to this drive since it was built. Do not run FieldKit from it. " +
+        "Re-deploy from the SSD and treat this machine as suspect."
+      : ""),
+    true);
+
+  if (missing.length) {
+    rec(G, "files missing from the drive", "FAIL",
+      missing.join(", ") + " — the drive is incomplete. FieldKit will not boot properly. " +
+      "Re-run `node build.js --deploy` from the SSD.", true);
+  }
+
+  /* ---- anything on the drive the manifest does not know about ---- */
+  var extras = Object.keys(onDisk).filter(function (rel) { return !expected[rel]; }).sort();
+  var hard = [], soft = [], quiet = [];
+  extras.forEach(function (rel) {
+    var hit = suspicionFor(rel);
+    if (!hit) quiet.push(rel);
+    else if (hit.hard) hard.push(rel + "  [" + hit.why + "]");
+    else soft.push(rel + "  [" + hit.why + "]");
+  });
+
+  if (hard.length) {
+    rec(G, "files that should not be here", "FAIL",
+      hard.join("\n") +
+      "\nThis is what a machine writing to your drive looks like. Do not open FieldKit from this stick. " +
+      "Scan it from a machine you trust, then re-deploy from the SSD.", true);
+  } else {
+    rec(G, "files that should not be here", "PASS",
+      "no autorun files, executables, or shortcut droppers on the drive");
+  }
+
+  if (soft.length) {
+    rec(G, "files a PC left behind", "WARN",
+      soft.join("\n") +
+      "\nNot dangerous in themselves — but they are proof that a machine wrote to this drive, " +
+      "so anything else it wrote would be from the same visit.");
+  }
+
+  if (quiet.length) {
+    rec(G, "extra files (nothing suspicious about them)", "INFO",
+      quiet.length + ": " + quiet.slice(0, 25).join(", ") + (quiet.length > 25 ? " ..." : "") +
+      "  — not in the manifest, but nothing about them says malware. Your own exports live here.");
+  }
+
+  driveChecked = true;
+  finish();
+}
+
+function showFingerprint(fp, consistent) {
+  var box = document.getElementById("fpBox");
+  box.style.display = "block";
+  document.getElementById("fpVal").textContent = fp.slice(0, 16).replace(/(.{4})/g, "$1 ").trim();
+  document.getElementById("fpNote").textContent = consistent
+    ? "Compare this against the value `node build.js --deploy` printed when you made the drive. " +
+      "Keep that value somewhere that is NOT the drive — a note on your phone is fine. " +
+      "If it ever differs, the drive was rebuilt or rewritten."
+    : "This drive's manifest does not match its own contents. Do not trust it.";
+}
+
+/* ============================================================
+   5. THE RELAY
+   ============================================================ */
+async function checkRelay() {
+  var G = "THE RELAY";
+  clearGroup(G);
+
+  var base = document.getElementById("relayUrl").value.trim();
+  if (!base) {
+    rec(G, "relay", "SKIP", "no URL given");
+    relayChecked = true;
+    finish();
+    return;
+  }
+  if (!/^https?:\/\//i.test(base)) base = "https://" + base;
+  base = base.replace(/\/+$/, "");
+
+  rec(G, "target", "INFO", base);
+  if (/^http:\/\//i.test(base)) {
+    rec(G, "transport", "WARN",
+      "plain http. The vault's contents stay encrypted either way, but your auth token travels in clear " +
+      "and anyone on this network can replay it. Put the relay behind https before using it from a machine " +
+      "you do not control.");
+  } else {
+    rec(G, "transport", "PASS", "https");
+  }
+
+  var t0 = Date.now();
+  var h = await guard(12000, async function () {
+    var ac = new AbortController();
+    var timer = setTimeout(function () { ac.abort(); }, 10000);
+    try {
+      var res = await fetch(base + "/health", { cache: "no-store", mode: "cors", signal: ac.signal });
+      var txt = await res.text();
+      var hdrDate = res.headers.get("date");
+      var body = null;
+      try { body = JSON.parse(txt); } catch (e) { /* reported as "not JSON" below */ }
+      return { status: res.status, body: body, raw: txt.slice(0, 200), date: hdrDate };
+    } finally { clearTimeout(timer); }
+  });
+  var ms = Date.now() - t0;
+
+  if (!h.v) {
+    rec(G, "GET /health", "FAIL",
+      (h.to ? "no answer in 10s" : errStr(h.e)) +
+      " — either the relay is down, this network blocks it, or the URL is wrong. " +
+      "FieldKit will still open and work offline; it just will not sync.");
+    relayChecked = true;
+    finish();
+    return;
+  }
+
+  if (h.v.status !== 200) {
+    rec(G, "GET /health", "FAIL",
+      "answered " + h.v.status + " in " + ms + " ms: " + h.v.raw +
+      "  — something is listening on this URL, but it is not answering as the relay. " +
+      "If you expected a tunnel here, the tunnel is pointed somewhere else.", true);
+    relayChecked = true;
+    finish();
+    return;
+  }
+
+  var b = h.v.body;
+  if (!b || b.service !== "fieldkit-relay") {
+    rec(G, "is this actually the relay", "FAIL",
+      "answered 200 but did not identify as fieldkit-relay: " + h.v.raw +
+      "  — do not point FieldKit at this. Something else owns this hostname.", true);
+    relayChecked = true;
+    finish();
+    return;
+  }
+
+  rec(G, "is this actually the relay", "PASS",
+    "fieldkit-relay v" + b.version + ", answered in " + ms + " ms");
+  rec(G, "vault on the relay", b.vaultProvisioned ? "PASS" : "WARN",
+    b.vaultProvisioned
+      ? "a vault is provisioned — FieldKit can unlock against it"
+      : "the relay is up but holds no vault. First boot on a new relay looks like this: open RELAY LINK " +
+        "inside FieldKit and press PROVISION.");
+  rec(G, "features", "INFO", (b.features || []).join(", ") || "none reported");
+
+  /* Clock skew breaks TLS and makes every timestamp in the vault
+     lie about when work happened. The relay's own clock is the only
+     second opinion available from here. */
+  var theirs = b.time ? Date.parse(b.time) : (h.v.date ? Date.parse(h.v.date) : NaN);
+  if (!isNaN(theirs)) {
+    /* Half the round trip is the fairest correction available
+       without a proper time protocol. */
+    var skew = Math.round((Date.now() - (theirs + ms / 2)) / 1000);
+    var mag = Math.abs(skew);
+    rec(G, "clock agreement", mag > 300 ? "FAIL" : (mag > 60 ? "WARN" : "PASS"),
+      "this machine is " + (skew >= 0 ? skew + "s ahead of" : mag + "s behind") + " the relay" +
+      (mag > 300
+        ? " — five minutes out is enough to break TLS and to date your work wrongly. Fix this machine's clock."
+        : mag > 60 ? " — worth fixing, but nothing will break yet." : ""),
+      mag > 300);
+  }
+
+  /* GET /vault is unauthenticated by design (it returns only the
+     wrapped header), so this is safe to probe and tells you the
+     relay is serving the thing FieldKit will ask for. */
+  var v = await guard(12000, async function () {
+    var res = await fetch(base + "/vault", { cache: "no-store", mode: "cors" });
+    return { status: res.status, len: (await res.text()).length };
+  });
+  if (v.v) {
+    rec(G, "GET /vault", v.v.status === 200 || v.v.status === 404 ? "PASS" : "WARN",
+      v.v.status === 200 ? "serving a wrapped vault header, " + v.v.len + " bytes (ciphertext — the relay " +
+                           "cannot read it and neither can anyone who fetches it)"
+        : v.v.status === 404 ? "no vault yet, which matches /health"
+        : "answered " + v.v.status);
+  } else {
+    rec(G, "GET /vault", "WARN", v.to ? "timed out" : errStr(v.e));
+  }
+
+  relayChecked = true;
+  finish();
+}
+
+/* ============================================================
+   6. CAN FIELDKIT EVEN RUN HERE
+   The old capability probe, kept because a machine that passes
+   every safety check and still cannot run the app is a thing you
+   want to find out now rather than after unlocking.
+   ============================================================ */
+async function checkCapability() {
+  var G = "CAN FIELDKIT EVEN RUN HERE";
+
+  var r = await guard(3000, function () {
+    localStorage.setItem("__fk_pf", "1");
+    var v = localStorage.getItem("__fk_pf");
+    localStorage.removeItem("__fk_pf");
+    if (v !== "1") throw new Error("wrote but read back the wrong value");
+    return true;
+  });
+  rec(G, "localStorage", r.v ? "PASS" : "FAIL",
+    r.v ? "read/write works (probe key removed)" : (r.to ? "timed out" : errStr(r.e)) +
+      " — settings will not persist, but the vault does not live here so nothing is lost");
+
+  r = await guard(8000, function () {
+    if (!window.indexedDB) throw new Error("indexedDB is undefined");
+    return new Promise(function (res, rej) {
+      var req;
+      try { req = indexedDB.open("__fk_pf", 1); } catch (e) { rej(e); return; }
+      req.onupgradeneeded = function () { req.result.createObjectStore("s"); };
+      req.onerror = function () { rej(req.error || new Error("open failed")); };
+      req.onblocked = function () { rej(new Error("open blocked")); };
+      req.onsuccess = function () {
+        var db = req.result;
+        try {
+          var tx = db.transaction("s", "readwrite");
+          tx.objectStore("s").put({ t: 1 }, "k");
+          tx.oncomplete = function () { db.close(); indexedDB.deleteDatabase("__fk_pf"); res(true); };
+          tx.onerror = function () { rej(tx.error || new Error("transaction failed")); };
+        } catch (e) { rej(e); }
+      };
+    });
+  });
+  rec(G, "IndexedDB", r.v ? "PASS" : "WARN",
+    r.v ? "open, write and delete all work — the offline queue has somewhere to live"
+        : (r.to ? "timed out" : errStr(r.e)) + " — offline writes cannot be queued on this machine");
+
+  if (!(window.crypto && crypto.subtle)) {
+    rec(G, "PBKDF2 unlock cost", "SKIP", "no crypto.subtle here");
+    rec(G, "AES-GCM roundtrip", "SKIP", "no crypto.subtle here");
+  } else {
+    var key = null;
+    r = await guard(30000, async function () {
+      var enc = new TextEncoder();
+      var base = await crypto.subtle.importKey("raw", enc.encode("preflight probe passphrase"),
+        "PBKDF2", false, ["deriveKey"]);
+      var t0 = performance.now();
+      key = await crypto.subtle.deriveKey(
+        { name: "PBKDF2", salt: enc.encode("fieldkit-preflight"), iterations: 600000, hash: "SHA-256" },
+        base, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
+      return Math.round(performance.now() - t0);
+    });
+    rec(G, "PBKDF2 unlock cost", r.v !== undefined ? (r.v > 6000 ? "WARN" : "PASS") : "FAIL",
+      r.v !== undefined
+        ? "600k iterations in " + r.v + " ms — that is roughly how long unlocking will take on this machine" +
+          (r.v > 6000 ? ". Slow, but it will work; be patient at the lock screen." : "")
+        : (r.to ? "timed out past 30s — this machine is too slow for the vault's iteration count" : errStr(r.e)));
+
+    if (key) {
+      r = await guard(8000, async function () {
+        var enc = new TextEncoder(), dec = new TextDecoder();
+        var iv = crypto.getRandomValues(new Uint8Array(12));
+        var ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv: iv }, key, enc.encode("fieldkit payload"));
+        var pt = dec.decode(await crypto.subtle.decrypt({ name: "AES-GCM", iv: iv }, key, ct));
+        if (pt !== "fieldkit payload") throw new Error("roundtrip mismatch");
+        return ct.byteLength;
+      });
+      rec(G, "AES-GCM roundtrip", r.v ? "PASS" : "FAIL",
+        r.v ? "encrypt and decrypt verified" : (r.to ? "timed out" : errStr(r.e)), !!r.e);
+    }
+  }
+
+  /* The real thing rather than a stand-in probe file: if core/kernel.js
+     will not load from here, FieldKit will not start. */
+  r = await guard(8000, function () {
+    return new Promise(function (res, rej) {
+      var s = document.createElement("script");
+      s.src = "core/kernel.js";
+      s.onload = function () { res(true); };
+      s.onerror = function () { rej(new Error("blocked, or not next to this file")); };
+      document.head.appendChild(s);
+    });
+  });
+  rec(G, "loading core/kernel.js", r.v ? "PASS" : "FAIL",
+    r.v ? "separate script files load from this location — FieldKit.html will boot"
+        : (r.to ? "timed out" : errStr(r.e)) +
+          " — if this fails on a machine you trust, open FIELDKIT-STANDALONE.html instead; " +
+          "it carries every module inside one file.");
+
+  r = await guard(5000, function () {
+    if (!window.WebAssembly) throw new Error("WebAssembly is undefined");
+    return WebAssembly.compile(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0])).then(function () { return true; });
+  });
+  rec(G, "WebAssembly", r.v ? "PASS" : "WARN",
+    r.v ? "available" : (r.to ? "timed out" : errStr(r.e)));
+
+  r = await guard(8000, async function () {
+    if (!navigator.gpu) throw new Error("navigator.gpu is undefined");
+    if (!(await navigator.gpu.requestAdapter())) throw new Error("no adapter");
+    return true;
+  });
+  rec(G, "WebGPU (in-browser model)", r.v ? "PASS" : "INFO",
+    r.v ? "an adapter is available — the in-browser model can run here"
+        : (r.to ? "timed out" : errStr(r.e)) + " — the in-browser model will not run here. " +
+          "Nothing else is affected.");
+
+  var c = document.createElement("canvas");
+  var gl = null;
+  try { gl = c.getContext("webgl2") || c.getContext("webgl"); } catch (e) {}
+  rec(G, "WebGL", gl ? "PASS" : "WARN",
+    gl ? "available" : "unavailable — turn the ambient effects off in settings");
+}
+
+/* ============================================================
+   verdict and report
+   ============================================================ */
+function counts() {
+  var c = { PASS: 0, FAIL: 0, WARN: 0, INFO: 0, SKIP: 0 };
+  results.forEach(function (r) { if (c[r.status] !== undefined) c[r.status]++; });
+  return c;
+}
+
+function setVerdict() {
+  var box = document.getElementById("verdict");
+  var big = document.getElementById("verdictBig");
+  var why = document.getElementById("verdictWhy");
+  var ackBox = document.getElementById("ackBox");
+  var ackChk = document.getElementById("ackChk");
+  var ackText = document.getElementById("ackText");
+  var launch = document.getElementById("btnLaunch");
+  var note = document.getElementById("launchNote");
+
+  box.className = "verdict";
+  var blockers = results.filter(function (r) { return r.block; });
+  var warns = results.filter(function (r) { return r.status === "WARN"; });
+  var fails = results.filter(function (r) { return r.status === "FAIL"; });
+
+  if (!ranAuto) {
+    box.classList.add("v-idle");
+    big.textContent = "NOT YET CHECKED";
+    ackBox.style.display = "none";
+    launch.disabled = true;
+    note.textContent = "Unlocked once the checks come back clear.";
+    return;
+  }
+
+  /* The two checks that need a click are also the two that matter
+     most, so an unrun one is never allowed to read as a pass. */
+  var unrun = [];
+  if (!driveChecked) unrun.push("the drive has not been verified");
+  if (!relayChecked) unrun.push("the relay has not been checked");
+
+  if (blockers.length) {
+    box.classList.add("v-stop");
+    big.textContent = "DO NOT UNLOCK THE VAULT HERE";
+    why.textContent =
+      blockers.map(function (r) { return "\u2022 " + r.name + " \u2014 " + r.detail.split("\n")[0]; }).join("\n") +
+      "\n\nUse a different machine. If this is the only machine you have, work in a guest session — " +
+      "FieldKit's guest mode never asks for the passphrase and never touches the vault.";
+    ackBox.style.display = "none";
+    ackChk.checked = false;
+    launch.disabled = true;
+    note.textContent = "Blocked. Open FieldKit only in guest mode, or not at all.";
+    return;
+  }
+
+  if (warns.length || fails.length || unrun.length) {
+    box.classList.add("v-caution");
+    big.textContent = "PROCEED WITH CAUTION";
+    var lines = [];
+    if (unrun.length) lines.push(unrun.join("; ") + " \u2014 run them before deciding.");
+    warns.concat(fails).slice(0, 8).forEach(function (r) {
+      lines.push("\u2022 " + r.name + " \u2014 " + r.detail.split("\n")[0].slice(0, 150));
+    });
+    if (warns.length + fails.length > 8) lines.push("...and " + (warns.length + fails.length - 8) + " more below.");
+    why.textContent = lines.join("\n");
+
+    ackBox.style.display = "flex";
+    ackText.textContent = "I have read the findings above and I am choosing to unlock the vault on this machine anyway.";
+    launch.disabled = !ackChk.checked;
+    note.textContent = ackChk.checked ? "Your call." : "Tick the box if you still want to proceed.";
+    return;
+  }
+
+  box.classList.add("v-clear");
+  big.textContent = "CLEAR TO PROCEED";
+  why.textContent =
+    "Nothing on this machine, this drive, or this relay looks wrong. " +
+    "Remember what this page cannot see, listed above — a clean result is not a promise, it is the absence " +
+    "of the specific problems it knows how to look for.";
+  ackBox.style.display = "none";
+  launch.disabled = false;
+  note.textContent = "";
+}
+
+function buildReport() {
+  var c = counts();
+  var lines = [];
+  lines.push("FIELDKIT PREFLIGHT REPORT");
+  lines.push("generated: " + new Date().toString());
+  lines.push("location:  " + shortUrl(location.href));
+  lines.push("browser:   " + navigator.userAgent);
+  if (manifestInfo && manifestInfo.actual) {
+    lines.push("drive:     build " + (manifestInfo.version || "?") +
+      ", fingerprint " + manifestInfo.actual.slice(0, 16));
+  }
+  lines.push("verdict:   " + document.getElementById("verdictBig").textContent);
+  lines.push("tally:     PASS " + c.PASS + " / FAIL " + c.FAIL + " / WARN " + c.WARN +
+    " / INFO " + c.INFO + " / SKIP " + c.SKIP);
+  lines.push("");
+  GROUPS.forEach(function (g) {
+    var rows = results.filter(function (r) { return r.group === g; });
+    if (!rows.length) return;
+    lines.push("=== " + g + " ===");
+    rows.forEach(function (r) {
+      lines.push("[" + r.status + "]" + (r.block ? " [BLOCKING]" : "") + " " + r.name +
+        (r.detail ? " -- " + r.detail.replace(/\n/g, "\n           ") : ""));
+    });
+    lines.push("");
+  });
+  return lines.join("\n");
+}
+
+function finish() {
+  var c = counts();
+  Object.keys(c).forEach(function (k) { document.getElementById("c" + k).textContent = c[k]; });
+  document.getElementById("tally").style.display = "block";
+
+  GROUPS.forEach(function (g) {
+    var rows = results.filter(function (r) { return r.group === g; });
+    var bad = rows.filter(function (r) { return r.status === "FAIL"; }).length;
+    var warn = rows.filter(function (r) { return r.status === "WARN"; }).length;
+    var n = groupEls[g].querySelector(".n");
+    if (n) n.textContent = rows.length ? (bad ? bad + " FAIL " : "") + (warn ? warn + " WARN" : "") ||
+      rows.length + " ok" : "";
+  });
+
+  setVerdict();
+  document.getElementById("report").value = buildReport();
+  document.getElementById("btnCopy").disabled = false;
+  document.getElementById("btnSave").disabled = false;
+}
+
+/* ============================================================
+   wiring
+   ============================================================ */
+document.getElementById("btnRun").addEventListener("click", async function () {
+  var b = this;
+  b.disabled = true; b.textContent = "RUNNING...";
+  ["THIS MACHINE", "BROWSER INTEGRITY", "TRACES LEFT ON THIS PC", "CAN FIELDKIT EVEN RUN HERE"]
+    .forEach(clearGroup);
+  try {
+    await checkMachine();
+    await checkIntegrity();
+    await checkResidue();
+    await checkCapability();
+  } catch (e) {
+    rec("THIS MACHINE", "preflight crashed", "FAIL",
+      errStr(e) + " — this page could not finish checking. Treat that as a caution, not a clearance.", true);
+  }
+  ranAuto = true;
+  finish();
+  b.textContent = "RE-RUN CHECKS"; b.disabled = false;
+  document.getElementById("btnDrive").disabled = false;
+  document.getElementById("btnRelay").disabled = false;
+});
+
+document.getElementById("btnDrive").addEventListener("click", async function () {
+  var b = this;
+  b.disabled = true; b.textContent = "PICK THE FIELDKIT FOLDER...";
+  try { await checkDrive(); }
+  catch (e) { rec("THE DRIVE", "drive check crashed", "FAIL", errStr(e), true); finish(); }
+  b.textContent = "RE-CHECK THIS DRIVE"; b.disabled = false;
+});
+
+document.getElementById("btnRelay").addEventListener("click", async function () {
+  var b = this;
+  b.disabled = true; b.textContent = "PROBING...";
+  try { await checkRelay(); }
+  catch (e) { rec("THE RELAY", "relay check crashed", "FAIL", errStr(e)); finish(); }
+  b.textContent = "RE-CHECK RELAY"; b.disabled = false;
+});
+
+document.getElementById("ackChk").addEventListener("change", setVerdict);
+
+document.getElementById("btnLaunch").addEventListener("click", function () {
+  location.href = "FIELDKIT.html";
+});
+
+document.getElementById("btnCopy").addEventListener("click", async function () {
+  var ta = document.getElementById("report"), b = this;
+  try {
+    await navigator.clipboard.writeText(ta.value);
+    b.textContent = "COPIED";
+  } catch (e) {
+    ta.focus(); ta.select();
+    try { document.execCommand("copy"); b.textContent = "COPIED (LEGACY)"; }
+    catch (e2) { b.textContent = "COPY BLOCKED — SELECT MANUALLY"; }
+  }
+  setTimeout(function () { b.textContent = "COPY REPORT"; }, 2500);
+});
+
+document.getElementById("btnSave").addEventListener("click", function () {
+  var blob = new Blob([document.getElementById("report").value], { type: "text/plain" });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement("a");
+  a.href = url;
+  a.download = "fieldkit-preflight.txt";
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+});
+</script>
+</body>
+</html>

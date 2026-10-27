@@ -1,0 +1,41 @@
+# cloudflared config — copy to cloudflared.yml and fill in.
+# See CONNECTIVITY.md for the full walkthrough.
+#
+# What this does: makes an OUTBOUND connection from this container to
+# Cloudflare, and serves the relay at a real hostname on port 443 with
+# a valid certificate. No inbound port forward is needed, which means
+# the relay's own port can go back to loopback only.
+
+# Both of these come from `cloudflared tunnel create fieldkit-relay`.
+tunnel: PASTE-THE-TUNNEL-UUID-HERE
+credentials-file: /home/container/.cloudflared/PASTE-THE-TUNNEL-UUID-HERE.json
+
+# Keep the connection alive through a network that idles it out.
+# Four edge connections is the default and is right for one service.
+protocol: quic
+retries: 5
+grace-period: 30s
+
+# Log to the container so Pterodactyl's console shows connection
+# problems instead of swallowing them.
+loglevel: info
+
+ingress:
+  # The hostname you routed with:
+  #   cloudflared tunnel route dns fieldkit-relay relay.yourdomain.com
+  - hostname: relay.yourdomain.com
+    # Where the relay is actually listening. Once the tunnel is doing
+    # the listening, set "host": "127.0.0.1" in the relay's config.json
+    # so nothing but the tunnel can reach it.
+    service: http://127.0.0.1:8080
+    originRequest:
+      # The relay streams AI responses, which can take a long time on
+      # a slow local model. The default 30s cuts those off mid-answer.
+      connectTimeout: 10s
+      # aiTimeoutMs in config.json is 120000, so leave headroom.
+      # noTLSVerify is NOT needed: this hop is plain HTTP on loopback.
+      httpHostHeader: relay.yourdomain.com
+
+  # Required last rule: anything not matched above gets a 404 rather
+  # than being forwarded somewhere unintended.
+  - service: http_status:404

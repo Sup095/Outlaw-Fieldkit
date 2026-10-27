@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>FIELDKIT // OUTPOST</title>
+<style>
+/* Boot-screen styling only. Everything past the splash comes from
+   core/ui.js — this has to stand alone before any script loads. */
+:root{
+  --bg:#0a0c0b; --bg2:#0f1211; --line:#232b26; --line2:#2e3831;
+  --fg:#c2cdc4; --fg-dim:#7c8a80; --fg-dimmer:#4d584f;
+  --accent:#e0a63c; --accent-dim:#8a6520; --accent-glow:224,166,60;
+  --pass:#4fbf6a; --fail:#e0503c; --warn:#e0a63c; --info:#4a9ad4;
+  --mono:ui-monospace,"Cascadia Mono","Consolas","DejaVu Sans Mono",monospace;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);
+  font-family:var(--mono);font-size:13px;line-height:1.5;overflow:hidden}
+#fk-root{position:fixed;inset:0}
+
+/* ---- media gate ----------------------------------------------
+   A user gesture is required before file pickers and clipboard
+   will work, so the constraint becomes the POST prompt. */
+#fk-gate{position:fixed;inset:0;z-index:10000;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:22px;background:var(--bg);cursor:pointer}
+#fk-gate .logo{color:var(--accent);font-size:11px;line-height:1.25;white-space:pre;
+  text-shadow:0 0 14px rgba(var(--accent-glow),.35)}
+#fk-gate .tag{color:var(--fg-dimmer);letter-spacing:.42em;font-size:10px}
+#fk-gate .press{color:var(--fg-dim);letter-spacing:.3em;font-size:11px;animation:blink 1.15s steps(2) infinite}
+#fk-gate .hint{position:absolute;bottom:20px;color:var(--fg-dimmer);font-size:10px;letter-spacing:.14em}
+@keyframes blink{0%,49%{opacity:1}50%,100%{opacity:.15}}
+
+/* ---- boot console --------------------------------------------- */
+#fk-boot{position:absolute;inset:0;overflow:hidden;display:flex;flex-direction:column;
+  padding:22px 20px;transition:opacity .34s ease}
+#fk-boot.fade{opacity:0}
+#fk-boot-brand{margin:0 0 14px;color:var(--accent);font-size:10px;line-height:1.2;
+  white-space:pre;flex:none;text-shadow:0 0 12px rgba(var(--accent-glow),.3)}
+#fk-boot-console{flex:1;overflow:auto;min-height:0;max-width:760px}
+.boot-line{white-space:pre-wrap;word-break:break-word;color:var(--fg-dim);min-height:1.5em}
+.boot-line.lvl-accent{color:var(--accent);letter-spacing:.14em}
+.boot-line.lvl-pass{color:var(--pass)} .boot-line.lvl-fail{color:var(--fail)}
+.boot-line.lvl-warn{color:var(--warn)} .boot-line.lvl-dim{color:var(--fg-dimmer)}
+.boot-label{color:var(--fg-dim);letter-spacing:.1em;font-size:11px;white-space:nowrap}
+.boot-dots{flex:1;border-bottom:1px dotted var(--line2);transform:translateY(-4px);margin:0 8px}
+.boot-value{font-size:11px;white-space:nowrap}
+.boot-line:has(.boot-dots){display:flex;align-items:baseline}
+
+/* ---- connection hops (§10: each leg visually distinct) ---- */
+.hop{display:flex;align-items:center;gap:9px;padding:5px 9px;margin:3px 0;
+  border:1px solid var(--line);background:#0c100e;font-size:11px;flex-wrap:wrap}
+.hop-n{color:var(--fg-dimmer);font-size:9px;letter-spacing:.2em;flex:none;width:42px}
+.hop-glyph{flex:none;color:var(--fg-dimmer)}
+.hop-path{flex:1;min-width:180px;letter-spacing:.08em;color:var(--fg-dim)}
+.hop-arrow{color:var(--fg-dimmer)}
+.hop-state{flex:none;font-size:10px;letter-spacing:.16em;color:var(--fg-dim)}
+.hop-detail{flex:none;font-size:9px;color:var(--fg-dimmer);max-width:100%;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hop.probing{border-color:var(--accent-dim)}
+.hop.probing .hop-glyph,.hop.probing .hop-state{color:var(--accent);animation:hop-pulse .8s ease-in-out infinite}
+.hop.probing .hop-arrow{animation:hop-pulse .8s ease-in-out infinite}
+.hop.pass{border-color:rgba(79,191,106,.4)}
+.hop.pass .hop-glyph,.hop.pass .hop-state{color:var(--pass)}
+.hop.pass .hop-to{color:var(--fg)}
+.hop.warn{border-color:rgba(224,166,60,.4)}
+.hop.warn .hop-glyph,.hop.warn .hop-state{color:var(--warn)}
+.hop.fail{border-color:rgba(224,80,60,.45)}
+.hop.fail .hop-glyph,.hop.fail .hop-state{color:var(--fail)}
+.hop.fail .hop-arrow{color:var(--fail)}
+.hop.dim{opacity:.55}
+@keyframes hop-pulse{0%,100%{opacity:1}50%{opacity:.35}}
+.lvl-pass{color:var(--pass)} .lvl-fail{color:var(--fail)} .lvl-warn{color:var(--warn)}
+.lvl-info{color:var(--info)} .lvl-dim{color:var(--fg-dimmer)}
+
+/* ---- vault gate ----------------------------------------------- */
+#fk-boot-prompt{display:none;flex:none;margin-top:16px;max-width:520px}
+.gate{border:1px solid var(--accent-dim);background:var(--bg2);padding:16px 18px}
+.gate-title{color:var(--accent);letter-spacing:.24em;font-size:11px;margin-bottom:10px}
+.gate-note{color:var(--fg-dimmer);font-size:11px;margin:0 0 14px;line-height:1.55}
+.gate-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:4px}
+.boot-msg{min-height:1.4em;font-size:11px;letter-spacing:.08em;margin:6px 0}
+.recovery-key{border:1px solid var(--accent);background:#0b0e0c;color:var(--accent);
+  padding:14px;font-size:15px;letter-spacing:.16em;text-align:center;margin-bottom:14px;
+  word-break:break-all;user-select:all}
+
+/* Minimal control styling so the gate works before ui.js lands. */
+.fk-btn{background:#161b18;border:1px solid var(--line2);color:var(--fg);padding:7px 14px;
+  letter-spacing:.12em;font-size:11px;cursor:pointer;font-family:var(--mono)}
+.fk-btn:hover{border-color:var(--accent);color:var(--accent)}
+.fk-btn-primary{border-color:var(--accent-dim);color:var(--accent)}
+.fk-field{display:block;margin-bottom:12px}
+.fk-field-label{display:block;font-size:10px;letter-spacing:.2em;color:var(--fg-dim);margin-bottom:5px}
+.fk-input{width:100%;background:#0b0e0c;border:1px solid var(--line2);color:var(--fg);
+  padding:9px 10px;font-family:var(--mono);font-size:13px}
+.fk-input:focus{outline:none;border-color:var(--accent)}
+
+#fk-fatal{max-width:660px;margin-top:18px;border:1px solid var(--fail);padding:14px;color:var(--fail)}
+#fk-fatal code{color:var(--fg);word-break:break-all}
+@media (prefers-reduced-motion: reduce){
+  #fk-gate .press{animation:none}
+  #fk-boot{transition:none}
+  .hop.probing .hop-glyph,.hop.probing .hop-state,.hop.probing .hop-arrow{animation:none}
+}
+</style>
+</head>
+<body>
+
+<div id="fk-root">
+  <div id="fk-boot">
+<pre id="fk-boot-brand">
+ ███████╗██╗███████╗██╗     ██████╗ ██╗  ██╗██╗████████╗
+ ██╔════╝██║██╔════╝██║     ██╔══██╗██║ ██╔╝██║╚══██╔══╝
+ █████╗  ██║█████╗  ██║     ██║  ██║█████╔╝ ██║   ██║
+ ██╔══╝  ██║██╔══╝  ██║     ██║  ██║██╔═██╗ ██║   ██║
+ ██║     ██║███████╗███████╗██████╔╝██║  ██╗██║   ██║
+ ╚═╝     ╚═╝╚══════╝╚══════╝╚═════╝ ╚═╝  ╚═╝╚═╝   ╚═╝
+</pre>
+    <div id="fk-boot-console"></div>
+    <div id="fk-boot-prompt"></div>
+  </div>
+</div>
+
+<div id="fk-gate">
+  <div class="logo">┌─────────────────────────────┐
+│   O U T P O S T             │
+│   fieldkit, without the     │
+│   parts that are not yours  │
+└─────────────────────────────┘</div>
+  <div class="tag">OUTLAW SYSTEMS</div>
+  <div class="press">PRESS ANY KEY TO INITIALISE</div>
+  <div class="hint">no vault on this build — nothing here can reach anyone’s private notes</div>
+</div>
+
+<script>
+/* ============================================================
+   Launcher. Classic scripts only — ES modules are CORS-blocked
+   from file://, classic ones are not. See FIELDKIT_PROJECT.md §1.
+   Load order is dependency order and is not negotiable.
+   ============================================================ */
+window.FK_BOOT_MANIFEST = [
+  "core/kernel.js",
+  "core/settings.js",
+  "core/drive-profile.js",
+  "core/ui.js",
+  "core/msg-crypto.js",
+  "core/store-outpost.js",
+  "core/health.js",
+  "core/qr.js",
+  "core/selftest.js",
+  "core/shell.js",
+  "core/command-palette.js",
+  "core/ambient-fx.js",
+  "core/sound-fx.js",
+  "core/easter-eggs.js",
+  "core/boot-outpost.js",
+  "modules/qr-gen.js",
+  "modules/guestbook.js",
+  "modules/game-math.js",
+  "modules/code-diff.js",
+  "modules/help.js",
+  "modules/messages.js",
+  "modules/browser.js",
+  "modules/runner.js",
+  "modules/selftest-panel.js",
+  "modules/settings-outpost.js"
+];
+
+/* Loaded after the manifest, and allowed to be absent.
+   Everything here is a third-party bundle that is built rather
+   than written — too large for the repo to carry casually, and
+   produced by a tool that needs npm. The distinction matters at
+   boot: a missing entry in FK_BOOT_MANIFEST is a fatal fault
+   (the drive is damaged or the machine is blocking scripts),
+   while a missing entry here is the normal state.
+
+   vendor/web-llm.js is built by tools/build-webllm.js. Until it
+   exists, AI LOCAL reports no engine and tier 2 stays empty —
+   which is exactly what should happen. */
+window.FK_OPTIONAL_MANIFEST = [
+  /* Written by SETTINGS -> SAVE TO DRIVE. Absent on a fresh
+     drive, which is the normal state. */
+  "config/drive-profile.js"
+];
+
+(function () {
+  "use strict";
+  var gate = document.getElementById("fk-gate");
+  var consoleEl = document.getElementById("fk-boot-console");
+  var started = false;
+
+  function say(text, cls) {
+    var d = document.createElement("div");
+    d.className = "boot-line" + (cls ? " lvl-" + cls : "");
+    d.textContent = text;
+    consoleEl.appendChild(d);
+  }
+
+  function fatal(title, detail) {
+    var box = document.createElement("div");
+    box.id = "fk-fatal";
+    var h = document.createElement("div");
+    h.textContent = title;
+    var p = document.createElement("p");
+    p.style.color = "var(--fg-dim)";
+    p.style.margin = "10px 0 0";
+    p.textContent = detail;
+    var p2 = document.createElement("p");
+    p2.style.color = "var(--fg-dimmer)";
+    p2.style.margin = "10px 0 0";
+    p2.textContent = "If separate script files are blocked here, use the bundled build " +
+                     "(OUTPOST-STANDALONE.html) which has everything inline.";
+    box.appendChild(h); box.appendChild(p); box.appendChild(p2);
+    consoleEl.appendChild(box);
+  }
+
+  function loadOne(src) {
+    return new Promise(function (resolve, reject) {
+      var s = document.createElement("script");
+      s.src = src;
+      s.async = false;
+      s.onload = function () { resolve(src); };
+      s.onerror = function () { reject(new Error(src)); };
+      document.head.appendChild(s);
+    });
+  }
+
+  async function start() {
+    if (started) return;
+    started = true;
+    gate.style.display = "none";
+
+    /* If the build script has already inlined everything, skip
+       straight to boot. */
+    if (window.FK_INLINED) {
+      window.FieldKit.need("boot").start();
+      return;
+    }
+
+    say("LOADING CORE MODULES", "accent");
+    var list = window.FK_BOOT_MANIFEST;
+    for (var i = 0; i < list.length; i++) {
+      try {
+        await loadOne(list[i]);
+      } catch (e) {
+        say("FAILED: " + list[i], "fail");
+        fatal("MODULE LOAD FAILURE",
+          "Could not load " + list[i] + ". This machine is blocking separate script " +
+          "files from local media, or the file is missing from the drive.");
+        return;
+      }
+    }
+
+    /* Optional bundles. A failure here is expected and silent —
+       these are absent on a normal drive, and the module that
+       wants each one reports its own absence far better than a
+       boot line could. */
+    var optional = window.FK_OPTIONAL_MANIFEST || [];
+    for (var j = 0; j < optional.length; j++) {
+      try {
+        await loadOne(optional[j]);
+        say("OPTIONAL: " + optional[j], "dim");
+      } catch (e) { /* not there; the module using it will say so */ }
+    }
+
+    if (!window.FieldKit || !window.FieldKit.service("boot")) {
+      fatal("KERNEL DID NOT COME UP", "Scripts loaded but the kernel never registered a boot service.");
+      return;
+    }
+
+    consoleEl.textContent = "";
+    window.FieldKit.need("boot").start();
+  }
+
+  window.addEventListener("keydown", start, { once: true });
+  gate.addEventListener("click", start, { once: true });
+})();
+</script>
+</body>
+</html>

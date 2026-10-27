@@ -1,0 +1,6 @@
+# Shell scripts run on Linux and must keep LF endings wherever they are
+# checked out. A CRLF entrypoint is a server that will not start.
+*.sh text eol=lf
+relay/docker/Dockerfile text eol=lf
+Dockerfile text eol=lf
+*.yml text eol=lf

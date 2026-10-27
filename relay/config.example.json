@@ -1,0 +1,205 @@
+{
+  "port": 8080,
+  "host": "0.0.0.0",
+
+  "_provisionToken": "One-time secret for creating the vault. Generate a long random string. After the vault exists this token is useless, so it does not need rotating.",
+  "provisionToken": "CHANGE-ME-generate-a-long-random-string",
+
+  "dataDir": "./data",
+  "maxBodyBytes": 2097152,
+
+  "_aiTargets": "Priority order, lowest number wins. Local PC is the default per FIELDKIT_PROJECT.md §9D; the main PC is reached over Tailscale and acts as failover.",
+  "aiTargets": [
+    { "name": "local-pc", "url": "http://192.168.1.50:1234", "priority": 1 },
+    { "name": "main-pc",  "url": "http://100.64.0.2:1234",   "priority": 2 }
+  ],
+
+  "_statusServices": "Read-only health probes surfaced at GET /status (authenticated). The relay only issues a GET and reports the code — it has no route that can start, stop, or restart any of these; mutating actions stay tailnet-only per FIELDKIT_PROJECT.md §9C. Optional per-entry: kind, note, expectStatus, timeoutMs. Leave the array empty to disable the feature entirely.",
+  "statusServices": [
+    { "name": "bastion-1",   "url": "http://100.64.0.3:80/",        "kind": "host",      "note": "primary node" },
+    { "name": "bastion-2",   "url": "http://100.64.0.4:80/",        "kind": "host",      "note": "secondary node" },
+    { "name": "dashboard",   "url": "http://100.64.0.3:5000/",      "kind": "web",       "note": "Flask dashboard" },
+    { "name": "status-page", "url": "http://100.64.0.3:3001/",      "kind": "web",       "note": "public status page" },
+    { "name": "discord-bot", "url": "http://100.64.0.3:8000/health","kind": "service",   "note": "bot health endpoint" },
+    { "name": "panel",       "url": "http://100.64.0.3:8080/",      "kind": "web",       "note": "Pterodactyl panel" }
+  ],
+  "statusTimeoutMs": 4000,
+
+  "_trustProxy": "Whose X-Forwarded-For to believe. false (default) = nobody, correct when the relay is directly internet-exposed, because that header is attacker-controlled there and believing it lets anyone reset their own rate limit. Set to 'loopback' ONLY when a tunnel such as cloudflared runs beside the relay and the relay's own host is 127.0.0.1. Can also be an array of proxy IPs. See CONNECTIVITY.md.",
+  "trustProxy": false,
+
+  "_httpProxy": "Leave empty for direct connections. Set to http://127.0.0.1:1055 when using Tailscale in userspace mode (start.js) — an unprivileged Pterodactyl container has no TUN device, so Tailscale gives a local HTTP proxy instead of a network interface.",
+  "httpProxy": "",
+
+  "_cloudflared": "Optional. Runs a Cloudflare Tunnel beside the relay so it is reachable on a real hostname over port 443 with valid TLS — the only combination that reliably gets through a school or corporate firewall (see CONNECTIVITY.md). Requires MAIN_FILE=start.js and the binary uploaded to /home/container (run `node relay/fetch-cloudflared.js` on your PC). Leave both fields empty and nothing starts.",
+  "_cloudflared_fields": "token (RECOMMENDED) — paste the connector token from the Cloudflare Zero Trust dashboard, Networks > Tunnels > Create a tunnel. The dashboard also owns the hostname mapping, so the subdomain is a dropdown rather than a command. ALTERNATIVELY tunnel (name or UUID from `cloudflared tunnel create`) plus optional configFile, for a tunnel you created yourself — that path needs three interactive commands on the container, which a Pterodactyl console cannot run. If token is set it wins and the others are ignored.",
+  "_cloudflared_token_warning": "The token is a credential: anyone holding it can publish traffic through your tunnel. config.json is gitignored for this reason. Rotate it in the dashboard if it leaks.",
+  "_cloudflared_warning": "Once the tunnel is running and you have closed the forwarded port, set host to 127.0.0.1 and trustProxy to \"loopback\". Do NOT set trustProxy while the relay is still directly exposed — that header is attacker-controlled on a public port and believing it lets anyone reset their own rate limit, including the limits guarding the unauthenticated GET /vault.",
+  "cloudflared": {
+    "token": "",
+    "tunnel": "",
+    "configFile": ""
+  },
+
+  "_actions": "Whitelisted quick actions, reachable at POST /actions and TAILNET-ONLY — that is enforced in code and is not configurable. The client sends an id and nothing else: it cannot pass arguments, cannot pass a command, and cannot compose one. cmd and args are spawned WITHOUT a shell, so nothing in an argument can escape into a command line. If you need a variant, add a second entry. Leave the array empty (the default) and this relay has no ability to change anything at all.",
+  "_actions_fields": "id (required, what the client sends), label, cmd (required, the executable), args (array, exact argv), note (shown in FieldKit before you confirm), cooldownS (refuse repeats inside this window), timeoutMs (kill it after this long).",
+  "_actions_warning": "IMPORTANT: any peer listed in trustProxy is treated as PUBLIC INGRESS and is refused actions, whatever its address — including loopback (a tunnel connects from 127.0.0.1) and including a reverse proxy that happens to sit inside the Tailscale range. Test from a direct tailnet peer, not through the proxy and not from the box. Putting the same address in both trustProxy and extraTailnetIps logs an ERROR at startup; public ingress wins.",
+  "actions": [
+    {
+      "id": "restart-minecraft",
+      "label": "Restart the Minecraft server",
+      "cmd": "systemctl",
+      "args": ["restart", "minecraft"],
+      "note": "Interrupts everyone online. Give people warning first.",
+      "cooldownS": 300,
+      "timeoutMs": 30000
+    },
+    {
+      "id": "recent-logs",
+      "label": "Pull the last 100 log lines",
+      "cmd": "journalctl",
+      "args": ["-u", "minecraft", "-n", "100", "--no-pager"],
+      "note": "Read-only.",
+      "cooldownS": 10
+    }
+  ],
+  "actionTimeoutMs": 20000,
+
+  "_extraTailnetIps": "Peers that count as tailnet beyond 100.64.0.0/10, fd7a:115c:a1e0::/48 and (when no proxy is configured) loopback. Only needed if a machine reaches this relay over a private LAN leg rather than Tailscale.",
+  "extraTailnetIps": [],
+
+  "_usageLog": "Counters at GET /usage (authenticated): which route, which AI target, how often, per action. Nothing in data/usage.json identifies a client — record ids are counted by shape (GET /records/:x), not by value, and no counter key ever comes from a request (unknown paths and unknown action ids collapse into fixed buckets). NOTE: the relay's console log is separate and DOES record the client address per request; your host keeps that log. Written every 30s. Set false to count nothing.",
+  "usageLog": true,
+
+  "aiTimeoutMs": 120000,
+  "aiHealthTimeoutMs": 2500,
+
+  "_blobs": "Encrypted file storage (LARGE-FILES.md). The client splits a file into chunks, encrypts each one separately, and PUTs raw bytes to /blobs/<key>. The relay stores them and hands them back; it never parses them, never learns which chunks belong to the same file, and never sees a filename — the manifest tying them together is an ordinary sealed record. Authenticated like /records, and deliberately NOT tailnet-only, because reaching your own files from school is the entire point.",
+  "_blobMaxBytes": "Per-CHUNK cap, not per-file. The client splits before uploading, so file size is bounded by the quota rather than by this. 8 MB leaves room above the client's 4 MB default chunk for the IV and the GCM tag. Raising it does not let bigger FILES through; it only makes each request larger.",
+  "blobMaxBytes": 8388608,
+
+  "_blobQuotaBytes": "Total bytes across all blobs. A container disk is not elastic, and a runaway upload loop should hit a clean 507 rather than fill the volume and take the relay down with it. Set this BELOW whatever your hosting plan actually allows — leave headroom for records, logs and the Tailscale binaries. 2 GB by default. Deleting files frees it immediately; use FIND ORPHANED CHUNKS in VAULT FILES to reclaim space from failed uploads.",
+  "blobQuotaBytes": 2147483648,
+
+  "_messaging": "Accounts and end-to-end encrypted chat (FIELDKIT_PROJECT.md 14.2). Off by default: a relay that quietly accepts registrations has a user list of whoever found it. The server never sees a password — the client derives an auth secret with PBKDF2 and the server stores scrypt() of that. Message bodies arrive sealed and leave sealed; the relay knows who talks to whom and when, and nothing about what was said.",
+  "_messagingApproval": "requireApproval true means a new account is a GUEST until an admin approves it in MESSAGES -> PEOPLE. Guests can still message and browse; the tier is what RUNNER reads to decide who gets a persistent workspace and the GPU. Set it false and every account is a member. Admins (the same thing as moderators) can approve people and make other admins from that same panel, so after the first one nobody needs this file. Only an admin named in moderators below can REMOVE an admin, and nobody named below can be changed from the app at all.",
+  "_messagingModerators": "The FIRST admins, and the only ones the app cannot remove. Further admins are made in MESSAGES -> PEOPLE by an existing one. The first has to be named here rather than in the app: the vault and the messaging directory are separate identity systems, so holding the full FieldKit build does not and should not prove anything to the messaging server about who you are. Moderators cannot read conversations — they can only open one that a PARTICIPANT reported, because reporting wraps that conversation's key to their public keys. Resolving a report destroys the escrow, and members should rotate the key afterwards: revoking access without rotating means whoever copied the key keeps reading new messages. Handles here must be lowercase and must already be registered before they can log in as moderators. Leave empty and reports cannot be filed at all, which the relay warns about at boot.",
+  "_messagingModeratorsFormat": "A JSON array of QUOTED lowercase strings: [\"sup095\"]. Not [sup095] — that is not valid JSON, and the relay now refuses to start rather than silently falling back to defaults, because falling back turns messaging, the tunnel and every other setting in this file off at once and looks nothing like a typo. A moderator must also REGISTER an account before reports can be filed: the report is sealed to every moderator's public key and an unregistered one has none. The relay warns at boot if any are missing.",
+  "messaging": {
+    "enabled": false,
+    "openRegistration": true,
+    "requireApproval": true,
+    "moderators": []
+  },
+
+  "_browse": "The in-app browser's fetch-and-re-serve proxy (FIELDKIT_PROJECT.md 14.3). Off by default, because turning it on makes this relay fetch pages on someone else's behalf and that should be a decision rather than a default. Reachable with the vault token OR a signed-in messaging account — the second because OUTPOST has no vault and the browser has to work there. A banned messaging account cannot browse.",
+  "_browseSafety": "Private and reserved address ranges (127.x, 10.x, 192.168.x, 172.16-31.x, 169.254.x including the cloud metadata endpoint, CGNAT, IPv6 loopback and link-local) are ALWAYS refused and that is not configurable. Hostnames are resolved first and the connection is pinned to the address that passed, so a DNS answer cannot change between the check and the connect. Redirects are re-checked at every hop. Scripts and Set-Cookie are stripped; GET forms work (search boxes need them) and POST forms are defanged and labelled: every proxied site lands on one origin, so a cookie from one would be readable by the next.",
+  "_browseSearch": "The DEFAULT engine an address-bar search is redirected into, with the query appended URL-escaped. TWO constraints. (1) It should work with no JavaScript where possible — a page whose results are assembled by script may not survive the trip and renders as a search that found nothing. (2) It has to be willing to answer THIS relay's address. Search engines treat datacentre IPs as robots, and most answer with a CAPTCHA page rather than an error, which also renders as a broken page. Do not guess: open BROWSER and press ENGINES. It fetches every candidate from the relay itself, lists which ones answered, and now lets you switch with one button — that switch lasts as long as the browse pass and does not touch this file. Set this value once you know which engine you want as the default for every new session. If a search comes back with nothing in it, the proxy says so on the page rather than leaving you with an empty screen. Nothing in FieldKit tries to get past a bot check.",
+  "_browseHosts": "allowHosts empty means anywhere public. Put hostnames in it and it becomes an allow list, which is the right setting for a drive handed to someone else — subdomains of a listed host are included. blockHosts is subtracted either way and wins over allowHosts.",
+  "_browseFilter": "Hostname filtering, enforced HERE so a device cannot switch it off. It does the job of a DNS filter from a stronger position: changing a laptop’s resolver does nothing, because the drive never resolves anything — the relay does. Set lists to filenames you have uploaded into data/blocklists/ (get them with: node tools/fetch-blocklist.js). block/allow are extra hostnames inline, and an allow entry beats the lists, subdomains included. Every hop of a redirect is re-checked, so a public host redirecting to a blocked one is caught. WHAT IT IS NOT: it blocks by NAME. blockIpLiterals refuses numeric addresses while the filter is on, because a numeric address has no name to check — but nothing here can block a host that is not on a list, including another proxy. It stops carelessness and the obvious cases. It is not a guarantee and should not be deployed as one. If a list you name is missing, the relay logs an ERROR at boot and runs UNFILTERED rather than pretending.",
+  "_browseRunScripts": "Whether a proxied page's JavaScript is allowed to run. TRUE is what makes real sites load: a modern page's HTML is a loading screen and the page itself is assembled afterwards by code, so with this off you get a working document reader and a lot of blank pages. Turning it on costs two real things. First, the relay serves that code from ITS OWN origin, so every site read through the browser shares one origin and one cookie jar — a site you open can read what another site left there. Second, the page runs a shim that rewrites the URLs its scripts build at runtime, and a shim is a best effort, not a sandbox. Set it to false and you get the old behaviour: scripts and inline handlers deleted before the page is ever served, and a CSP of default-src 'none'. That is strictly safer and it is the right setting for a drive handed to someone you do not know.",
+  "_browsePathMode": "OFF BY DEFAULT, and worth reading before turning it on. It makes a proxied page's address say what the SITE would say — its own path and query — instead of the /browse/p/<ticket>/https://... path it was actually fetched through. That fixes one real and very visible thing: a single-page app routes on location.pathname, so YouTube reads the proxy path, matches none of its own routes, and renders an empty shell. That is the blank screen after a search, and this genuinely fixes it. The catch is what it costs everywhere else. Once the address is the site's own path, every url the page then builds sits at the RELAY'S root instead of carrying the site's name in its own path, so it collides with the relay's own routes, with anything sitting in front of the relay, and with the 404 handler. Shipped on, a live relay went from 'YouTube search is blank' to 'pages load unformatted and reloads fail at random', which is a worse trade. Turn it on if you mostly use app-shaped sites and can live with that; leave it off for a browser that behaves predictably. Doing this properly needs the site's identity in the hostname — a subdomain per site — rather than in a query parameter.",
+  "_browseDebugRuntime": "Makes the injected shim log a line to the page's console saying it is active and which real URL it thinks it is on. For working out why one particular site misbehaves. Leave it false otherwise — it tells anything reading that console that the page is proxied.",
+
+  "browse": {
+    "enabled": false,
+    "searchUrl": "https://www.bing.com/search?q=",
+    "runScripts": true,
+    "pathMode": false,
+    "debugRuntime": false,
+    "allowHosts": [],
+    "blockHosts": [],
+    "filter": {
+      "enabled": false,
+      "lists": [],
+      "block": [],
+      "allow": [],
+      "blockIpLiterals": true
+    }
+  },
+
+  "_browser": "THE STREAMED BROWSER (14.11). A real Chromium, running in this container, whose screen is sent to the panel as video and whose keyboard and mouse come back over one websocket. This is the replacement for the fetch-and-rewrite proxy above, and it exists because rewriting cannot be made to work on applications: a router reads location.pathname, a bundle branches on its own hostname, and a bot check wants a real browser to answer it. Here the browser IS real, so pages render correctly, and when a site puts up a bot check the person solves it themselves. Nothing here disguises anything: Chromium identifies itself honestly and no header is forged. Needs a container image with a chromium binary in it. Leave browse.enabled on as well — the old proxy is the fallback when this cannot start.",
+  "_browserChromium": "Full path to the chromium or chrome binary. Leave empty to search the usual places (/usr/bin/chromium, /usr/bin/chromium-browser, /usr/bin/google-chrome, and a couple under /home/container). If the relay logs that it found none, this is the setting to fill in.",
+  "_browserDnsFilter": "Which resolver every lookup the browser makes goes through, enforced inside the relay rather than in Chromium, so a literal IP address cannot skip it. adult = CleanBrowsing adult+malware, which is pornography plus phishing and malware and is the default. family = that plus proxies, VPNs and forced safe search. security = malware and phishing only, no content filtering. system = whatever the container is configured with, i.e. no filtering. Private and reserved address ranges are refused regardless of this setting and cannot be turned on.",
+  "_browserMaxSessions": "How many people can have a browser session at once. Each one is a separate Chromium browser context — its own cookies, its own storage, its own cache — and costs roughly 80 to 150 MB. Six fits comfortably in 4 GB alongside everything else the relay does. When the limit is reached the coldest session with nobody watching it is closed to make room.",
+  "_browserIdleMinutes": "How long a session with nobody watching survives before it is closed and its memory returned. The person gets a fresh one next time they open the panel. Cookies do not survive it, which is deliberate: this is a shared machine and a session nobody is watching should not sit there signed in to things.",
+  "_browserQuality": "JPEG quality for the streamed frames, 20 to 90. Lower is a smaller picture and less bandwidth over the tunnel; higher is sharper text. 62 reads well and keeps a busy page under about 150 KB a second.",
+  "_browserNoSandbox": "Runs Chromium without its own sandbox. This has to be true in a Pterodactyl container, which does not grant the user namespaces the sandbox needs; left false, Chromium will not start at all. What protects the relay instead is the guard proxy, which every request the browser makes goes through and which refuses private addresses — including this relay's own API — and the fact that the vault is encrypted with a key this process never holds. Set it false only if you have moved the relay somewhere that can give Chromium a real sandbox.",
+  "browser": {
+    "enabled": false,
+    "chromium": "",
+    "dnsFilter": "adult",
+    "maxSessions": 6,
+    "idleMinutes": 15,
+    "_parkMinutes": "When nobody has had a browser session for this long, Chromium is stopped, giving Bastion 1 back its memory (hundreds of MB) and idle CPU. The next person to open BROWSER starts it again, which takes under a second. 0 keeps it running.",
+    "parkMinutes": 10,
+    "quality": 62,
+    "everyNthFrame": 1,
+    "maxViewportWidth": 1920,
+    "maxViewportHeight": 1200,
+    "noSandbox": true,
+    "_video": "The browser as video (FIELDKIT_PROJECT.md 14.18). A panel that can decode it gets H.264 instead of one JPEG per frame: scrolling went from ~10 Mbit/s to under 1. Costs ~0.4 of a core per panel while its page is moving and nothing while it is still. ffmpeg is in the relay image; leave it empty to find it. video false sends pictures to everyone. videoKbps caps a moving page; videoQuality is the JPEG fed to the encoder.",
+    "video": true,
+    "ffmpeg": "",
+    "videoKbps": 1500,
+    "videoQuality": 80,
+    "searchUrl": "https://www.bing.com/search?q=",
+    "_tabs": "Browser upgrades (FIELDKIT_PROJECT.md 14.26). maxTabs caps the tabs in one session; a pop-up past it is closed. downloads false refuses every download, as before; downloadMaxMB cancels one that grows past it. uploads false leaves a page's choose-file doing nothing; uploadMaxMB caps each file. A guest's session ends guestGraceSec after the panel closes. A member's sign-ins are kept in this relay's memory, never on disk, for keepSignInsHours after an idle end; 0 keeps none.",
+    "maxTabs": 8,
+    "downloads": true,
+    "downloadMaxMB": 200,
+    "uploads": true,
+    "uploadMaxMB": 50,
+    "guestGraceSec": 60,
+    "keepSignInsHours": 12
+  },
+  "_runner": "RUNNER: upload a file and run it on the second machine, Bastion 2 (RUNNER_PLAN.md). Off by default. The relay does NOT run anything and no file ever passes through it. Its whole part is three small routes: it says whether the run server is up, and it signs a one-minute ticket saying which MESSAGES account is asking and what tier it is (guest, member or admin). The panel then talks to the run server directly. publicUrl is the run server's own https address, the second hostname pointed at Bastion 2, with no path on the end: https://run.example.com. The run server fetches this relay's public ticket key by itself from /runner/pubkey, so there is no key to copy between machines. A MESSAGES account is required; the vault token alone is not enough, because limits and bans are per person. If Bastion 2 is unplugged the panel is told so in a sentence and uploading is blocked. When Bastion 2 sleeps to save power (FIELDKIT_PROJECT.md 14.27), opening RUNNER wakes it through fk-wake.js, a helper run beside this relay on Bastion 1 with the host network, because broadcasts from inside this container never reach the home network. The helper proves itself with a key this relay makes in data/runner/wake/key; set runner.wakeKey to choose it yourself instead.",
+  "runner": {
+    "enabled": false,
+    "publicUrl": ""
+  },
+  "_updates": "Signed release downloads (FIELDKIT_PROJECT.md 14.4). Off by default. This relay NEVER signs anything and holds no key: `node build.js --release` signs on the SSD, you upload the resulting release/ folder into data/updates/, and the client checks the signature against a public key built into the client itself. So a relay that is taken over completely can withhold an update or serve a stale one, but cannot forge one. Vault token only — a messaging session is not enough, and OUTPOST cannot fetch updates yet.",
+  "updates": {
+    "enabled": false
+  },
+
+  "rateLimit": {
+    "windowMs": 60000,
+
+    "_max": "Requests per minute from a caller who has NOT authenticated. This is the anti-flood number.",
+    "max": 240,
+
+    "_authedMax": "Requests per minute from a caller whose Authorization header actually verifies against the vault. Much higher on purpose: that token is the same credential that reads the vault, so someone holding it can already read everything and throttling them protects nothing that is not already lost. It exists because FULL SYSTEM EXERCISE drives every module against the relay for real and sails past 240 — the last third of the suite used to fail with 'rate limited' and read as a broken relay. A WRONG token still counts against the anonymous bucket, and authFailMax is untouched.",
+    "authedMax": 3000,
+
+    "vaultMax": 10,
+    "authFailMax": 8,
+    "actionMax": 20,
+
+    "_blobMax": "Blob requests per minute. Higher than the general limit because one file legitimately means many requests — a 200 MB file at the default 4 MB chunk size is 50 uploads back to back.",
+    "blobMax": 600,
+
+    "_msgMax": "Messaging requests per minute per client. Generous, because a long poll re-arms every 25 seconds and an active conversation is chatty.",
+    "msgMax": 400,
+
+    "_msgAuthMax": "Registration and login attempts per minute per client. Low on purpose: this is the one messaging route where guessing is the attack.",
+    "msgAuthMax": 10,
+
+    "_browseMax": "Proxied requests per minute. High because ONE page is many requests — its stylesheet, its fonts and every image each come back through here separately. This was 600, which was measured against a document rather than a site: one page of a busy site is a couple of hundred requests by itself, so three pages a minute tripped it and the browser said \"slow down\" in the middle of ordinary reading. Sized as a flood guard, not a usage budget — the caller holds a browse ticket, which is only issued in exchange for a vault token or a signed-in account.",
+    "browseMax": 3000,
+
+    "_browseTicketMax": "Browse tickets per minute. Low, because this is the one browse route a real credential touches and nobody needs more than a handful.",
+    "browseTicketMax": 20,
+
+    "_browseEngineMax": "Engine checks per minute. Very low: one call makes the relay fetch eight search engines, which is the most expensive thing it can be asked to do and the easiest to abuse into hammering somebody else.",
+    "browseEngineMax": 4,
+
+    "_browserMax": "Control requests per minute for the STREAMED browser — status, ticket, clear. Deliberately small, and that smallness is the headline: a streamed session is ONE websocket, and the two hundred requests a page makes happen inside the container where this limiter never sees them. The old proxy needed 3000/minute to render a few pages; this needs a couple of dozen to run all day.",
+  "browserMax": 60,
+  "_browserStreamMax": "New browser stream connections per minute per client. A person opens one and keeps it. More than a handful a minute means something is reconnecting in a loop, which is worth stopping.",
+  "browserStreamMax": 12,
+    "runnerMax": 60,
+  "_updateMax": "Update requests per minute. A build is one big download and a check is one small GET; neither needs headroom.",
+    "updateMax": 30
+  }
+}

@@ -1,0 +1,72 @@
+# FieldKit RUNNER on Bastion 2. Started by setup.sh; you should not
+# need to run this by hand.
+#
+#   runnerd   the run server. Reachable only from this machine
+#             (127.0.0.1:25580) and from the tunnel below.
+#   egress    the only way a member's job reaches the internet: a
+#             filtering proxy (runnerd/egress.js). Each such job gets
+#             a private network that only this container also joins.
+#             Its DNS filter is set in /srv/fieldkit/etc/egress.env.
+#   tunnel    Cloudflare Tunnel: gives runnerd its public https name
+#             without opening a port on the router. Only started when
+#             a tunnel token has been saved (the "tunnel" profile).
+name: fieldkit-runner
+
+services:
+  runnerd:
+    build:
+      context: .
+      dockerfile: runnerd/Dockerfile
+    image: fieldkit-runnerd:${FK_TAG:-1}
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${FK_STORE:-/srv/fieldkit/store}:/srv/fieldkit/store
+      - ${FK_ETC:-/srv/fieldkit/etc}:/etc/fieldkit:ro
+      # fk-power's readings (setup.sh installs it on the host).
+      - ${FK_RUN:-/srv/fieldkit/run}:/run/fieldkit:ro
+    ports:
+      - "127.0.0.1:${FK_PORT:-25580}:25580"
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  egress:
+    # Same image as runnerd (it holds egress.js and the relay's guard).
+    build:
+      context: .
+      dockerfile: runnerd/Dockerfile
+    image: fieldkit-runnerd:${FK_TAG:-1}
+    container_name: ${FK_EGRESS_NAME:-fk-egress}
+    restart: unless-stopped
+    command: ["node", "/app/runnerd/egress.js"]
+    user: "65534:65534"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 256m
+    pids_limit: 128
+    # Its own check: the image's one watches runnerd's port.
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('net').connect(3128, '127.0.0.1').on('connect', () => process.exit(0)).on('error', () => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    env_file:
+      - path: ${FK_ETC:-/srv/fieldkit/etc}/egress.env
+        required: false
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      - TUNNEL_TOKEN=${TUNNEL_TOKEN:-}
+    depends_on: [runnerd]
+    profiles: ["tunnel"]
+    logging:
+      driver: json-file
+      options: { max-size: "5m", max-file: "2" }

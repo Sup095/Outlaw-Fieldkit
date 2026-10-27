@@ -1,0 +1,41 @@
+{
+  "_about": "runnerd's settings. setup.sh writes the real one to /srv/fieldkit/etc/runnerd.json. Everything here has a default; only relayUrl must be set.",
+
+  "host": "0.0.0.0",
+  "port": 25580,
+  "_host": "0.0.0.0 INSIDE its container, which Docker publishes only on this machine's 127.0.0.1. Do not publish it on a public address: the tunnel is the way in.",
+
+  "relayUrl": "https://relay.example.com",
+  "_relayUrl": "The FieldKit relay. runnerd fetches the relay's public ticket key from <relayUrl>/runner/pubkey by itself and re-checks it every minute, so there is no key to copy and a reinstalled relay is picked up without a restart here.",
+
+  "storePath": "/srv/fieldkit/store",
+  "storeHostPath": "/srv/fieldkit/store",
+  "_store": "Where uploaded files live. storeHostPath is the same folder as the HOST names it, which Docker needs because runnerd itself runs in a container. Keep the two identical unless you know why not.",
+
+  "driver": "docker",
+  "runtime": "runsc",
+  "_runtime": "runsc is gVisor: a second kernel between a job and the real one. setup.sh installs it. Set to an empty string to use Docker's ordinary runtime, which still applies every other restriction.",
+
+  "images": { "base": "fieldkit-runner:1", "wine": "fieldkit-runner-wine:1", "screen": "fieldkit-runner-screen:1" },
+  "_images": "base runs scripts and Linux programs. wine runs Windows .exe files; set it to an empty string and the panel says Windows programs are not switched on. screen runs a program with a window (RUN IN WINDOW): a virtual screen, sound card and encoder inside the same sandbox. Built by setup.sh; if it is missing, RUN IN WINDOW is not offered.",
+
+  "screen": { "width": 1280, "height": 720, "fps": 30, "kbps": 1500, "sound": true },
+  "_screen": "What a program window is streamed at. kbps is the video bitrate; the server never passes on more than twice it, whatever the box writes. Each screen costs about one CPU core encoded on the CPU, about a fifth of one on the graphics card, and kbps of the house upload per viewer.",
+
+  "gpu": { "runtime": "" },
+  "_gpu": "The Docker runtime that gives a job the graphics card. setup.sh sets it to runsc-gpu (gVisor with its checked NVIDIA layer) when a test encode on the card works from inside it. Only a gVisor runtime is ever used; anything else is ignored. Members' screens are then encoded on the card; an admin can turn it off per person (NO GPU).",
+
+  "tiers": {},
+  "_tiers": "Per-tier overrides of runnerd/limits.js, for example { \"guest\": { \"timeoutSec\": 60 }, \"member\": { \"quotaBytes\": 10737418240 } }. A guest never keeps files and never gets the GPU; those two cannot be overridden.",
+
+  "egress": { "enabled": true, "container": "fk-egress", "proxy": "http://egress:3128" },
+  "_egress": "Members' programs reach the web only through the fk-egress container (runnerd/egress.js): each job gets a private network shared with nothing but it. Its DNS filter and per-job speed are set in /srv/fieldkit/etc/egress.env. enabled: false keeps every job offline.",
+
+  "finishedHours": 24,
+  "_finishedHours": "How long the result of a program that ended while nobody was watching waits to be shown.",
+
+  "machine": {},
+  "_machine": "Whole-machine ceilings: maxJobs (6), maxGuestJobs (2), maxSessions (24), maxGuestSessions (8), maxScreens (2).",
+  "powerFile": "/run/fieldkit/power.json",
+  "_powerFile": "Where fk-power's readings are, inside runnerd's container (the host's /srv/fieldkit/run, mounted read-only). fk-power is a small root service setup.sh installs, because the processor's energy counter is root-only. The price per kWh and the estimate for the parts nobody measures are set in ADMIN -> POWER, not here."
+}

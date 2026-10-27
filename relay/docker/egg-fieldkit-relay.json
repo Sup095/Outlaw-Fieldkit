@@ -1,0 +1,52 @@
+{
+  "_comment": "FieldKit relay egg for Pterodactyl. Import under Admin -> Nests -> Import Egg. The image fieldkit-relay:1 is built ON the Pterodactyl machine (docker build -t fieldkit-relay:1 deploy/bastion1); Wings cannot pull it from anywhere, falls back to the local image with that tag, and uses it. The relay's code and the tunnel programs are inside the image; the only file you upload is config.json. See relay/BROWSER.md.",
+  "meta": {
+    "version": "PTDL_v2",
+    "update_url": null
+  },
+  "exported_at": "2026-10-26T00:00:00+00:00",
+  "name": "FieldKit Relay",
+  "author": "fieldkit@localhost",
+  "description": "The FieldKit relay: encrypted vault storage, messaging, updates, the streamed browser, and RUNNER's ticket service. Code, Chromium, cloudflared and tailscale are all in the image; the server folder holds only config.json and the data the relay writes.",
+  "features": null,
+  "docker_images": {
+    "FieldKit Relay": "fieldkit-relay:1"
+  },
+  "file_denylist": [],
+  "startup": "node {{MAIN_FILE}}",
+  "config": {
+    "files": "{}",
+    "startup": "{\r\n    \"done\": \"routes:\"\r\n}",
+    "logs": "{}",
+    "stop": "^C"
+  },
+  "scripts": {
+    "installation": {
+      "script": "#!/bin/bash\r\n# The relay's code is inside the image now. This only makes the data\r\n# folder and says which ONE file to upload.\r\nmkdir -p /mnt/server/data\r\ncat > /mnt/server/UPLOAD-THESE.txt <<'EOF'\r\nUpload ONE file into /home/container:\r\n\r\n  config.json      (from deploy/relay-upload/ on the dev PC)\r\n\r\nThat is all. The relay's code, Chromium, cloudflared and tailscale\r\nare inside the image. Leave the Startup tab's Main File as\r\n/opt/fieldkit/relay/start.js.\r\n\r\nDo NOT upload release-key.json. It signs releases and belongs on the\r\ndevelopment machine only.\r\nEOF\r\necho 'FieldKit relay: directory ready. Upload config.json.'",
+      "container": "ghcr.io/parkervcp/yolks:nodejs_22",
+      "entrypoint": "bash"
+    }
+  },
+  "variables": [
+    {
+      "name": "Main File",
+      "description": "The file the relay starts from. /opt/fieldkit/relay/start.js is the copy inside the image (brings up the tunnel, then the relay). start.js / server.js would be copies uploaded into the server folder, which is the old way.",
+      "env_variable": "MAIN_FILE",
+      "default_value": "/opt/fieldkit/relay/start.js",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "required|string|in:/opt/fieldkit/relay/start.js,/opt/fieldkit/relay/server.js,start.js,server.js",
+      "field_type": "text"
+    },
+    {
+      "name": "Config File",
+      "description": "Path to the relay's config.json. The default is the one you upload into the server folder.",
+      "env_variable": "FK_CONFIG",
+      "default_value": "/home/container/config.json",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "nullable|string|max:255",
+      "field_type": "text"
+    }
+  ]
+}
