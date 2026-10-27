@@ -427,6 +427,12 @@ class Store {
     } catch (e) { return { total: 0, free: 0, used: 0, pct: 0 }; }
   }
 
+  /* Where a file of yours (or the library's) is on disk, or null. */
+  pathOf(owner, id) {
+    const entry = this.find(owner, id);
+    return entry ? this._pathOf(owner, entry) : null;
+  }
+
   /* The first bytes, to tell a Linux program from a Windows one from
      a script without trusting what the file is called. */
   sniff(owner, id) {
@@ -439,6 +445,7 @@ class Store {
     finally { if (fd !== undefined) try { fs.closeSync(fd); } catch (e) {} }
     if (buf[0] === 0x7f && buf[1] === 0x45 && buf[2] === 0x4c && buf[3] === 0x46) return "elf";
     if (buf[0] === 0x4d && buf[1] === 0x5a) return "pe";
+    if (buf[0] === 0x50 && buf[1] === 0x4b && buf[2] === 0x03 && buf[3] === 0x04) return "zip";
     if (buf[0] === 0x23 && buf[1] === 0x21) return "script";
     return "data";
   }

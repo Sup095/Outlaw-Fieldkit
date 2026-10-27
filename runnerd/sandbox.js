@@ -57,18 +57,70 @@ const { spawn, spawnSync } = require("child_process");
 
 const ARG_MAX = 16, ARG_LEN = 200;
 
+/* A program that is a folder arrives as a .zip (zip.js). Each run
+   unpacks it inside the box, into the box's own /work, so the box's
+   limits are what a zip bomb meets: the sizes are added up before
+   anything is written, and Python's extractall drops absolute paths
+   and "..". Then the chosen file is started from its own folder, the
+   same way a loose file of its kind would be. argv: zip, entry, the
+   most it may unpack to (bytes), where, then the program's arguments. */
+const UNZIP = [
+  "import os, sys, zipfile",
+  "z, entry, cap, dest = sys.argv[1], sys.argv[2], int(sys.argv[3]), sys.argv[4]",
+  "rest = sys.argv[5:]",
+  "with zipfile.ZipFile(z) as f:",
+  "    infos = f.infolist()",
+  "    total = sum(i.file_size for i in infos)",
+  "    if total > cap:",
+  "        sys.stderr.write('RUNNER: this zip unpacks to %d MB, more than the %d MB this sandbox has room for\\n' % (total >> 20, cap >> 20))",
+  "        sys.exit(97)",
+  "    if entry not in set(i.filename for i in infos):",
+  "        sys.stderr.write('RUNNER: %s is not in this zip\\n' % entry)",
+  "        sys.exit(97)",
+  "    f.extractall(dest)",
+  "    for i in infos:",
+  "        p = os.path.join(dest, i.filename)",
+  "        if (i.external_attr >> 16) & 0o111 and os.path.isfile(p):",
+  "            os.chmod(p, 0o755)",
+  "path = os.path.join(dest, entry)",
+  "os.chdir(os.path.dirname(path) or dest)",
+  "ext = os.path.splitext(entry)[1].lower()",
+  "with open(path, 'rb') as h:",
+  "    head = h.read(2)",
+  "if ext == '.exe' or head == b'MZ':",
+  "    argv = ['wine-run', path]",
+  "elif ext == '.py':",
+  "    argv = [sys.executable, '-u', path]",
+  "elif ext in ('.js', '.mjs', '.cjs'):",
+  "    argv = ['node', path]",
+  "elif ext in ('.sh', '.bash'):",
+  "    argv = ['bash', path]",
+  "else:",
+  "    os.chmod(path, 0o755)",
+  "    argv = [path]",
+  "sys.stdout.flush()",
+  "os.execvp(argv[0], argv + rest)"
+].join("\n");
+
 /* What to execute for a file, decided from its first bytes and its
    extension. Returns { argv, image } or throws with a sentence a
    person can read. `at` is where the file sits inside the box. */
-function plan(name, kind, args, at, screen) {
+function plan(name, kind, args, at, screen, zip) {
   if (screen) {
-    const p = plan(name, kind, args, at, false);
+    const p = plan(name, kind, args, at, false, zip);
     return { argv: ["fk-screen"].concat(p.argv), image: "screen", screen: true };
   }
   const ext = (String(name).match(/\.([A-Za-z0-9]+)$/) || [, ""])[1].toLowerCase();
   const file = at + "/" + name;
   const extra = cleanArgs(args);
 
+  if (kind === "zip" || ext === "zip") {
+    const entry = zip && zip.entry;
+    if (!entry) throw new Error("choose which file inside the zip to run");
+    const cap = Math.max(1, Math.floor(zip.capBytes || 0));
+    return { argv: ["python3", "-c", UNZIP, file, entry, String(cap), "/work/app"].concat(extra),
+      image: /\.exe$/i.test(entry) ? "wine" : "base", entry: entry };
+  }
   if (kind === "pe" || ext === "exe") return { argv: ["wine-run", file].concat(extra), image: "wine" };
   if (kind === "elf") return { argv: [file].concat(extra), image: "base" };
   if (ext === "py") return { argv: ["python3", "-u", file].concat(extra), image: "base" };
@@ -78,7 +130,7 @@ function plan(name, kind, args, at, screen) {
 
   throw new Error("RUNNER does not know how to run a ." + (ext || "(no extension)") +
     " file. It runs Python (.py), JavaScript (.js), shell scripts (.sh), Linux programs, " +
-    "and Windows programs (.exe).");
+    "Windows programs (.exe), and any of those in a .zip.");
 }
 
 function cleanArgs(args) {
@@ -399,7 +451,8 @@ class ProcessDriver {
     const work = fs.mkdtempSync(path.join(os.tmpdir(), "fk-job-"));
     /* The plan was written for the box, where the file is at /job.
        Here it is wherever the store put it. */
-    const argv = job.plan.argv.map((a) => a.indexOf("/job/") === 0 ? path.join(job.dir, a.slice(5)) : a);
+    const argv = job.plan.argv.map((a) => a.indexOf("/job/") === 0 ? path.join(job.dir, a.slice(5))
+      : a === "/work/app" ? path.join(work, "app") : a);
     if (argv[0] === "node") argv[0] = process.execPath;
     const env = { PATH: process.env.PATH, HOME: work, TMPDIR: work, SystemRoot: process.env.SystemRoot };
     if (job.save) env.SAVE = job.save;

@@ -8,7 +8,7 @@
 FROM debian:trixie-slim
 
 RUN apt-get update \
- && apt-get install -y --no-install-recommends wine wine64 ca-certificates \
+ && apt-get install -y --no-install-recommends wine wine64 ca-certificates python3-minimal libpython3-stdlib \
  && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
 
 # Wine writes a "prefix" (a fake C: drive) on first run, about 30 s of

@@ -44,7 +44,7 @@ const RELAY_CODE = ["start.js", "server.js", "browse.js", "browse-runtime.js", "
 const BASTION2 = [
   ["relay/ws.js", "relay/ws.js"], ["relay/guard.js", "relay/guard.js"],
   ["runnerd/server.js"], ["runnerd/ticket.js"], ["runnerd/limits.js"], ["runnerd/sandbox.js"],
-  ["runnerd/store.js"], ["runnerd/admin.js"], ["runnerd/save.js"], ["runnerd/egress.js"], ["runnerd/power.js"], ["runnerd/fk-power.sh"], ["runnerd/access.js"], ["runnerd/sleep.js"], ["runnerd/fk-sleep.sh"], ["runnerd/Dockerfile"], ["runnerd/compose.yml"],
+  ["runnerd/store.js"], ["runnerd/admin.js"], ["runnerd/save.js"], ["runnerd/egress.js"], ["runnerd/power.js"], ["runnerd/fk-power.sh"], ["runnerd/access.js"], ["runnerd/sleep.js"], ["runnerd/zip.js"], ["runnerd/fk-sleep.sh"], ["runnerd/Dockerfile"], ["runnerd/compose.yml"],
   ["runnerd/config.example.json"], ["runnerd/setup.sh"], ["runnerd/inspect.sh"],
   ["runnerd/image/Dockerfile"], ["runnerd/image-wine/Dockerfile"], ["runnerd/image-wine/run-exe.sh"],
   ["runnerd/image-screen/Dockerfile"], ["runnerd/image-screen/fk-screen.py"]

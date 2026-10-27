@@ -36,7 +36,8 @@ Everything uploaded is treated as hostile. A job gets:
 - a **read-only** filesystem, with a small in-memory scratch folder
 - **no privileges** and no way to gain any; it runs as "nobody"
 - hard limits on memory, CPU, processes, time and output
-- **its one file**, read-only, and nothing else from the machine
+- **its one file**, read-only, and nothing else from the machine (a
+  .zip is unpacked into the box's own scratch folder, inside the box)
 - on Bastion 2, **gVisor** as a second wall between it and the real kernel
 
 Tested by running hostile files through it: network and DNS attempts fail, the
@@ -221,9 +222,22 @@ Godot's Compatibility renderer.
 - Windows programs take about 15–20 seconds to show their window:
   Wine starts slowly inside gVisor.
 
+## Programs that are a folder (.zip)
+
+Zip the folder and upload the .zip. On RUN the panel lists the files
+inside that can start (.exe, .py, .js, .sh) and asks which, or just
+runs it if there is only one. Each run unpacks the zip **inside the
+box** into its own /work, then starts the chosen file from its own
+folder. A zip that would unpack to more than 85% of the box's /work is
+stopped before anything is written (guests: about 54 MB; members:
+about 435 MB). The server only ever reads the zip's index (`zip.js`).
+
+The Windows image needs Python for this: rerun setup.sh once after
+updating.
+
 ## Not built yet
 
 Games drawn on the graphics card (needs a Turing-or-newer card for
 gVisor) and the shared game library with saves per game: phases 6b
-and 7. (The relay's browser uses this server's thresholds, read from
+and the rest of 7. (The relay's browser uses this server's thresholds, read from
 its health check, and its upload counts here.)

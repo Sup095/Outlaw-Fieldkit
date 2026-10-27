@@ -341,7 +341,8 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     Date.now = realNow;
     ok("somebody opens RUNNER", w.status === 202);
     ok("and the helper sends the packet", await until(() => heard.length >= 3, 6000) && heard[0].equals(pkt), out);
-    ok("saying so in its log", /woke 02:00:5e:10:00:01: 3 packet/.test(out), out);
+    /* The line is written after the last packet, so it can trail them. */
+    ok("saying so in its log", await until(() => /woke 02:00:5e:10:00:01: 3 packet/.test(out), 3000), out);
     child.kill();
     sock.close();
 

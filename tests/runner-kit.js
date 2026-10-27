@@ -5,6 +5,7 @@
 "use strict";
 
 const crypto = require("crypto");
+const zlib = require("zlib");
 const sha = (b) => crypto.createHash("sha256").update(b).digest("hex");
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -61,4 +62,38 @@ function connect(port, t) {
   });
 }
 
-module.exports = { connect, sha, wait };
+/* A small zip writer: [{ name, data, deflate, exec }]. Enough for the
+   tests; the real ones come from people's computers. */
+function makeZip(files, opts) {
+  const o = opts || {};
+  const locals = [], central = [];
+  let off = 0;
+  for (const f of files) {
+    const name = Buffer.from(f.name, "utf8");
+    const raw = Buffer.from(f.data || "");
+    const body = f.deflate ? zlib.deflateRawSync(raw) : raw;
+    const crc = zlib.crc32(raw);
+    const lh = Buffer.alloc(30);
+    lh.writeUInt32LE(0x04034b50, 0); lh.writeUInt16LE(20, 4); lh.writeUInt16LE(0x800, 6);
+    lh.writeUInt16LE(f.deflate ? 8 : 0, 8); lh.writeUInt32LE(crc, 14);
+    lh.writeUInt32LE(body.length, 18); lh.writeUInt32LE(f.lieSize != null ? f.lieSize : raw.length, 22);
+    lh.writeUInt16LE(name.length, 26);
+    const ch = Buffer.alloc(46);
+    ch.writeUInt32LE(0x02014b50, 0); ch.writeUInt16LE(0x031e, 4); ch.writeUInt16LE(20, 6); ch.writeUInt16LE(0x800, 8);
+    ch.writeUInt16LE(f.deflate ? 8 : 0, 10); ch.writeUInt32LE(crc, 16);
+    ch.writeUInt32LE(body.length, 20); ch.writeUInt32LE(f.lieSize != null ? f.lieSize : raw.length, 24);
+    ch.writeUInt16LE(name.length, 28);
+    ch.writeUInt32LE(((f.exec ? 0o100755 : f.name.endsWith("/") ? 0o40755 : 0o100644) << 16) >>> 0, 38);
+    ch.writeUInt32LE(off, 42);
+    locals.push(lh, name, body);
+    central.push(ch, name);
+    off += 30 + name.length + body.length;
+  }
+  const cd = Buffer.concat(central);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(files.length, 8); end.writeUInt16LE(files.length, 10);
+  end.writeUInt32LE(cd.length, 12); end.writeUInt32LE(o.cdOff != null ? o.cdOff : off, 16);
+  return Buffer.concat(locals.concat([cd, end]));
+}
+module.exports = { connect, sha, wait, makeZip };

@@ -64,6 +64,7 @@
   var saveOpen = false;     // the saved-folder list is showing
   var saveList = null;      // and what it last said
   var players = {};         // job id -> the player for a job with a screen
+  var zipPick = null;       // { id, list, screen, args } while asking which file in a zip to run
   var waking = null;        // { since } while the run server is being woken
   var wakeFailed = false;   // a wake did not work: wait for a click before trying again
 
@@ -104,6 +105,8 @@
     var b = firstBytes || [];
     var ext = (/\.([A-Za-z0-9]+)$/.exec(String(name)) || ["", ""])[1].toLowerCase();
     if ((b[0] === 0x4d && b[1] === 0x5a) || ext === "exe") return "windows";
+    /* A folder of files, zipped: unpacked in the sandbox at each run. */
+    if ((b[0] === 0x50 && b[1] === 0x4b && b[2] === 0x03 && b[3] === 0x04) || ext === "zip") return "zip";
     if (b[0] === 0x7f && b[1] === 0x45 && b[2] === 0x4c && b[3] === 0x46) return "linux";
     if (ext === "py") return "python";
     if (ext === "js" || ext === "mjs" || ext === "cjs") return "javascript";
@@ -119,7 +122,7 @@
     if (!file.size) return "that file is empty";
     if (!kind) {
       return "RUNNER cannot run that kind of file. It runs Python (.py), JavaScript (.js), " +
-        "shell scripts (.sh), Linux programs, and Windows programs (.exe).";
+        "shell scripts (.sh), Linux programs, Windows programs (.exe), and any of those in a .zip.";
     }
     if (kind === "windows" && !state.windows) {
       return "Windows programs are not switched on for this server yet.";
@@ -427,7 +430,7 @@
       case "denied": c.denied = m.why; return;
 
       case "put-ok": case "put-ack": case "put-done": case "put-cancelled": case "job":
-      case "adm": case "adm-done": case "save":
+      case "adm": case "adm-done": case "save": case "zip":
         return settle(c, m.ref, m);
 
       /* A download from the saved folder: a header, then pieces. */
@@ -606,7 +609,13 @@
     }
   }
 
-  async function run(f, argText, screen) {
+  /* The file inside a zip that was run last, per zip, on this computer. */
+  function zipLast(id, entry) {
+    var k = "fieldkit.runner.zipEntry." + id;
+    try { if (entry) localStorage.setItem(k, entry); return localStorage.getItem(k) || ""; } catch (e) { return ""; }
+  }
+
+  async function run(f, argText, screen, entry) {
     var c = conn;
     if (!c || !c.ready) return;
     if (screen && !canScreen()) {
@@ -614,7 +623,24 @@
     }
     var args = String(argText || "").trim() ? String(argText).trim().split(/\s+/) : [];
     var ref = "r" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-    var out = await ask(c, ref, { t: "run", ref: ref, file: f.id, args: args, screen: !!screen });
+    if (/\.zip$/i.test(f.name) && !entry) {
+      /* Which file inside? Asked of the server, which reads only the zip's index. */
+      var ls = await ask(c, ref, { t: "zip-ls", ref: ref, file: f.id });
+      if (ls.t === "error") return ui.toast(String(ls.why).toUpperCase(), "fail");
+      if (!ls.runnable.length) return ui.toast("NOTHING IN " + f.name.toUpperCase() + " THAT RUNNER CAN START (.EXE, .PY, .JS OR .SH)", "fail");
+      if (ls.total > ls.room) {
+        return ui.toast(f.name.toUpperCase() + " UNPACKS TO " + fmtBytes(ls.total) + ", MORE THAN THE " + fmtBytes(ls.room) +
+          " YOUR SANDBOX HAS ROOM FOR", "fail");
+      }
+      if (ls.runnable.length === 1) return run(f, argText, screen, ls.runnable[0]);
+      var last = zipLast(f.id);
+      zipPick = { id: f.id, screen: !!screen, args: argText,
+        list: ls.runnable.slice().sort(function (a, b) { return (b === last) - (a === last); }) };
+      return render();
+    }
+    zipPick = null;
+    if (entry) zipLast(f.id, entry);
+    var out = await ask(c, ref, { t: "run", ref: ref, file: f.id, args: args, screen: !!screen, entry: entry || undefined });
     if (out.t === "error") return ui.toast(String(out.why).toUpperCase(), "fail");
     if (out.queued) {
       /* Not refused: a place in line (RUNNER_PLAN.md §22). */
@@ -852,6 +878,18 @@
 
     nodes.busy = el("div", { class: "rn-busy" });
 
+    function pickRow(f) {
+      if (!zipPick || zipPick.id !== f.id) return null;
+      var p = zipPick;
+      return el("div", { class: "rn-zip" }, [
+        el("div", { class: "rn-zip-q", text: "Which file inside " + f.name + " should " + (p.screen ? "open in a window" : "run") + "?" }),
+        el("div", { class: "rn-zip-list" }, p.list.slice(0, 24).map(function (name) {
+          return ui.button(name, function () { run(f, p.args, p.screen, name); });
+        }).concat(p.list.length > 24 ? [el("span", { class: "rn-dim", text: "and " + (p.list.length - 24) + " more" })] : [])),
+        ui.button("CANCEL", function () { zipPick = null; render(); })
+      ]);
+    }
+
     var files = el("div", { class: "rn-files" });
     if (!c.files.length) files.appendChild(el("div", { class: "rn-none", text: "NO FILES YET" }));
     c.files.forEach(function (f) {
@@ -870,6 +908,8 @@
           if (window.confirm("Delete " + f.name + " from the run server?")) say({ t: "rm", file: f.id });
         }, { danger: true })
       ]));
+      var q = pickRow(f);
+      if (q) files.appendChild(q);
     });
 
     /* Files an admin made permanent. Anyone can run them; nobody but
@@ -886,6 +926,8 @@
           a2, ui.button("RUN", function () { run(f, a2.value); }, { primary: true }),
           c.screens ? ui.button("RUN IN WINDOW", function () { run(f, a2.value, true); }) : null
         ]));
+        var q = pickRow(f);
+        if (q) lib.appendChild(q);
       });
     }
 
@@ -1534,6 +1576,8 @@
       ".rn-gauge{height:8px;border:1px solid var(--line);position:relative}",
       ".rn-gauge>div{height:100%;background:var(--accent)}.rn-gauge.hot>div{background:var(--warn)}",
       ".rn-dim{color:var(--fg-dimmer);font-size:10px}",
+      ".rn-zip{display:flex;flex-direction:column;gap:5px;padding:6px 6px 8px 18px;border-bottom:1px solid var(--line);font-size:11px}",
+      ".rn-zip-list{display:flex;flex-wrap:wrap;gap:4px;align-items:center}",
       ".rn-scr{border:1px solid var(--line);background:#000;display:flex;flex-direction:column;flex:none}",
       ".rn-scr-h{display:flex;gap:8px;align-items:center;padding:3px 6px;font-size:10px;border-bottom:1px solid var(--line)}",
       ".rn-scr-n{color:var(--accent);letter-spacing:.1em}.rn-scr-l{flex:1;color:var(--fg-dimmer)}",

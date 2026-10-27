@@ -21,6 +21,7 @@ const { bootstrap, makeRunner, fakeElement } = require("./harness");
 const FieldKit = bootstrap(["core/kernel.js", "core/settings.js", "core/ui.js", "modules/runner.js"]);
 const runnerd = require("../runnerd/server");
 const ticket = require("../runnerd/ticket");
+const { makeZip } = require("./runner-kit");
 
 const { ok, section, state } = makeRunner("runner-client");
 const settings = FieldKit.need("settings");
@@ -211,6 +212,51 @@ const remount = () => { def.unmount(); host = fakeElement("div"); def.mount(host
     fire(button("DELETE"), "click");
     await until(() => byClass("rn-file").length === 0);
     ok("DELETE removes it", byClass("rn-file").length === 0 && /NO FILES YET/.test(text()));
+
+    /* A program that is a folder, zipped. */
+    const two = makeZip([{ name: "a/one.js", data: "console.log('one ran')" },
+      { name: "b/two.js", data: "console.log('two ran in ' + require('path').basename(process.cwd()))" },
+      { name: "b/data.txt", data: "x" }]);
+    fire(byClass("rn-drop")[0], "drop", { dataTransfer: { files: [new File([two], "pair.zip")] } });
+    await until(() => byClass("rn-file").length === 1);
+    ok("a .zip is taken", /pair\.zip/.test(text()), text().slice(0, 200));
+    fire(button("RUN"), "click");
+    await until(() => byClass("rn-zip").length === 1);
+    ok("RUN on a zip with two programs asks which", /Which file inside pair\.zip should run\?/.test(text()) &&
+      !!button("a/one.js") && !!button("b/two.js"), text().slice(-300));
+    fire(button("b/two.js"), "click");
+    await until(() => /two ran in b/.test(text()));
+    ok("choosing one runs it, from its own folder", /two ran in b/.test(text()), text().slice(-200));
+    ok("and the question goes away", byClass("rn-zip").length === 0);
+    fire(button("RUN"), "click");
+    await until(() => byClass("rn-zip").length === 1);
+    const firstPick = byClass("rn-zip")[0] && all(byClass("rn-zip")[0]).find((n) => n.tagName === "BUTTON");
+    ok("next time the last choice comes first", firstPick && firstPick.textContent === "b/two.js");
+    fire(button("CANCEL"), "click");
+    await until(() => byClass("rn-zip").length === 0);
+    ok("CANCEL puts the question away", byClass("rn-zip").length === 0);
+    fire(button("DELETE"), "click");
+    await until(() => byClass("rn-file").length === 0);
+
+    const one = makeZip([{ name: "tool/go.js", data: "console.log('only one')" }, { name: "tool/x.dat", data: "1" }]);
+    fire(byClass("rn-drop")[0], "drop", { dataTransfer: { files: [new File([one], "one.zip")] } });
+    await until(() => byClass("rn-file").length === 1);
+    fire(button("RUN"), "click");
+    await until(() => /only one/.test(text()));
+    ok("a zip with one program in it just runs", /only one/.test(text()) && byClass("rn-zip").length === 0);
+    const empty = makeZip([{ name: "notes.txt", data: "hi" }]);
+    fire(byClass("rn-drop")[0], "drop", { dataTransfer: { files: [new File([empty], "notes.zip")] } });
+    await until(() => byClass("rn-file").length === 2);
+    const row = byClass("rn-file").find((r) => /notes\.zip/.test(r.textContent || all(r).map((n) => n.textContent).join(" ")));
+    const toasts = [];
+    const realToast = ui.toast;
+    ui.toast = (m) => { toasts.push(m); };
+    fire(all(row).find((n) => n.tagName === "BUTTON" && n.textContent === "RUN"), "click");
+    await until(() => toasts.length > 0);
+    ui.toast = realToast;
+    ok("one with nothing runnable says so", /NOTHING IN NOTES\.ZIP/.test(toasts.join(" ")), toasts.join(" "));
+    for (const b of all(host).filter((n) => n.tagName === "BUTTON" && n.textContent === "DELETE")) fire(b, "click");
+    await until(() => byClass("rn-file").length === 0);
 
     /* An admin's ADMIN screen draws: power, sleeping, the line. */
     tier = "admin";

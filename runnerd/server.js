@@ -45,6 +45,7 @@ const { Admin, overview, command } = require("./admin");
 const { Saves } = require("./save");
 const { Power } = require("./power");
 const { Sleep } = require("./sleep");
+const zip = require("./zip");
 const { Access, IDLE_CPU } = require("./access");
 
 const VERSION = 1;
@@ -363,7 +364,14 @@ function create(cfg, logFn) {
       if (!lim.screen) throw new Error("programs with a window are for approved members — ask an admin to approve you");
       if (!screenReady()) throw new Error("programs with a window are not switched on for this server yet");
     }
-    const plan = sandbox.plan(entry.name, kind, m.args, "/job", wantScreen);
+    let inZip = null;
+    if (kind === "zip") {
+      const e = zip.cleanEntry(m.entry);
+      if (!e) throw new Error("choose which file inside the zip to run");
+      /* Unpacked into /work, which also holds a Windows program's prefix. */
+      inZip = { entry: e, capBytes: Math.floor(lim.workMb * 1048576 * 0.85) };
+    }
+    const plan = sandbox.plan(entry.name, kind, m.args, "/job", wantScreen, inZip);
 
     /* Room for it? If not, the line rather than an error (RUNNER_PLAN.md
        §22). Admins always get in. Coming from the line, the room was
@@ -639,6 +647,17 @@ function create(cfg, logFn) {
             limitFiles: s.limits.saveFiles }) : null });
         if (m.t === "hello") admin.seen(s.handle);
         return;
+      }
+
+      /* What is inside a .zip of yours (or the library's), so the panel
+         can ask which file to run. Only the index is read. */
+      case "zip-ls": {
+        const ref = String(m.ref || "").slice(0, 40);
+        if (store.sniff(s.owner, m.file) !== "zip") throw new Error("that is not a zip file");
+        const l = zip.list(store.pathOf(s.owner, m.file));
+        return tell(s, { t: "zip", ref: ref, file: m.file, runnable: zip.runnable(l.entries).slice(0, 200),
+          files: l.entries.length, total: l.total, truncated: l.truncated,
+          room: Math.floor(s.limits.workMb * 1048576 * 0.85) });
       }
 
       case "save-ls":
