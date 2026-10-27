@@ -126,6 +126,8 @@ function create(cfg, logFn) {
     const v = ticket.verifyReport(state.key, text);
     if (!v.ok || !reports.use(v.claims)) return;
     state.relayUp = { kbps: v.claims.up, wait: Math.max(0, Math.min(1000, v.claims.wait | 0)), at: Date.now(),
+      /* browser sessions the relay has put on this machine's helper */
+      hb: Math.max(0, Math.min(1000, v.claims.hb | 0)),
       /* how long ago the relay last heard its wake helper, -1 never */
       wh: Number.isInteger(v.claims.wh) && v.claims.wh >= -1 ? v.claims.wh : null };
     if (!state.relayHeard) { state.relayHeard = true; log("INFO", "runnerd: hearing the relay's load reports (one home upload for both)"); }
@@ -938,7 +940,7 @@ function create(cfg, logFn) {
   let keyTimer = null, renewTimer = null, sweepTimer = null, sweepFirst = null, powerTimer = null, accessTimer = null, sleepTimer = null;
   let sleepSaid = null;
   function sleepTick() {
-    const r = sleep.tick({ jobs: jobs.size, line: access.line.length });
+    const r = sleep.tick({ jobs: jobs.size, line: access.line.length, browser: relayFresh() ? state.relayUp.hb || 0 : 0 });
     const said = r.sleep ? "sleep" : r.soon ? "soon" : null;
     if (said !== sleepSaid) {
       if (said === "soon") log("INFO", "runnerd: nothing to do, so this machine sleeps in under a minute");

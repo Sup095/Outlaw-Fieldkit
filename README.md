@@ -13,8 +13,11 @@ says plainly that it is not.
 
 > **Get it:** download `OUTPOST-STANDALONE.html` from the
 > [latest release](../../releases/latest), open it in Chrome, and set a relay
-> address in SETTINGS. The repository owner runs a relay at
-> `https://relay.outlawfieldkit.com`; accounts on it are approved by hand.
+> address in SETTINGS. The repository owner runs a relay; accounts on it
+> are approved by hand. It answers at each of these addresses, so if one
+> does not load, try the next:
+>
+> - `https://relay.outlawfieldkit.com`
 
 ---
 
@@ -30,6 +33,8 @@ says plainly that it is not.
 - [Building from source](#building-from-source)
 - [Repository layout](#repository-layout)
 - [Reporting bugs and security issues](#reporting-bugs-and-security-issues)
+- [Contributing](#contributing)
+- [License](#license)
 
 ---
 
@@ -210,7 +215,8 @@ node relay/server.js
   Cloudflare Tunnel so no port is opened.
 - [`relay/README.md`](relay/README.md): the relay itself.
 - [`relay/BROWSER.md`](relay/BROWSER.md): the streamed browser and its Docker
-  image, with a Pterodactyl egg.
+  image, with a Pterodactyl egg, and *browser helpers*: a second machine that
+  takes new browser sessions when the relay is full.
 - [`relay/CONNECTIVITY.md`](relay/CONNECTIVITY.md): getting HTTPS in front of
   it.
 - [`relay/LARGE-FILES.md`](relay/LARGE-FILES.md): large files.
@@ -283,3 +289,32 @@ person's own machines.
 
 Use FieldKit on networks and devices you are allowed to use it on, and within
 the rules of whoever runs them.
+
+---
+
+## Contributing
+
+Pull requests are welcome. Fork the repository, make your change, run
+`node tests/run.js` (the suite needs only Node 22 or later), and open a pull
+request. [`CONTRIBUTING.md`](CONTRIBUTING.md) has the details.
+
+---
+
+## License
+
+FieldKit is **source-available**, not open source. The
+[license](LICENSE) in plain words:
+
+- **You may** use it, run your own relay and run server for yourself and
+  the people you choose, change it for your own use, use someone else's
+  server, and fork it on GitHub to send pull requests.
+- **You may not** sell it or make money with it (no charging for it or for
+  access to a server running it, no ads), or publish copies of it anywhere
+  else: other repositories, mirrors, stores or download sites.
+- Contributions you send are yours, and you allow them to be used in
+  FieldKit under its license.
+- Parts that come from other projects, such as `vendor/web-llm.js`
+  (Apache-2.0), keep their own licenses.
+
+For anything the license does not cover, [open an issue](../../issues) and
+ask.

@@ -14,6 +14,11 @@
                                which of them differ from the last
                                time this ran, so an update is a few
                                files rather than all of them
+     deploy/helper-upload/config.json
+                               a browser helper's config (FIELDKIT_PROJECT.md
+                               §14.38): this relay's browser settings, the
+                               relay's address, and the helper's own
+                               session count; same image, own server
      deploy/bastion2/          the run server: runnerd, its images,
                                compose file and setup script
      deploy/bastion2.tar.gz    the same, as one file to copy over
@@ -39,7 +44,7 @@ const arg = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1
    into the image, so nothing here may be a secret. */
 const RELAY_CODE = ["start.js", "server.js", "browse.js", "browse-runtime.js", "messaging.js",
   "updates.js", "ws.js", "cdp.js", "guard.js", "browser-engine.js", "browser-route.js", "video-encoder.js", "proc-usage.js", "pulse.js", "ogg-opus.js", "fairness.js",
-  "runner.js", "fk-wake.js", "fetch-cloudflared.js", "fetch-tailscale.js"];
+  "overflow.js", "browser-helper.js", "runner.js", "fk-wake.js", "fetch-cloudflared.js", "fetch-tailscale.js"];
 
 const BASTION2 = [
   ["relay/ws.js", "relay/ws.js"], ["relay/guard.js", "relay/guard.js"],
@@ -109,6 +114,26 @@ if (fs.existsSync(cfgSrc)) {
   now["config.json"] = sha(cfgSrc);
 } else missing.push("config.json (run node build.js)");
 
+/* A browser helper's config.json (§14.38): the relay's own browser and
+   filter settings, so a session behaves the same on either machine,
+   with the helper's own lines from relay/helper-config.example.json on
+   top, and the relay's public address to fetch its key from. Nothing
+   secret: the relay's browser block holds none. */
+const helperOut = path.join(OUT, "helper-upload");
+fs.rmSync(helperOut, { recursive: true, force: true });
+let helperSaid = "";
+if (fs.existsSync(cfgSrc)) {
+  const rc = JSON.parse(fs.readFileSync(cfgSrc, "utf8"));
+  const ex = JSON.parse(fs.readFileSync(path.join(ROOT, "relay", "helper-config.example.json"), "utf8"));
+  const strip = (o) => { const r = {}; for (const k of Object.keys(o || {})) if (k[0] !== "_") r[k] = o[k]; return r; };
+  const browser = Object.assign(strip(rc.browser), strip(ex.browser));
+  delete browser.helpers;
+  const hc = { _: ex._, helper: { relayUrl: settings.relay || ex.helper.relayUrl }, browser: browser, browse: strip(rc.browse) };
+  fs.mkdirSync(helperOut, { recursive: true });
+  fs.writeFileSync(path.join(helperOut, "config.json"), JSON.stringify(hc, null, 2) + "\n", "utf8");
+  helperSaid = settings.relay ? "" : " (no relay address saved: run once with --relay https://your-relay)";
+}
+
 const firstTime = !Object.keys(last).length;
 const codeChanged = firstTime || Object.keys(now).some((k) => k !== "config.json" && last[k] !== now[k]);
 const configChanged = firstTime || last["config.json"] !== now["config.json"];
@@ -167,6 +192,7 @@ console.log("deploy/bastion1/       the relay image's build folder, " + RELAY_CO
   (tar1 ? " (tar failed: " + tar1 + ")" : ", and deploy/bastion1.tar.gz") +
   (codeChanged ? " — code changed, rebuild due" : ""));
 if (missing.length) console.log("  not present here, so not bundled: " + missing.join(", "));
+if (fs.existsSync(helperOut)) console.log("deploy/helper-upload/  config.json for a browser helper" + helperSaid);
 console.log("deploy/bastion2/       " + BASTION2.length + " file(s)" +
   (tarOk ? ", and deploy/bastion2.tar.gz" : " (tar failed: " + String(tar.stderr || tar.error).trim() + ")"));
 if (!settings.relay) console.log("  no relay address saved yet: run once with --relay https://your-relay");

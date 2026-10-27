@@ -238,9 +238,20 @@ function ensureExecutable(p) {
   }
 }
 
+/* A config.json with a "helper" block makes this a browser helper
+   (browser-helper.js): the relay's streamed browser on a second
+   machine, and nothing else. */
+function isHelper() {
+  for (const p of [process.env.FK_CONFIG, path.join(__dirname, "config.json"), path.join(HOME, "config.json")].filter(Boolean)) {
+    try { return !!(JSON.parse(fs.readFileSync(p, "utf8")) || {}).helper; } catch (e) { /* next */ }
+  }
+  return false;
+}
+
 function startRelay() {
-  log("starting relay");
-  const relay = spawn(process.execPath, [path.join(__dirname, "server.js")], { stdio: "inherit" });
+  const helper = isHelper();
+  log(helper ? "starting the browser helper" : "starting relay");
+  const relay = spawn(process.execPath, [path.join(__dirname, helper ? "browser-helper.js" : "server.js")], { stdio: "inherit" });
   relay.on("error", (e) => {
     log(`FATAL: could not start the relay: ${e.message}`);
     process.exit(1);

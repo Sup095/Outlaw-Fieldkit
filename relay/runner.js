@@ -170,6 +170,8 @@ const REPORT_AUDIENCE = "fieldkit-load";
 function signReport(r, now) {
   const body = b64u(JSON.stringify({ v: 1, aud: REPORT_AUDIENCE, up: Math.max(0, Math.round(r.up || 0)),
     cpu: r.cpu, mem: r.mem, wait: r.wait | 0,
+    /* browser sessions this relay has on Bastion 2's helper (overflow.js) */
+    hb: Math.max(0, r.hb | 0),
     /* seconds since the wake helper last asked, -1 never: for ADMIN */
     wh: helperAt ? Math.max(0, Math.round((Date.now() - helperAt) / 1000)) : -1,
     exp: (now || Date.now()) + 30000, n: crypto.randomBytes(12).toString("hex") }));

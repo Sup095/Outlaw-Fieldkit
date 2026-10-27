@@ -34,6 +34,7 @@ const updates = require("./updates");
 const browser = require("./browser-route");
 const runner = require("./runner");
 const { Fairness } = require("./fairness");
+const { Overflow } = require("./overflow");
 
 /* ---- config -------------------------------------------------- */
 /* Where config.json is. FK_CONFIG wins; otherwise next to this file;
@@ -1094,7 +1095,7 @@ const ROUTES = [
   "GET  /msg/reports", "GET  /msg/review", "POST /msg/resolve", "GET  /msg/signins",
   "GET  /msg/people", "POST /msg/role",
   "POST /browse/ticket", "GET  /browse/get", "GET  /browse/check",
-  "GET  /browser/status", "POST /browser/ticket", "POST /browser/clear",
+  "GET  /browser/status", "POST /browser/ticket", "POST /browser/clear", "GET  /browser/helper-key",
   "GET  /runner/status", "POST /runner/ticket", "GET  /runner/pubkey",
   "WS   /browser/stream",
   "GET  /updates/latest", "GET  /updates/file"
@@ -1945,14 +1946,26 @@ server.listen(config.port, config.host, () => {
   /* The browser's share of this container and of the home upload,
      with Bastion 2's numbers and thresholds (RUNNER_PLAN.md §22). */
   const fairness = new Fairness({ peer: () => runner.load() });
+  /* Browser helpers on Bastion 2 (overflow.js): new sessions go there
+     when this relay is full. */
+  const helperUrls = config.browser && config.browser.enabled && Array.isArray(config.browser.helpers) ? config.browser.helpers : [];
+  const overflow = helperUrls.length ? new Overflow({ urls: helperUrls, dataDir: DATA_DIR, log: log }) : null;
   const bw = browser.init({
     config: config.browser,
     log: log,
     filter: (host) => browse.hostVerdict(host),
-    fairness: fairness
+    fairness: fairness,
+    overflow: overflow
   });
+  if (overflow && overflow.any()) {
+    overflow.start(() => fairness.line.length > 0 || bw.sessions.size > 0);
+    log("INFO", "browser: " + overflow.helpers.length + " helper(s) take new sessions when this relay is full: " +
+      overflow.helpers.map((h) => h.url).join(", "));
+  }
+  /* hb: sessions on helpers, so Bastion 2 does not sleep under them. */
   runner.startReports(() => ({ up: fairness.meter.upKbps, cpu: fairness.meter.cpu, mem: fairness.meter.mem,
-    wait: fairness.line.length, busy: fairness.meter.upKbps > 0 || fairness.line.length > 0 || bw.sessions.size > 0 }));
+    wait: fairness.line.length, hb: overflow ? overflow.sessionsOut() : 0,
+    busy: fairness.meter.upKbps > 0 || fairness.line.length > 0 || bw.sessions.size > 0 || !!(overflow && overflow.sessionsOut()) }));
   if (!config.browser || !config.browser.enabled) {
     log("INFO", "browser: off (browser.enabled is false)");
   } else {

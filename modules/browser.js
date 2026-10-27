@@ -977,6 +977,19 @@
           (v.encMemMb != null ? ", " + v.encMemMb + " MB" : "") : "pictures " + v.kbps + " kbit/s") +
           " · " + v.sentMb + " MB sent in " + Math.round(v.sinceSec / 60) + " min");
       });
+      /* Helpers on the second machine, which take new sessions when this
+         relay is full. Their own panels' video is counted above only as
+         bytes passing through; the encoding happens there. */
+      (u.helpers || []).forEach(function (h) {
+        var hu = h.usage, hc = hu && hu.chromium;
+        line(String(h.name).toUpperCase() + "  " + (h.down && !hu ? "not answering — " + h.down
+          : "load " + (h.cpu != null ? h.cpu + "%" : "?") + " · memory " + (h.mem != null ? h.mem + "%" : "?") +
+            " · chromium " + (hc ? cores(hc.cpu) + ", " + hc.memMb + " MB" : "parked")));
+        ((hu && hu.sessions) || []).forEach(function (s) {
+          line("  " + s.who + " (" + s.tier + ") · " + s.tabs + " tab" + (s.tabs === 1 ? "" : "s") + " · " +
+            s.viewers + " watching · idle " + s.idleSec + " s");
+        });
+      });
     }
     function pollUsage() {
       fetchUsage().then(function (u) { if (usageBar.style.display !== "none") drawUsage(u); },
@@ -1241,6 +1254,12 @@
           stat.textContent = "waiting for a browser: " + (m.ahead ? m.ahead + " ahead of you" : "you are next") +
             " (" + (m.why || "busy") + "). Members go ahead of guests. This connects by itself.";
           stat.className = "br-status warn";
+        } else if (m.t === "moved") {
+          /* A browser has come free on the relay's second machine: the
+             relay closes this socket and the next one lands there. */
+          live.moving = true;
+          stat.textContent = "a browser is free — connecting…";
+          stat.className = "br-status ok";
         } else if (m.t === "sound") {
           drawSound(!!m.on);
         } else if (m.t === "ready") {
@@ -1330,6 +1349,7 @@
 
       sock.onclose = function () {
         if (!alive() || !live) return;
+        if (live.moving) { live.moving = false; connect(); return; }
         stat.textContent = "the stream closed — press ↻ to reconnect";
         stat.className = "br-status warn";
       };

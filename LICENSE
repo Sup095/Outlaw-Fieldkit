@@ -1,0 +1,130 @@
+Outlaw FieldKit License, version 1.0
+
+Copyright (c) 2026 Sup095
+
+This is a source-available license. It is NOT an open-source license:
+it lets you use, run and improve the software, but not sell it, earn
+money with it, or publish copies of it elsewhere. Everything not
+allowed below is reserved by the licensor.
+
+
+1. Words used here
+
+"The software" means the code, documentation and release files in
+the official repository, https://github.com/Sup095/Outlaw-Fieldkit,
+and any copy or changed version of them.
+
+"The licensor" means Sup095, the copyright holder.
+
+"You" means the person or organisation using the software under this
+license.
+
+"Commercial use" means using the software for money or for a
+business. That includes: selling or licensing the software or a
+changed version; charging anyone to use it or to use a server that
+runs it; putting ads in or around it; offering it as part of a paid
+product or service; and using it inside a business to make money.
+
+
+2. What you may do
+
+As long as you follow this license and do not make commercial use of
+the software, you may:
+
+  (a) Use it. Download it, run it, and use every part of it. That
+      includes running your own relay and run server, for yourself and
+      for the people you choose to let in, and using a server that
+      someone else runs.
+
+  (b) Change it for yourself. Make changes and run the changed version
+      on your own computers and servers, and let the people you choose
+      use your server while it runs that version.
+
+  (c) Contribute. Fork the official repository on GitHub, make changes
+      in that fork, and offer them back as pull requests. Your fork
+      must stay a GitHub fork of the official repository.
+
+  (d) Pass on a release file. Give an unchanged official release file
+      (for example OUTPOST-STANDALONE.html) to someone, privately and
+      free of charge, for their own use under this license.
+
+  (e) Point people to it. Link to the official repository, its
+      releases, or a server running the software.
+
+
+3. What you may not do
+
+  (a) Make commercial use of the software.
+
+  (b) Redistribute it. Do not publish, upload, mirror or hand out the
+      software, a changed version of it, or a substantial part of it,
+      anywhere other than as allowed in 2(c) and 2(d). That covers
+      other Git repositories (on GitHub or anywhere else), other code
+      hosts, package registries, app and extension stores, download and
+      file-sharing sites, and bundles with other software. Running the
+      software on your server so people can use it is not
+      redistribution; handing out its files is.
+
+  (c) Remove or change the copyright notice, this license, or the
+      credit to the licensor in the software.
+
+  (d) Present a server you run, or a changed version you make, as the
+      official one.
+
+  (e) Sublicense the software, or grant anyone more rights in it than
+      this license gives you.
+
+
+4. Your contributions
+
+When you send a pull request, a patch or any other contribution to
+the official repository:
+
+  (a) you confirm that you wrote it, or otherwise have the right to
+      give it under these terms;
+
+  (b) you keep the copyright in it; and
+
+  (c) you allow the licensor to use, copy, change and publish it as
+      part of the software under this license, and under any other
+      terms the licensor chooses for later versions of the software.
+
+
+5. Other people's work
+
+Some parts of the software, and some things it downloads or runs, are
+other people's work under their own licenses, and those licenses
+apply to them instead of this one. This license does not limit
+anything their licenses allow. They include:
+
+  - vendor/web-llm.js, a build of WebLLM (MLC AI), under the Apache
+    License 2.0;
+  - programs fetched or installed when the relay or run server is set
+    up or runs, such as Chromium, FFmpeg, PulseAudio, Wine, cloudflared
+    and Tailscale;
+  - AI models you download to use with the software.
+
+
+6. If you break this license
+
+If you break any of these terms, your rights under this license end.
+If it is the first time, and you stop within 30 days of the licensor
+telling you about it, your rights come back as if they had never
+ended.
+
+
+7. No warranty, no liability
+
+The software is provided "as is", without warranty of any kind,
+express or implied, including the warranties of merchantability,
+fitness for a particular purpose and non-infringement. To the extent
+the law allows, the licensor is not liable for any claim, damages or
+other liability arising from the software or from its use, whether
+in contract, tort or otherwise.
+
+
+8. Asking for more
+
+If you want to do something this license does not allow, ask the
+licensor by opening an issue in the official repository. Only
+permission given in writing by the licensor counts.

@@ -76,7 +76,9 @@ FieldKit.provide("transportRelay", {
   browserUsage: async () => { usageAsks++; return {
     chromium: { cpu: 0.5, memMb: 300, procs: 9 }, upKbps: 2400,
     sessions: [{ who: "alice", tier: "member", tabs: 2, viewers: 1, idleSec: 3 }],
-    viewers: [{ who: "alice", video: true, kbps: 880, capKbps: 1500, step: 1, encCpu: 0.25, encMemMb: 40, sentMb: 12.5, sinceSec: 600 }] }; }
+    viewers: [{ who: "alice", video: true, kbps: 880, capKbps: 1500, step: 1, encCpu: 0.25, encMemMb: 40, sentMb: 12.5, sinceSec: 600 }],
+    helpers: [{ name: "bastion 2", cpu: 22, mem: 31, usage: { chromium: { cpu: 1.25, memMb: 700 }, sessions: [{ who: "bob", tier: "guest", tabs: 1, viewers: 1, idleSec: 0 }] } },
+      { name: "spare", down: "the helper did not answer", cpu: null, mem: null }] }; }
 });
 const uploads = [];
 FieldKit.provide("files", { upload: async (file) => { uploads.push(file); return { id: "f1" }; } });
@@ -137,6 +139,9 @@ const until = async (fn, ms) => { const end = Date.now() + (ms || 3000); while (
     ok("each session", /alice \(member\) · 2 tabs · 1 watching · idle 3 s/.test(text()));
     ok("and each open panel: video now, cap, step, encoder and what it was sent",
       /alice · video 880 kbit\/s now, cap 1500 \(turned down 1\) · encoder 0\.25 core, 40 MB · 12\.5 MB sent in 10 min/.test(text()));
+    ok("and each browser helper on the second machine, with its sessions (§14.38)",
+      /BASTION 2  load 22% · memory 31% · chromium 1\.25 core, 700 MB/.test(text()) && /bob \(guest\) · 1 tab · 1 watching/.test(text()), text().slice(0, 900));
+    ok("a helper that does not answer says so", /SPARE  not answering — the helper did not answer/.test(text()));
     click(button("CLOSE"));
     const asked = usageAsks;
     await wait(50);
@@ -327,6 +332,25 @@ const until = async (fn, ms) => { const end = Date.now() + (ms || 3000); while (
     const h3 = recs.get("browser-history");
     ok("and nothing was written while locked", !h3.data.items.some((x) => /locked/.test(x.u)) &&
       [...recs.values()].filter((r) => r.type === "browser-bookmark").length === 1);
+  }
+
+  section("moved to a browser on the second machine");
+  {
+    host = fakeElement("div");
+    await def.mount(host, ctx);
+    await until(() => socks.length === 4);
+    const w4 = socks[3];
+    w4.say({ t: "queued", ahead: 0, place: 1, why: "the relay is busy" });
+    ok("waiting, it says so", /waiting for a browser/.test(text()));
+    w4.say({ t: "moved" });
+    ok("told it has been moved, it says a browser is free", /a browser is free/.test(text()));
+    w4.onclose();
+    await until(() => socks.length === 5);
+    ok("and when the relay closes that socket it connects again by itself", socks.length === 5);
+    socks[4].onclose();
+    await wait(10);
+    ok("an ordinary close still waits for ↻", socks.length === 5 && /press ↻ to reconnect/.test(text()));
+    def.unmount();
   }
 
   await wait(50);

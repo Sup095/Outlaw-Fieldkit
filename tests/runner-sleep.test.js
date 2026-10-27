@@ -79,6 +79,10 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     z.tick({ jobs: 0, line: 2 });
     ok("people waiting count too", /waiting/.test(z.last.why));
     clock += 30 * 60000; host({});
+    z.tick({ jobs: 0, line: 0, browser: 2 });
+    ok("so do the relay's browser sessions on this machine's helper (FIELDKIT_PROJECT.md §14.38)",
+      /browser has sessions/.test(z.last.why) && !z.last.soon, z.last.why);
+    clock += 30 * 60000; host({});
     z.tick(idle);
     clock += ANNOUNCE_MS; host({});
     ok("idle again: sleep", z.tick(idle).sleep);

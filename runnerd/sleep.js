@@ -154,7 +154,8 @@ class Sleep {
   }
   cancel() { this.force = null; this.planAt = null; this.lastActive = this.now(); }
 
-  /* Every 15 s. `busy` is { jobs, line }; a connected panel only counts
+  /* Every 15 s. `busy` is { jobs, line, browser (sessions the relay has
+     on this machine's browser helper) }; a connected panel only counts
      through touch(), so a RUNNER left open in a corner does not keep
      the machine up all night. */
   tick(busy) {
@@ -168,7 +169,7 @@ class Sleep {
       this.force = null;
       this.planAt = null;
     }
-    if (busy.jobs > 0 || busy.line > 0) this.lastActive = now;
+    if (busy.jobs > 0 || busy.line > 0 || busy.browser > 0) this.lastActive = now;
     const quiet = inQuiet(this.quiet(), now);
     const limit = (quiet ? Math.min(s.idleMinutes, QUIET_IDLE_MIN) : s.idleMinutes) * 60000;
     let why = null;
@@ -177,6 +178,7 @@ class Sleep {
     else if (!h.mac || h.supports.indexOf("g") < 0) why = "its network card cannot wake it";
     else if (busy.jobs > 0) why = "something is running";
     else if (busy.line > 0) why = "people are waiting";
+    else if (busy.browser > 0) why = "the relay's browser has sessions on this machine";
     else if (!this.force && now - this.lastActive < limit) {
       why = "idle for " + Math.floor((now - this.lastActive) / 60000) + " of " + Math.round(limit / 60000) + " minutes";
     }

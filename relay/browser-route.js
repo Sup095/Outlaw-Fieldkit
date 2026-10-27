@@ -69,6 +69,11 @@ let log = () => {};
 let engine = null;
 let fair = null;                 /* fairness.js: the browser's share and its line */
 let fairTimer = null;
+/* overflow.js: helpers on Bastion 2 that take new sessions when this
+   relay is full. null when none are set, and on a helper itself. */
+let overflow = null;
+/* On a helper, the relay says which video step the house is on. */
+let houseStep = 0;
 const viewers = new Set();        /* every open panel, to step its video down or up */
 const tickets = new Map();
 /* Single-use links for a finished download and for the files a page
@@ -96,6 +101,8 @@ function init(opts) {
   /* RUNNER_PLAN.md §22. Every 2 s: the meter, then the first in line
      is let in if there is room, and everyone waiting hears where they are. */
   fair = opts.fairness || null;
+  overflow = opts.overflow || null;
+  houseStep = 0;
   if (fairTimer) clearInterval(fairTimer);
   fairTimer = null;
   if (fair) {
@@ -104,6 +111,17 @@ function init(opts) {
       const was = fair.step, k = fair.videoKbps(cfg.videoKbps || 1500);
       if (fair.step !== was) log("INFO", "browser: video " + (fair.step > was ? "down" : "up") + " to " + k + " kbit/s (house upload " + Math.round(fair.upPct(0)) + "%)");
       for (const v of viewers) v.restep();
+      if (overflow) {
+        overflow.step = fair.step;
+        /* The first in line, if a helper has room for them and this relay
+           does not: told to connect again, which places them there. */
+        const head = fair.ordered()[0];
+        if (head && !fair.fits(head.tier, engine.hasRoom()) && overflow.pick(head.who, head.tier, fair)) {
+          fair.leave(head);
+          head.moved = true;
+          head.go();
+        }
+      }
       fair.pump(engine.hasRoom());
       for (const e of fair.line) if (e.tell) e.tell(fair.place(e));
     }, 2000);
@@ -205,7 +223,21 @@ async function route(req, res, url, helpers) {
   /* status is readable by anyone who can already talk to the relay:
      it says whether the thing is up, not what anyone is doing. */
   if (what === "status" && method === "GET") {
-    send(res, 200, engine.status());
+    send(res, 200, overflow ? Object.assign(engine.status(), { helpers: overflow.view() }) : engine.status());
+    return true;
+  }
+
+  /* The public half of the key passes to helpers are signed with
+     (overflow.js). Public, like /runner/pubkey: a helper fetches it
+     by itself. */
+  if (what === "helper-key" && method === "GET" && overflow) {
+    send(res, 200, { key: overflow.keys.publicPem });
+    return true;
+  }
+
+  /* A download or a page's file on a helper, by the link it gave. */
+  if (what === "via" && overflow && /^(file|put)$/.test(seg[3] || "") && seg[4]) {
+    overflow.link(seg[2], seg[3] + "/" + seg[4] + (url.search || ""), req, res, fair ? (n) => fair.count(n) : null, send);
     return true;
   }
 
@@ -241,6 +273,7 @@ async function route(req, res, url, helpers) {
     const u = engine.usage();
     u.viewers = Array.from(viewers).map((v) => v.stats ? v.stats() : null).filter(Boolean);
     u.upKbps = fair && fair.meter ? fair.meter.upKbps || null : null;
+    if (overflow) u.helpers = await overflow.usage();
     send(res, 200, u);
     return true;
   }
@@ -248,6 +281,13 @@ async function route(req, res, url, helpers) {
   if (what === "clear" && method === "POST") {
     const body = await readBody(req).catch(() => null);
     const s = engine.sessions.get(String(who));
+    const away = !s && overflow ? overflow.holding(who) : null;
+    if (away) {
+      const what = body && body.what === "cookies" ? "cookies" : "everything";
+      try { await overflow.clear(away, who, what); } catch (e) { send(res, 502, { error: "the browser helper is not answering — " + e.message }); return true; }
+      send(res, 200, { cleared: what });
+      return true;
+    }
     if (!s) { send(res, 200, { cleared: "nothing was open" }); return true; }
     if (body && body.what === "cookies") await engine.clearCookies(s);
     else await engine.clearAll(s);
@@ -278,6 +318,32 @@ async function upgrade(req, sock, head, url) {
     return;
   }
 
+  /* Here or on a helper (overflow.js). */
+  const h = placeOf(String(who), tier);
+  if (h) {
+    return overflow.pipe(h, req, sock, head, who, tier, fair ? (n) => fair.count(n) : null,
+      () => serve(req, sock, head, who, tier, {}).catch(() => { try { sock.destroy(); } catch (e) {} }));
+  }
+  return serve(req, sock, head, who, tier, {});
+}
+
+/* Which helper a new socket for this account goes to, or null for here
+   (the order is in overflow.js). */
+function placeOf(who, tier) {
+  if (!overflow || !overflow.any() || engine.sessions.has(who)) return null;
+  const held = overflow.holding(who);
+  if (held) return held;
+  const free = engine.sessions.size < engine.cfg.maxSessions;
+  if (free && (!fair || tier === "admin" || (!fair.someoneAhead(tier) && fair.fits(tier, true)))) return null;
+  return overflow.pick(who, tier, fair);
+}
+
+/* One panel's socket, served by this process. opts.linkBase is where
+   its download and file links point: a helper's go back through the
+   relay (/browser/via/<helper>/). */
+async function serve(req, sock, head, who, tier, opts) {
+  opts = opts || {};
+  const linkBase = opts.linkBase || "/browser/";
   const socket = ws.accept(req, sock, { maxPayload: MAX_MSG, pingMs: 25000 });
   if (!socket) return;
 
@@ -306,7 +372,7 @@ async function upgrade(req, sock, head, url) {
   };
   /* This viewer's step: { own, strains, at (last step), last (last strain) }. */
   const q = { own: 0, strains: [], at: 0, last: 0 };
-  const kbpsNow = () => Math.round((cfg.videoKbps || 1500) * Math.min(fair ? STEPS[fair.step] : 1, OWN[q.own]));
+  const kbpsNow = () => Math.round((cfg.videoKbps || 1500) * Math.min(fair ? STEPS[fair.step] : STEPS[houseStep] || 1, OWN[q.own]));
   function strained() {
     const now = Date.now();
     if (now - q.last < 500) return;          /* one backed-up spell is one strain */
@@ -356,9 +422,9 @@ async function upgrade(req, sock, head, url) {
       /* A finished download and a page asking for a file each carry a
          link of their own, for this panel only. */
       if (msg.t === "download" && msg.state === "completed" && session) {
-        msg = Object.assign({}, msg, { url: "/browser/file/" + linkFor("dl", session.key, msg.id) });
+        msg = Object.assign({}, msg, { url: linkBase + "file/" + linkFor("dl", session.key, msg.id) });
       } else if (msg.t === "choose-file" && session) {
-        msg = Object.assign({}, msg, { url: "/browser/put/" + linkFor("up", session.key, null) });
+        msg = Object.assign({}, msg, { url: linkBase + "put/" + linkFor("up", session.key, null) });
       }
       tell(msg);
     },
@@ -434,9 +500,13 @@ async function upgrade(req, sock, head, url) {
       waiting.tell = (p) => tell(Object.assign({ t: "queued", why: why }, p));
       waiting.tell(fair.place(waiting));
       log("INFO", "browser: " + who + " (" + tier + ") waits for a session — " + why);
-      await waiting.ready;
+      const w = waiting;
+      await w.ready;
       waiting = null;
       if (!alive) return;
+      /* A helper has room and this relay still has none: the panel
+         connects again at once, and that lands it there. */
+      if (w.moved) { tell({ t: "moved" }); socket.close(1012, "moved"); return; }
     }
   }
 
@@ -579,8 +649,16 @@ function searchUrlFor(text) {
     encodeURIComponent(String(text || "").trim());
 }
 
+/* On a helper: the relay's word on the house video step. */
+function setHouseStep(n) {
+  n = Math.max(0, Math.min(STEPS.length - 1, n | 0));
+  if (n === houseStep) return;
+  houseStep = n;
+  for (const v of viewers) v.restep();
+}
+
 module.exports = {
-  init, route, upgrade, isStreamUpgrade,
+  init, route, upgrade, isStreamUpgrade, serve, setHouseStep,
   _internals: { tickets, links, linkFor, issue, spend, take, fair: () => fair, viewers, searchUrlFor, sweep,
-    engine: () => engine, TICKET_MS, INPUT_PER_SEC }
+    engine: () => engine, overflow: () => overflow, placeOf, TICKET_MS, INPUT_PER_SEC }
 };

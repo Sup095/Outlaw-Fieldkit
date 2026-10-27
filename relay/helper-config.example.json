@@ -1,0 +1,11 @@
+{
+  "_": "A BROWSER HELPER's config.json (FIELDKIT_PROJECT.md 14.38). The relay's own image, run as a second Pterodactyl server on another machine (Bastion 2), with this file in its /home/container. The \"helper\" block is what makes it a helper: start.js then runs browser-helper.js instead of the relay. It takes the relay's NEW browser sessions when the relay is full, and only ever answers the relay, which passes the panels' streams through; list its address in the relay's browser.helpers. tools/make-deploy.js writes the real one to deploy/helper-upload/config.json, with the relay's browser and filter settings so a session behaves the same on either machine; the lines below go on top of those.",
+  "helper": {
+    "_relayUrl": "The relay's own public https address. The helper fetches the relay's key from it, and believes only what that key signed.",
+    "relayUrl": "https://relay.example.com"
+  },
+  "browser": {
+    "_maxSessions": "How many sessions this machine holds. Each is a Chromium of its own, about 350 MB, and up to half a processor while its page moves; give the Pterodactyl server room for them.",
+    "maxSessions": 8
+  }
+}

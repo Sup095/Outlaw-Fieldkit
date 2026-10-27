@@ -158,6 +158,47 @@ every path it tried.
 
 ---
 
+## A second machine: browser helpers
+
+When the relay has no free session, or is over its load line, new
+sessions can go to a **browser helper**: this same image on another
+machine, run as its own Pterodactyl server, so its processor and memory
+show in the panel beside the relay's. The panel notices nothing: it
+still talks only to the relay, which passes the stream through to the
+helper over your home network or tailnet. The helper is never put on
+the internet, and it answers nothing that does not carry a pass signed
+by the relay.
+
+1. **Build the image on the second machine** too, the same two commands
+   as step 1 (Wings on that machine uses the local tag).
+2. **Give it an allocation** in the panel: on that machine's node, a
+   port on `0.0.0.0` (for example `25570`).
+3. **Create the server**: same egg, that node, that allocation. Memory:
+   about 400 MB per session; `maxSessions` is 8 by default. CPU: give it
+   what you can spare (each session uses up to half a processor while its
+   page moves).
+4. **Upload its config.json**: `node tools/make-deploy.js` writes one to
+   `deploy/helper-upload/config.json`, with your relay's browser and
+   filter settings and the relay's public address
+   (`helper.relayUrl`), from which the helper fetches the relay's key.
+   Start it. Its log should say `have the relay's key`.
+5. **Tell the relay**: in the relay's config, list the helper by an
+   address the relay's container can reach, best the second machine's
+   tailnet address:
+
+   ```json
+   "browser": { "helpers": ["http://100.64.0.12:25570"] }
+   ```
+
+   Restart the relay. Its log says how many helpers it has, and when one
+   stops or starts answering.
+
+A session stays on the machine that holds it. If a helper goes away,
+new sessions simply stay on the relay. An admin's **USAGE** shows each
+helper and its sessions.
+
+---
+
 ## Content filtering
 
 Every name the browser looks up is resolved **inside the relay**,

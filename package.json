@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Portable USB command console / dev toolkit. Code on the drive, data encrypted on the relay.",
+  "license": "SEE LICENSE IN LICENSE",
   "scripts": {
     "build": "node build.js",
     "deploy": "node build.js --deploy",
