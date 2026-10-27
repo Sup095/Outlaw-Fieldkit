@@ -25,6 +25,7 @@
 
 const fs = require("fs");
 const path = require("path");
+const zip = require("./zip");
 
 const AUDIT_KEEP = 1000;
 const SHA_RE = /^[a-f0-9]{64}$/;
@@ -192,6 +193,29 @@ function command(ctx, s, m) {
       if (!r) throw new Error("no such library file");
       admin.audit(by, "unpin", r.handle, r.file.name);
       return { done: r.file.name + " went back to " + r.handle + " with a fresh 30-day clock" };
+    }
+    /* A library title's card: its name and a line about it, the
+       arguments and the file inside a zip that PLAY uses, and whether
+       it opens in a window. Every field is checked here, because
+       everyone who opens RUNNER is shown it and PLAY sends it back. */
+    case "adm-lib-set": {
+      const e = store.find(user(by), m.file);
+      if (!e || !e.library) throw new Error("no such library file");
+      const line = (v, n) => String(v == null ? "" : v).replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim().slice(0, n);
+      const card = { title: line(m.title, 60), about: line(m.about, 200), args: line(m.args, 200), window: !!m.window };
+      if (m.entry) {
+        const en = zip.cleanEntry(m.entry);
+        if (!en) throw new Error("that is not a file name inside a zip");
+        if (store.sniff(user(by), m.file) !== "zip") throw new Error(e.name + " is not a zip, so there is no file inside to choose");
+        if (zip.runnable(zip.list(store.pathOf(user(by), m.file)).entries).indexOf(en) < 0) {
+          throw new Error(en + " is not a program inside " + e.name);
+        }
+        card.entry = en;
+      }
+      const empty = !card.title && !card.about && !card.args && !card.window && !card.entry;
+      store.libSet(m.file, empty ? null : card);
+      admin.audit(by, "library-card", null, e.name);
+      return { done: empty ? "the card for " + e.name + " was cleared" : e.name + " now shows as " + (card.title || e.name) };
     }
     case "adm-lib-rm": {
       const e = store.libRemove(m.file, by);

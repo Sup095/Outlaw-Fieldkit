@@ -18,7 +18,7 @@ const os = require("os");
 const path = require("path");
 const crypto = require("crypto");
 const { makeRunner } = require("./harness");
-const { connect, wait } = require("./runner-kit");
+const { connect, wait, makeZip } = require("./runner-kit");
 const ticket = require("../runnerd/ticket");
 const runnerd = require("../runnerd/server");
 
@@ -123,8 +123,45 @@ function age(handle, id, days) {
     ok("three people run the same permanent file at once", runs.every((r) => r.t === "job"),
       JSON.stringify(runs.map((r) => r.why || r.t)));
     ok("and it really is three jobs", app._internals.jobs.size === 3);
+    const playing = (await (bob.say({ t: "ls" }), bob.next("files"))).library.find((f) => f.id === up.file.id);
+    ok("the library says how many are playing it", playing && playing.playing === 3, JSON.stringify(playing));
     const ends = await Promise.all([alice.next("exit"), bob.next("exit"), guest.next("exit")]);
     ok("all three finish", ends.every((e) => e.code === 0));
+
+    /* The card: what members see, and how PLAY starts it. */
+    let r = await alice.ask({ t: "adm-lib-set", file: up.file.id, title: "Mine now" });
+    ok("a member cannot write a library card", r.t === "error" && r.why === "admins only", JSON.stringify(r));
+    r = await boss.ask({ t: "adm-lib-set", file: up.file.id, title: "Space\u0007  Game\n", about: "x".repeat(500),
+      args: "--fast", window: true });
+    ok("an admin can", r.t === "adm-done" && /now shows as Space Game/.test(r.done), JSON.stringify(r));
+    const card = (await (bob.say({ t: "ls" }), bob.next("files"))).library.find((f) => f.id === up.file.id).card;
+    ok("everyone sees it, cleaned: no control characters, one line, limited length",
+      card.title === "Space Game" && card.about.length === 200 && card.args === "--fast" && card.window === true,
+      JSON.stringify(card));
+    r = await boss.ask({ t: "adm-lib-set", file: up.file.id, entry: "a.js" });
+    ok("a file inside can only be chosen for a zip", r.t === "error" && /is not a zip/.test(r.why), JSON.stringify(r));
+    r = await boss.ask({ t: "adm-lib-set", file: "0123456789abcdef01234567", title: "x" });
+    ok("and only for something in the library", r.t === "error" && /no such library file/.test(r.why));
+    r = await boss.ask({ t: "adm-lib-set", file: up.file.id });
+    const cleared = (await (bob.say({ t: "ls" }), bob.next("files"))).library.find((f) => f.id === up.file.id);
+    ok("an empty card clears it", /was cleared/.test(r.done) && !cleared.card, JSON.stringify(cleared));
+
+    const zb = makeZip([{ name: "a/one.js", data: "console.log('one')" },
+      { name: "b/two.js", data: "console.log('two from ' + require('path').basename(process.cwd()))" }]);
+    const zu = await alice.put("pair.zip", zb);
+    await boss.ask({ t: "adm-pin", handle: "alice", file: zu.file.id });
+    r = await boss.ask({ t: "adm-lib-set", file: zu.file.id, entry: "../two.js" });
+    ok("a name with .. is refused", r.t === "error", JSON.stringify(r));
+    r = await boss.ask({ t: "adm-lib-set", file: zu.file.id, entry: "c/three.js" });
+    ok("so is a name that is not a program inside", r.t === "error" && /is not a program inside/.test(r.why), JSON.stringify(r));
+    r = await boss.ask({ t: "adm-lib-set", file: zu.file.id, title: "Two", entry: "b/two.js" });
+    const zc = (await (bob.say({ t: "ls" }), bob.next("files"))).library.find((f) => f.id === zu.file.id).card;
+    ok("a program inside the zip can be chosen", r.t === "adm-done" && zc.entry === "b/two.js", JSON.stringify(r));
+    const pr = await bob.run(zu.file.id, [], { entry: zc.entry });
+    const pout = await bob.next((m) => m.t === "out" && m.job === (pr.job && pr.job.id));
+    ok("and PLAY's way of starting it works for anyone", pr.t === "job" && /two from b/.test(pout.d), JSON.stringify(pout));
+    await bob.next("exit");
+    await boss.ask({ t: "adm-lib-rm", file: zu.file.id });
 
     alice.say({ t: "rm", file: up.file.id });
     ok("the uploader cannot delete a permanent file", (await alice.next("removed")).ok === false);

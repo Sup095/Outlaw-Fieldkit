@@ -619,12 +619,15 @@ function create(cfg, logFn) {
     switch (m.t) {
       case "hello":
       case "ls": {
+        /* The library, each title with how many are running it now. */
+        const libraryView = () => store.library().map((f) => Object.assign(f,
+          { playing: count((j) => j.library && j.file === f.id) }));
         const st = admin.state(s.handle);
         const files = store.list(s.owner);
         tell(s, { t: m.t === "hello" ? "ready" : "files", handle: s.handle, tier: s.tier,
           limits: limits.publicView(s.limits), usage: store.usage(s.owner),
           files: s.owner.kind === "guest" ? files : files.map(decorate),
-          library: store.library(), windows: !!cfg.images.wine, pressure: pressure(),
+          library: libraryView(), windows: !!cfg.images.wine, pressure: pressure(),
           screens: screenReady() && !!s.limits.screen,
           internet: !!(s.limits.internet && state.driverCheck && state.driverCheck.egress),
           ttlDays: Math.round(ttlMs() / DAY),

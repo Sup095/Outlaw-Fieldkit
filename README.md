@@ -69,18 +69,24 @@ when video is not available. It has:
 - a page's "choose file" opening your own file picker;
 - touch: drag to scroll, tap, pinch to zoom;
 - bookmarks and history kept encrypted in your vault;
-- a DNS content filter, set by the relay's owner.
+- a DNS content filter, set by the relay's owner;
+- a warm start: pointing at its tile starts it before you click.
 
 Guests get a throwaway session; members' sign-ins can be kept for a while.
 
 **RUNNER.** Upload a program (Python, JavaScript, shell, Linux binaries,
-Windows `.exe` through Wine) and it runs in a sandbox on the run server. You
-get its output live, or its window as video with your keyboard and mouse
-sent back.
+Windows `.exe` through Wine, or a `.zip` of a whole folder) and it runs in a
+sandbox on the run server. You get its output live, or its window as video
+with your keyboard and mouse sent back.
 - Guests' sandboxes are wiped when they leave.
-- Members keep their files, can leave jobs running, and get filtered internet.
-- Admins get a library of shared programs, punishments, a bin, power readings
-  and a fair-access line.
+- Members keep their files, can leave jobs running, get filtered internet,
+  and have a saved folder; Windows programs keep their saves and settings
+  in it.
+- A zip is unpacked inside the sandbox; you choose which program in it to
+  start.
+- Admins get a library of shared programs with cards (a title, a line about
+  it, and a PLAY button), punishments, a bin, power readings and a
+  fair-access line.
 
 **The vault (FIELDKIT only).** Notes, a scratchpad, snippets, a task board,
 decisions, a changelog, an incident log, a playtest log, encrypted file

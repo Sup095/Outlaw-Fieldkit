@@ -258,6 +258,16 @@ class Store {
     return lib ? Object.assign({}, lib, { library: true }) : null;
   }
 
+  /* What the library shows and how PLAY starts it (admin.js checks it).
+     null takes the card away. */
+  libSet(id, card) {
+    const lib = this._readLib(), e = lib.files[id];
+    if (!e) return null;
+    if (card) e.card = card; else delete e.card;
+    this._writeLib(lib);
+    return Object.assign({}, e, { library: true });
+  }
+
   pin(handle, id, by) {
     const u = this._readUser(handle), e = u.files[id];
     if (!e) return null;

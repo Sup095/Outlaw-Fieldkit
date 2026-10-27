@@ -228,6 +228,14 @@ Godot's Compatibility renderer.
 - Windows programs take about 15–20 seconds to show their window:
   Wine starts slowly inside gVisor.
 
+## The library's cards
+
+In ADMIN → SHARED LIBRARY, **CARD** gives a title its name, a line about
+it, the arguments PLAY uses, the program inside a .zip to start, and
+whether it opens in a window. Members then see one **PLAY** (or **START**)
+button that does all of that, and how many people are playing it now.
+An empty card clears it.
+
 ## Programs that are a folder (.zip)
 
 Zip the folder and upload the .zip. On RUN the panel lists the files

@@ -65,6 +65,7 @@
   var saveList = null;      // and what it last said
   var players = {};         // job id -> the player for a job with a screen
   var zipPick = null;       // { id, list, screen, args } while asking which file in a zip to run
+  var cardEdit = null;      // the library file whose card an admin is editing
   var waking = null;        // { since } while the run server is being woken
   var wakeFailed = false;   // a wake did not work: wait for a click before trying again
 
@@ -609,6 +610,32 @@
     }
   }
 
+  /* An admin's form for a library title's card (runnerd/admin.js,
+     adm-lib-set). Empty fields clear the card. */
+  function cardForm(f, go) {
+    var card = f.card || {};
+    var field = function (ph, v, max) { return el("input", { class: "rn-args rn-card-in", type: "text", placeholder: ph, value: v || "", maxlength: String(max) }); };
+    var title = field("title, as members see it", card.title, 60);
+    var about = field("one line about it", card.about, 200);
+    var args = field("arguments PLAY uses (optional)", card.args, 200);
+    var entry = field(/\.zip$/i.test(f.name) ? "the file inside the zip PLAY starts, e.g. Game/game.exe" : "(only for a .zip)", card.entry, 240);
+    if (!/\.zip$/i.test(f.name)) entry.disabled = true;
+    var win = el("input", { type: "checkbox" });
+    win.checked = !!card.window;
+    return el("div", { class: "rn-cardform" }, [
+      title, about, args, entry,
+      el("label", { class: "rn-dim" }, [win, el("span", { text: " opens a window (PLAY uses RUN IN WINDOW)" })]),
+      el("div", { class: "rn-zip-list" }, [
+        ui.button("SAVE CARD", function () {
+          cardEdit = null;
+          go({ t: "adm-lib-set", file: f.id, title: title.value, about: about.value, args: args.value,
+            entry: entry.disabled ? "" : entry.value, window: win.checked })();
+        }, { primary: true }),
+        ui.button("CLEAR", function () { cardEdit = null; go({ t: "adm-lib-set", file: f.id })(); })
+      ])
+    ]);
+  }
+
   /* The file inside a zip that was run last, per zip, on this computer. */
   function zipLast(id, entry) {
     var k = "fieldkit.runner.zipEntry." + id;
@@ -918,14 +945,23 @@
     if ((c.library || []).length) {
       lib = el("div", { class: "rn-files rn-lib" }, [el("div", { class: "rn-lib-h", text: "SHARED LIBRARY" })]);
       c.library.forEach(function (f) {
+        /* An admin's card says what it is and how PLAY starts it. */
+        var card = f.card || null;
         var a2 = el("input", { class: "rn-args", type: "text", placeholder: "arguments (optional)" });
         a2.addEventListener("keydown", function (e) { if (e.key === "Enter") run(f, a2.value); });
-        lib.appendChild(el("div", { class: "rn-file" }, [
-          el("span", { class: "rn-name", text: f.name, title: f.name }),
+        var canPlay = card && (!card.window || c.screens);
+        lib.appendChild(el("div", { class: "rn-file" + (card ? " rn-card" : "") }, [
+          el("span", { class: "rn-name", text: (card && card.title) || f.name, title: f.name }),
+          f.playing ? el("span", { class: "rn-playing", text: f.playing + " PLAYING" }) : null,
           el("span", { class: "rn-size", text: fmtBytes(f.size) }),
-          a2, ui.button("RUN", function () { run(f, a2.value); }, { primary: true }),
+          canPlay ? ui.button(card.window ? "PLAY" : "START", function () {
+            run(f, card.args || "", !!card.window, card.entry || undefined);
+          }, { primary: true }) : null,
+          card && card.window && !c.screens ? el("span", { class: "rn-dim", text: "opens a window: members only" }) : null,
+          a2, ui.button("RUN", function () { run(f, a2.value); }, { primary: !canPlay }),
           c.screens ? ui.button("RUN IN WINDOW", function () { run(f, a2.value, true); }) : null
         ]));
+        if (card && card.about) lib.appendChild(el("div", { class: "rn-about", text: card.about }));
         var q = pickRow(f);
         if (q) lib.appendChild(q);
       });
@@ -1254,6 +1290,8 @@
     var out = await ask(c, ref, cmd);
     if (out.t === "error") ui.toast(String(out.why).toUpperCase(), "fail");
     else ui.toast(String(out.done || "DONE").toUpperCase(), "ok");
+    /* The library and the file list may have changed under it. */
+    if (out.t !== "error") say({ t: "ls" });
     if (guard() && adminView) render();
   }
 
@@ -1471,10 +1509,13 @@
     box.appendChild(head("SHARED LIBRARY (" + d.library.length + ")"));
     d.library.forEach(function (f) {
       var from = (f.origin && f.origin.handle) || "unknown";
-      box.appendChild(row([el("span", { class: "rn-name", text: f.name + "  (" + fmtBytes(f.size) + ", from " + from + ")" }),
+      box.appendChild(row([el("span", { class: "rn-name", text: ((f.card && f.card.title) ? f.card.title + " = " : "") +
+          f.name + "  (" + fmtBytes(f.size) + ", from " + from + ")" }),
+        ui.button(cardEdit === f.id ? "CLOSE CARD" : "CARD", function () { cardEdit = cardEdit === f.id ? null : f.id; render(); }),
         ui.button("UNPIN", go({ t: "adm-unpin", file: f.id })),
         ui.button("DELETE", go({ t: "adm-lib-rm", file: f.id }), { danger: true }),
         ui.button("BLOCK", go({ t: "adm-block", file: f.id }, "Block " + f.name + " everywhere, for good? Why?"), { danger: true })]));
+      if (cardEdit === f.id) box.appendChild(cardForm(f, go));
     });
 
     box.appendChild(head("BIN (can be restored)"));
@@ -1578,6 +1619,11 @@
       ".rn-dim{color:var(--fg-dimmer);font-size:10px}",
       ".rn-zip{display:flex;flex-direction:column;gap:5px;padding:6px 6px 8px 18px;border-bottom:1px solid var(--line);font-size:11px}",
       ".rn-zip-list{display:flex;flex-wrap:wrap;gap:4px;align-items:center}",
+      ".rn-card .rn-name{color:var(--accent);font-weight:bold}",
+      ".rn-about{font-size:10px;color:var(--fg-dimmer);padding:0 6px 4px 12px;border-bottom:1px solid var(--line)}",
+      ".rn-playing{font-size:9px;letter-spacing:.12em;color:var(--ok, var(--accent));border:1px solid currentColor;padding:0 4px}",
+      ".rn-cardform{display:flex;flex-direction:column;gap:4px;padding:6px 6px 8px 18px;border-bottom:1px solid var(--line)}",
+      ".rn-card-in{width:100%}",
       ".rn-scr{border:1px solid var(--line);background:#000;display:flex;flex-direction:column;flex:none}",
       ".rn-scr-h{display:flex;gap:8px;align-items:center;padding:3px 6px;font-size:10px;border-bottom:1px solid var(--line)}",
       ".rn-scr-n{color:var(--accent);letter-spacing:.1em}.rn-scr-l{flex:1;color:var(--fg-dimmer)}",

@@ -273,7 +273,35 @@ const remount = () => { def.unmount(); host = fakeElement("div"); def.mount(host
     fire(button("SLEEP NOW"), "click");
     await new Promise((r) => setTimeout(r, 200));
     ok("and without fk-sleep it is refused, so nothing sleeps", !app.sleep.force);
+
+    /* A library title gets a card, and members get a START for it. */
     fire(button("BACK"), "click");
+    await until(() => byClass("rn-drop").length === 1);
+    fire(byClass("rn-drop")[0], "drop", { dataTransfer: { files: [new File(["console.log('took off with ' + process.argv.slice(2).join(' '))"], "rocket.js")] } });
+    await until(() => byClass("rn-file").length === 1);
+    const mine = app.store.list({ kind: "user", handle: "tester" })[0];
+    app.store.pin("tester", mine.id, "tester");
+    fire(button("ADMIN"), "click");
+    await until(() => !!button("CARD"));
+    ok("each library title in ADMIN has a CARD button", !!button("CARD"));
+    fire(button("CARD"), "click");
+    await until(() => byClass("rn-card-in").length === 4);
+    const [cTitle, cAbout, cArgs, cEntry] = byClass("rn-card-in");
+    ok("the form asks for a title, a line about it and arguments; the file inside only for a zip",
+      !!cTitle && !!cAbout && !!cArgs && cEntry.disabled === true);
+    cTitle.value = "Rocket"; cAbout.value = "A small test of taking off."; cArgs.value = "at dawn";
+    fire(button("SAVE CARD"), "click");
+    await until(() => /Rocket = rocket\.js/.test(text()));
+    ok("saving shows the title in ADMIN", /Rocket = rocket\.js/.test(text()), text().slice(-400));
+    fire(button("BACK"), "click");
+    await until(() => !!button("START"));
+    ok("members see the title, the line about it, and START", !!button("START") && /Rocket/.test(text()) &&
+      /A small test of taking off\./.test(text()), text().slice(0, 400));
+    fire(button("START"), "click");
+    await until(() => /took off with at dawn/.test(text()));
+    ok("START runs it with the card's arguments", /took off with at dawn/.test(text()), text().slice(-200));
+    await until(() => /finished with code 0/.test(text()));
+    app.store.libRemove(mine.id, "tester");
     tier = "member";
 
     await app.close();
