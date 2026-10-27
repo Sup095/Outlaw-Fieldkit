@@ -1,2 +1,3 @@
 # Outlaw-Fieldkit
 A bypass to things like school or work blocks, you will need a server or to use my server, which is linked.
+In order to use, download the latest version, and go to the server link, you will put in the link to my or another server running the required materials, then have access to everything you need, all of this info will be cached and saved to local storage, meaning you will only have to put it in once per computer, unless you clear the local storage. There are notes and info sections for pretty much everything, so you should be able to find any info you need. if you encounter an issue or bug, please report it in the issues tab.
