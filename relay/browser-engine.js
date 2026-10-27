@@ -68,6 +68,7 @@ const path = require("path");
 const crypto = require("crypto");
 const { CDP, version } = require("./cdp");
 const { Guard } = require("./guard");
+const { Meter } = require("./proc-usage");
 
 const DEFAULTS = {
   enabled: false,
@@ -356,6 +357,19 @@ class Engine {
     this._teardown();
     if (p) { try { p.kill("SIGTERM"); } catch (e) {} }
     this.proc = null;
+  }
+
+  /* What the browser costs (RUNNER_PLAN.md §17): Chromium with all its
+     processes, and each session. For admins only (browser-route.js). */
+  usage() {
+    if (!this._meter) this._meter = new Meter();
+    const now = Date.now();
+    return {
+      chromium: this.proc && this.proc.pid ? this._meter.read(this.proc.pid) : null,
+      sessions: Array.from(this.sessions.values()).map((s) => ({
+        who: String(s.who), tier: s.tier, tabs: (s.tabs || []).length, viewers: s.viewers.size,
+        idleSec: Math.round((now - (s.lastSeen || now)) / 1000) }))
+    };
   }
 
   status() {

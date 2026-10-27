@@ -213,6 +213,21 @@ const remount = () => { def.unmount(); host = fakeElement("div"); def.mount(host
     await until(() => byClass("rn-file").length === 0);
     ok("DELETE removes it", byClass("rn-file").length === 0 && /NO FILES YET/.test(text()));
 
+    /* What a running program is using, in its row. */
+    fire(byClass("rn-drop")[0], "drop", { dataTransfer: { files: [new File(["setTimeout(() => console.log('slow done'), 1500)"], "slow.js")] } });
+    await until(() => byClass("rn-file").length === 1);
+    fire(button("RUN"), "click");
+    await until(() => app._internals.jobs.size === 1 && /RUNNING slow.js/.test(text()));
+    const jid = Array.from(app._internals.jobs.keys())[0];
+    app._internals.driver.fakeStats = { [jid]: { cpu: 0.5, memMb: 30 } };
+    await app._internals.sampleUse();
+    await until(() => /0\.50 core · 30 MB of 2048 MB/.test(text()));
+    ok("a running program's row says what it is using", /0\.50 core · 30 MB of 2048 MB/.test(text()), text().slice(0, 300));
+    await until(() => /slow done/.test(text()) && app._internals.jobs.size === 0, 5000);
+    app._internals.driver.fakeStats = null;
+    fire(button("DELETE"), "click");
+    await until(() => byClass("rn-file").length === 0);
+
     /* A program that is a folder, zipped. */
     const two = makeZip([{ name: "a/one.js", data: "console.log('one ran')" },
       { name: "b/two.js", data: "console.log('two ran in ' + require('path').basename(process.cwd()))" },

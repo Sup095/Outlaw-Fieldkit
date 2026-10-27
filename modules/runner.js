@@ -477,6 +477,15 @@
       case "out":
         return print(m.s === "stderr" ? "err" : "out", String(m.d));
 
+      /* What a program of yours is using, every 10 s. Written into its
+         row in place: a whole render would cost the terminal its
+         scroll position. */
+      case "use":
+        if (!c.jobs[m.job]) return;
+        c.jobs[m.job].use = { cpu: m.cpu, memMb: m.memMb, memLimitMb: m.memLimitMb };
+        if (nodes.use && nodes.use[m.job]) nodes.use[m.job].textContent = useText(c.jobs[m.job].use);
+        return;
+
       case "screen":
         if (c.jobs[m.job]) c.jobs[m.job].screen = m.screen;
         if (players[m.job]) players[m.job].resize(m.screen);
@@ -634,6 +643,13 @@
         ui.button("CLEAR", function () { cardEdit = null; go({ t: "adm-lib-set", file: f.id })(); })
       ])
     ]);
+  }
+
+  /* "1.0 core · 97 MB of 2048 MB", or nothing before the first sample. */
+  function useText(u) {
+    if (!u || u.cpu == null) return "";
+    return (u.cpu >= 0.995 || u.cpu === 0 ? u.cpu.toFixed(1) : u.cpu.toFixed(2)) + " core · " + u.memMb + " MB" +
+      (u.memLimitMb ? " of " + u.memLimitMb + " MB" : "");
   }
 
   /* The file inside a zip that was run last, per zip, on this computer. */
@@ -980,9 +996,12 @@
 
     var running = Object.keys(c.jobs).map(function (id) { return c.jobs[id]; });
     var screens = running.filter(function (j) { return !!j.screen; }).map(function (j) { return player(j).box; });
+    nodes.use = {};
     var jobs = el("div", { class: "rn-jobs" }, running.map(function (j) {
+      nodes.use[j.id] = el("span", { class: "rn-use", text: useText(j.use) });
       return el("span", { class: "rn-job" }, [
         el("span", { text: "RUNNING " + j.name + "  " }),
+        nodes.use[j.id],
         ui.button("STOP", function () { say({ t: "kill", job: j.id }); }, { danger: true })
       ]);
     }));
@@ -1470,8 +1489,10 @@
 
     box.appendChild(head("RUNNING NOW (" + d.jobs.length + ")"));
     if (!d.jobs.length) box.appendChild(el("div", { class: "rn-dim", text: "nothing" }));
-    d.jobs.forEach(function (j) {
+    /* Busiest first: the one to look at is at the top. */
+    d.jobs.slice().sort(function (a, b) { return (b.cpu || 0) - (a.cpu || 0); }).forEach(function (j) {
       box.appendChild(row([el("span", { class: "rn-name", text: j.name + "  (" + j.handle + ", " + ago(j.startedAt) + ")" }),
+        el("span", { class: "rn-use", text: useText(j) + (j.outKb ? "  ·  " + j.outKb + " KB out" : "") }),
         ui.button("STOP", go({ t: "adm-kill", job: j.id }), { danger: true })]));
     });
 
@@ -1619,6 +1640,7 @@
       ".rn-dim{color:var(--fg-dimmer);font-size:10px}",
       ".rn-zip{display:flex;flex-direction:column;gap:5px;padding:6px 6px 8px 18px;border-bottom:1px solid var(--line);font-size:11px}",
       ".rn-zip-list{display:flex;flex-wrap:wrap;gap:4px;align-items:center}",
+      ".rn-use{font-size:10px;color:var(--fg-dimmer);margin-right:6px}",
       ".rn-card .rn-name{color:var(--accent);font-weight:bold}",
       ".rn-about{font-size:10px;color:var(--fg-dimmer);padding:0 6px 4px 12px;border-bottom:1px solid var(--line)}",
       ".rn-playing{font-size:9px;letter-spacing:.12em;color:var(--ok, var(--accent));border:1px solid currentColor;padding:0 4px}",

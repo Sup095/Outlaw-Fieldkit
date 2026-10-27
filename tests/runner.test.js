@@ -172,6 +172,12 @@ const NOISY = "setInterval(() => process.stdout.write('x'.repeat(1000)), 5);";
     ok("the box is told the name when there is a /save", /--env FK_TITLE=My Game_/.test(wa("/s/saves/alice")));
     ok("and not without one (a guest keeps nothing)", !/FK_TITLE/.test(wa(null)));
     ok("a window keeps the name", sandbox.plan("G.exe", "pe", [], "/job", true).title === "G");
+    const ws = new sandbox.DockerDriver({ storePath: "/s", images: { base: "img:1", wine: "wine:1", screen: "scr:1" } });
+    const win = (save) => ws.args(Object.assign({}, job, { plan: sandbox.plan("G.exe", "pe", [], "/job", true), save: save,
+      limits: Object.assign({}, job.limits, { screen: true }) })).argv.join(" ");
+    ok("a window's shader cache is kept per program in /save", /MESA_SHADER_CACHE_DIR=\/save\/\.cache\/mesa\/G /.test(win("/s/saves/a")) &&
+      /MESA_SHADER_CACHE_MAX_SIZE=128M/.test(win("/s/saves/a")));
+    ok("and not without a /save, or without a window", !/MESA_SHADER/.test(win(null)) && !/MESA_SHADER/.test(wa("/s/saves/alice")));
 
     const refuses = (fn) => { try { fn(); return ""; } catch (e) { return e.message; } };
     ok("a file type nobody knows is refused in words",

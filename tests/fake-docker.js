@@ -2,7 +2,7 @@
    be tested on a machine without Docker. Not a suite itself.
 
    It answers the few questions runnerd asks (version, image inspect,
-   info, inspect, ps, network, rm, kill) and, for `run`, pretends to be
+   info, inspect, ps, network, rm, kill, stats) and, for `run`, pretends to be
    fk-screen: it writes the same framed stream (status, video, sound,
    output) and echoes every input line it is sent back as output, so a
    test can see exactly what reached the box.
@@ -31,6 +31,13 @@ if (cmd === "info") {
   process.exit(0);
 }
 if (cmd === "inspect") process.exit(1);               /* no egress container */
+if (cmd === "stats") {
+  /* One line per box asked about, the way docker stats prints them. */
+  argv.slice(1).filter((x) => x.indexOf("fk-") === 0).forEach((n, i) => {
+    console.log(n + "|" + (12.5 * (i + 1)).toFixed(2) + "%|" + (40 + i) + ".5MiB / 2GiB");
+  });
+  process.exit(0);
+}
 if (cmd === "ps" || cmd === "rm" || cmd === "network") process.exit(0);
 if (cmd === "kill") {
   try { process.kill(Number(fs.readFileSync(pidFile(argv[1]), "utf8")), "SIGTERM"); } catch (e) {}

@@ -223,7 +223,22 @@ async function route(req, res, url, helpers) {
       return true;
     }
     const tier = helpers.tierOf ? helpers.tierOf(req) : (who === "vault" ? "admin" : "guest");
-    send(res, 201, { ticket: issue(who, tier), expiresIn: TICKET_MS / 1000 });
+    /* The tier is said so the panel knows to offer admin things (USAGE);
+       the relay checks it again on every one of them. */
+    send(res, 201, { ticket: issue(who, tier), expiresIn: TICKET_MS / 1000, tier: tier });
+    return true;
+  }
+
+  /* What the browser costs, for an admin: Chromium, each session, and
+     each open panel's bandwidth and encoder. Sampling CPU needs two
+     readings, so the panel asks every few seconds while it shows this. */
+  if (what === "usage" && method === "GET") {
+    const tier = helpers.tierOf ? helpers.tierOf(req) : (who === "vault" ? "admin" : "guest");
+    if (tier !== "admin") { send(res, 403, { error: "admins only" }); return true; }
+    const u = engine.usage();
+    u.viewers = Array.from(viewers).map((v) => v.stats ? v.stats() : null).filter(Boolean);
+    u.upKbps = fair && fair.meter ? fair.meter.upKbps || null : null;
+    send(res, 200, u);
     return true;
   }
 
@@ -272,7 +287,8 @@ async function upgrade(req, sock, head, url) {
   const tell = (obj) => { if (alive) socket.send(JSON.stringify(obj)); };
   let held = null, heldTimer = null;
   /* Every frame out is counted: it is this relay's use of the home upload. */
-  const out = (b) => { if (fair) fair.count(b.length); return socket.send(b); };
+  let sent = 0;
+  const out = (b) => { sent += b.length; if (fair) fair.count(b.length); return socket.send(b); };
   const feed = (pic) => {
     const tx = viewer.video;
     if (!tx) return out(pic);
@@ -307,9 +323,22 @@ async function upgrade(req, sock, head, url) {
     viewer.restep();
     tell({ t: "quality", step: q.own, kbps: kbpsNow() });
   }
+  const since = Date.now();
+  const rate = { sent: 0, at: since };
   const viewer = {
     video: null,       /* the encoder, when this panel asked for video */
     quality: q,
+    /* For an admin's USAGE: what this panel has been sent since the
+       last time it was asked, and what its encoder is using. */
+    stats() {
+      const now = Date.now();
+      const kbps = now > rate.at ? Math.round((sent - rate.sent) * 8 / (now - rate.at)) : 0;
+      rate.sent = sent; rate.at = now;
+      const enc = viewer.video && viewer.video.usage ? viewer.video.usage() : null;
+      return { who: String(who), tier: tier, sinceSec: Math.round((now - since) / 1000), video: !!viewer.video,
+        kbps: kbps, capKbps: viewer.video ? kbpsNow() : null, step: q.own, sentMb: Math.round(sent / 104857.6) / 10,
+        encCpu: enc ? enc.cpu : null, encMemMb: enc ? enc.memMb : null };
+    },
     restep() {
       if (alive && viewer.video && viewer.video.setKbps(kbpsNow()) && session) engine.refresh(session).catch(() => {});
     },

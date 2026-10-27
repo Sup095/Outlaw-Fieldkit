@@ -1028,6 +1028,11 @@
       if (!session) throw new Error("not signed in to MESSAGES");
       return api("POST", "/browser/ticket");
     },
+    /* The browser's USAGE readout; the relay answers admins only. */
+    browserUsage: async function () {
+      if (!session) throw new Error("not signed in to MESSAGES");
+      return api("GET", "/browser/usage");
+    },
     /* RUNNER's. The relay signs who this account is and what tier,
        and says where the run server is; the panel takes that
        straight there. Same reasoning as the two above: the

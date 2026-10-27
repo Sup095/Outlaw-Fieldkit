@@ -228,6 +228,13 @@ Godot's Compatibility renderer.
 - Windows programs take about 15–20 seconds to show their window:
   Wine starts slowly inside gVisor.
 
+## What programs are using
+
+While anything runs, runnerd reads each box's CPU and memory every 10
+seconds (`docker stats`). ADMIN → RUNNING NOW lists programs busiest
+first with those figures, and each person sees their own program's in
+its row.
+
 ## The library's cards
 
 In ADMIN → SHARED LIBRARY, **CARD** gives a title its name, a line about

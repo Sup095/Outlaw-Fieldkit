@@ -43,10 +43,16 @@ wall is that a person answers them, not that the relay slips past them.
 |---|---|
 | **Memory** | ~150 MB for Chromium plus 80–150 MB per active session. Six sessions fit in 4 GB alongside the rest of the relay. |
 | **Audio** | Does not travel. A screencast is video frames. Video plays; you will not hear it. |
-| **It is a picture** | Ctrl-F is the site's, not the browser's. Text selection happens through the page. |
-| **Downloads** | Refused at the browser. There is no way to hand a file from the container to the person yet. |
+| **It is a picture** | FIND and zoom act on the real page; text is selected and copied through the page, and copy and paste work both ways. |
+| **Downloads** | Saved to your device or encrypted into VAULT FILES; a page's "choose file" opens your own picker. |
 
 ---
+
+**Seeing it live.** An admin (the vault holder, or a MESSAGES admin) has a
+**USAGE** button in the browser's toolbar. It shows, every 4 seconds,
+Chromium's CPU and memory across all its processes, each session, and
+each open panel's bandwidth, video cap and encoder CPU. The relay reads
+these from `/proc` (`proc-usage.js`), so they are Linux-only.
 
 ## What it fixes
 

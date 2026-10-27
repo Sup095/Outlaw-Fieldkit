@@ -107,6 +107,8 @@ function findFfmpeg(configured) {
   return null;
 }
 
+const { Meter } = require("./proc-usage");
+
 class Transcoder extends EventEmitter {
   constructor(opts) {
     super();
@@ -122,6 +124,12 @@ class Transcoder extends EventEmitter {
     this.last = null;
     this.settles = 0;
     this.settleTimer = null;
+    this.meter = new Meter();
+  }
+
+  /* What this viewer's encoder is using (proc-usage.js), or null. */
+  usage() {
+    return this.proc && this.proc.pid ? this.meter.read(this.proc.pid) : null;
   }
 
   /* One JPEG from the screencast. */

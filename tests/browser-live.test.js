@@ -63,7 +63,14 @@ FieldKit.provide("store", {
   async remove(id) { recs.delete(id); return true; }
 });
 let tickets = 0;
-FieldKit.provide("transportRelay", { streamTicket: async () => { tickets++; return { ticket: "TICKET" }; } });
+let usageAsks = 0;
+FieldKit.provide("transportRelay", {
+  streamTicket: async () => { tickets++; return { ticket: "TICKET", tier: "admin" }; },
+  browserUsage: async () => { usageAsks++; return {
+    chromium: { cpu: 0.5, memMb: 300, procs: 9 }, upKbps: 2400,
+    sessions: [{ who: "alice", tier: "member", tabs: 2, viewers: 1, idleSec: 3 }],
+    viewers: [{ who: "alice", video: true, kbps: 880, capKbps: 1500, step: 1, encCpu: 0.25, encMemMb: 40, sentMb: 12.5, sinceSec: 600 }] }; }
+});
 const uploads = [];
 FieldKit.provide("files", { upload: async (file) => { uploads.push(file); return { id: "f1" }; } });
 
@@ -111,6 +118,23 @@ const until = async (fn, ms) => { const end = Date.now() + (ms || 3000); while (
     ok("and hello with the panel's size", sent("hello").length === 1 && sent("hello")[0].w > 0);
     ok("opening used the warmed ticket and status: no new ticket, no new status",
       tickets === 1 && statuses() === statusBefore, tickets + " " + statuses());
+  }
+
+  section("USAGE, for an admin");
+  {
+    const ub = button("USAGE");
+    ok("the relay said admin with the ticket, so USAGE is offered", !!ub && ub.style.display !== "none");
+    click(ub);
+    await until(() => /CHROMIUM/.test(text()));
+    ok("it shows Chromium's cost and the house upload", /CHROMIUM  0\.50 core · 300 MB · 9 processes  ·  house upload 2400 kbit\/s/.test(text()), text().slice(0, 400));
+    ok("each session", /alice \(member\) · 2 tabs · 1 watching · idle 3 s/.test(text()));
+    ok("and each open panel: video now, cap, step, encoder and what it was sent",
+      /alice · video 880 kbit\/s now, cap 1500 \(turned down 1\) · encoder 0\.25 core, 40 MB · 12\.5 MB sent in 10 min/.test(text()));
+    click(button("CLOSE"));
+    const asked = usageAsks;
+    await wait(50);
+    ok("CLOSE puts it away and it stops asking", !/CHROMIUM/.test(text()) || byClass("br-usage")[0].style.display === "none");
+    ok("(asked once while open)", asked >= 1);
   }
 
   section("tabs");

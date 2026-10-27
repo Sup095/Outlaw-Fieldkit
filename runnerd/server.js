@@ -260,6 +260,29 @@ function create(cfg, logFn) {
 
   /* ---- counting ---- */
   const count = (pred) => { let n = 0; for (const x of jobs.values()) if (pred(x)) n++; return n; };
+
+  /* What each program is using, every 10 s while any run (phase 10's
+     "measure first"). Admins see it in the overview; each program's
+     own watchers are sent it, so people can see what their program
+     costs. One sample at a time; a slow docker just skips a turn. */
+  let sampling = false;
+  async function sampleUse() {
+    if (sampling || !jobs.size || typeof driver.stats !== "function") return;
+    sampling = true;
+    try {
+      const got = await driver.stats(Array.from(jobs.keys()));
+      const at = Date.now();
+      for (const [id, u] of Object.entries(got)) {
+        const j = jobs.get(id);
+        if (!j || j.ended) continue;
+        j.use = { cpu: u.cpu, memMb: u.memMb, at: at };
+        for (const w of j.watchers || []) tell(w, { t: "use", job: id, cpu: u.cpu, memMb: u.memMb, memLimitMb: j.limits.memoryMb });
+      }
+    } catch (e) { /* never fatal */ }
+    sampling = false;
+  }
+  const useTimer = setInterval(sampleUse, cfg.useEverySec ? cfg.useEverySec * 1000 : 10000);
+  if (useTimer.unref) useTimer.unref();
   const sessionCount = (pred) => { let n = 0; for (const s of sessions.values()) if (pred(s)) n++; return n; };
 
   function health() {
@@ -976,7 +999,7 @@ function create(cfg, logFn) {
   }
 
   async function close() {
-    [keyTimer, renewTimer, sweepTimer, powerTimer, accessTimer, sleepTimer].forEach((t) => t && clearInterval(t));
+    [keyTimer, renewTimer, sweepTimer, powerTimer, accessTimer, sleepTimer, useTimer].forEach((t) => t && clearInterval(t));
     if (sweepFirst) clearTimeout(sweepFirst);
     for (const s of Array.from(sessions.values())) {
       try { s.sock.close(1001, "the server is shutting down"); } catch (e) {}
@@ -986,7 +1009,7 @@ function create(cfg, logFn) {
   }
 
   return { server, listen, close, health, state, store, driver, limits: L,
-    admin, saves, access, sleep, _internals: { sleepTick, sessions, jobs, finished, setKey, fetchKey, runSweep, checkRenewals, RENEW_MS, tickAccess, setCpuOf: (f) => { cpuOf = f; } } };
+    admin, saves, access, sleep, _internals: { sleepTick, sampleUse, driver, sessions, jobs, finished, setKey, fetchKey, runSweep, checkRenewals, RENEW_MS, tickAccess, setCpuOf: (f) => { cpuOf = f; } } };
 }
 
 if (require.main === module) {

@@ -98,6 +98,11 @@
       return call("POST", "/browser/ticket", undefined, { timeout: 20000 });
     },
 
+    /* What the streamed browser costs, for its admin (the vault holder). */
+    async browserUsage() {
+      return call("GET", "/browser/usage");
+    },
+
     /* A page as DATA rather than as a page — title, readable text,
        links — and a search the same way. These are what let a
        CritterScript line read the web, which the drive cannot do at

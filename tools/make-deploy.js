@@ -38,7 +38,7 @@ const arg = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1
 /* The relay's own code. An allow list on purpose: it is what goes
    into the image, so nothing here may be a secret. */
 const RELAY_CODE = ["start.js", "server.js", "browse.js", "browse-runtime.js", "messaging.js",
-  "updates.js", "ws.js", "cdp.js", "guard.js", "browser-engine.js", "browser-route.js", "video-encoder.js", "fairness.js",
+  "updates.js", "ws.js", "cdp.js", "guard.js", "browser-engine.js", "browser-route.js", "video-encoder.js", "proc-usage.js", "fairness.js",
   "runner.js", "fk-wake.js", "fetch-cloudflared.js", "fetch-tailscale.js"];
 
 const BASTION2 = [

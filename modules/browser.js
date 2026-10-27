@@ -487,6 +487,8 @@
      go and a fresh one fetched as before. */
   var WARM_TICKET_MS = 40000, WARM_STATUS_MS = 15000;
   var warm = { ticket: null, ticketAt: 0, status: null, statusAt: 0 };
+  var liveTier = null;              /* what the relay said with the last ticket */
+  var live_usageStop = function () {};
 
   async function prewarm() {
     if (!relayBase()) return;
@@ -497,6 +499,7 @@
     if (warm.ticket && Date.now() - warm.ticketAt < WARM_TICKET_MS) return;
     var t = await getStreamTicket(true);
     warm.ticket = t; warm.ticketAt = Date.now();
+    warm.tier = liveTier;
   }
 
   async function liveStatus(fresh) {
@@ -509,6 +512,26 @@
       return await r.json();
     } catch (e) { return null; }
   }
+
+  /* Admin things in the toolbar appear once the relay has said this
+     is an admin; the relay checks again on every request. */
+  var adminBits = [];
+  function showAdmin() {
+    adminBits.forEach(function (n) { n.style.display = liveTier === "admin" ? "" : "none"; });
+  }
+
+  /* USAGE (RUNNER_PLAN.md §17): what the browser costs, for an admin. */
+  async function fetchUsage() {
+    var relay = FieldKit.service("transportRelay");
+    var store = FieldKit.service("store");
+    if (relay && typeof relay.browserUsage === "function" && store && store.isUnlocked && store.isUnlocked()) {
+      return relay.browserUsage();
+    }
+    var msg = FieldKit.service("messages");
+    if (msg && typeof msg.browserUsage === "function" && msg.signedIn && msg.signedIn()) return msg.browserUsage();
+    throw new Error("sign in to see this");
+  }
+  function cores(n) { return n == null ? "…" : n.toFixed(2) + " core"; }
 
   function streamSources() {
     var sources = [];
@@ -529,6 +552,7 @@
     if (!fresh && warm.ticket && Date.now() - warm.ticketAt < WARM_TICKET_MS) {
       var t = warm.ticket;
       warm.ticket = null;            /* it works once */
+      if (warm.tier) liveTier = warm.tier;
       return t;
     }
     var sources = streamSources();
@@ -539,7 +563,7 @@
     for (var i = 0; i < sources.length; i++) {
       try {
         var d = await sources[i].get();
-        if (d && d.ticket) return d.ticket;
+        if (d && d.ticket) { liveTier = d.tier || null; showAdmin(); return d.ticket; }
         throw new Error("the relay returned no ticket");
       } catch (e) { last = e; }
     }
@@ -908,6 +932,54 @@
     }
     loadPlaces().then(drawStar).catch(function () {});
 
+    var usageBar = el("div", { class: "br-places br-usage" });
+    usageBar.style.display = "none";
+    var usageTimer = null;
+    function drawUsage(u, err) {
+      ui.clear(usageBar);
+      usageBar.appendChild(el("div", { class: "br-places-head" }, [
+        el("span", { class: "br-lbl", text: "WHAT THE BROWSER IS USING (UPDATES EVERY 4 S)" }),
+        el("button", { class: "br-nav br-word", type: "button", text: "CLOSE", onclick: usageOpen })
+      ]));
+      if (err) return usageBar.appendChild(el("div", { class: "br-places-none", text: err }));
+      if (!u) return usageBar.appendChild(el("div", { class: "br-places-none", text: "asking the relay…" }));
+      var line = function (t) { usageBar.appendChild(el("div", { class: "br-use-line", text: t })); };
+      var c = u.chromium;
+      line("CHROMIUM  " + (c ? cores(c.cpu) + " · " + c.memMb + " MB · " + c.procs + " processes" : "not running (parked)") +
+        (u.upKbps != null ? "  ·  house upload " + u.upKbps + " kbit/s" : ""));
+      line("SESSIONS (" + u.sessions.length + ")");
+      u.sessions.forEach(function (s) {
+        line("  " + s.who + " (" + s.tier + ") · " + s.tabs + " tab" + (s.tabs === 1 ? "" : "s") + " · " +
+          s.viewers + " watching · idle " + s.idleSec + " s");
+      });
+      line("OPEN PANELS (" + u.viewers.length + ")");
+      u.viewers.forEach(function (v) {
+        line("  " + v.who + " · " + (v.video ? "video " + v.kbps + " kbit/s now, cap " + v.capKbps +
+          (v.step ? " (turned down " + v.step + ")" : "") + " · encoder " + cores(v.encCpu) +
+          (v.encMemMb != null ? ", " + v.encMemMb + " MB" : "") : "pictures " + v.kbps + " kbit/s") +
+          " · " + v.sentMb + " MB sent in " + Math.round(v.sinceSec / 60) + " min");
+      });
+    }
+    function pollUsage() {
+      fetchUsage().then(function (u) { if (usageBar.style.display !== "none") drawUsage(u); },
+        function (e) { if (usageBar.style.display !== "none") drawUsage(null, String(e.message || e)); });
+    }
+    function usageOpen() {
+      if (usageBar.style.display !== "none") {
+        usageBar.style.display = "none";
+        if (usageTimer) { clearInterval(usageTimer); usageTimer = null; }
+        return;
+      }
+      usageBar.style.display = "";
+      drawUsage(null);
+      pollUsage();
+      usageTimer = setInterval(pollUsage, 4000);
+    }
+    live_usageStop = function () { if (usageTimer) { clearInterval(usageTimer); usageTimer = null; } };
+    var usageBtn = btn("USAGE", "what the browser costs: Chromium, each session and each open panel (admins)", usageOpen);
+    adminBits = [usageBtn];
+    showAdmin();
+
     var bar = el("div", { class: "br-toolbar" }, [
       back, fwd, reload, addr, star,
       btn("GO", "open that address", go),
@@ -927,12 +999,13 @@
       }),
       btn("WIPE", "end the session and throw away everything in it", function () {
         cmd({ t: "clear", what: "all" });
-      })
+      }),
+      usageBtn
     ]);
 
     var wrap = el("div", { class: "br-canvas-wrap" }, [canvas]);
     host.appendChild(el("div", { class: "br-wrap" }, [
-      tabStrip, bar, findBar, placesBar, suggest, notes, wrap, stat, buildNote(status)
+      tabStrip, bar, findBar, placesBar, usageBar, suggest, notes, wrap, stat, buildNote(status)
     ]));
 
     /* ---- the stream ---- */
@@ -1753,6 +1826,7 @@
     },
 
     unmount() {
+      live_usageStop();
       /* A stream left open keeps a Chromium session warm on the
          relay and keeps sending frames nobody is looking at. */
       closeLive();
@@ -1835,6 +1909,7 @@
       ".br-places-keep{font-size:10px;color:var(--fg-dim);display:flex;align-items:center;gap:2px}",
       ".br-places-list{max-height:220px;overflow-y:auto;display:flex;flex-direction:column;gap:1px}",
       ".br-places-none{font-size:11px;color:var(--fg-dimmer);padding:4px}",
+      ".br-use-line{font-size:11px;white-space:pre-wrap;color:var(--fg-dim)}",
       ".br-place{display:flex;gap:4px;align-items:center}",
       ".br-place-go{flex:1;min-width:0;display:flex;gap:8px;align-items:baseline;background:none;border:0;padding:3px 4px;",
       "  font:inherit;color:var(--fg);text-align:left;cursor:pointer}",

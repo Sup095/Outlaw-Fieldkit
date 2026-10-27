@@ -320,6 +320,26 @@ class DockerDriver {
     return outside.replace(/[\/]+$/, "") + sep + rel.split(path.sep).join(sep);
   }
 
+  /* What each running box is using now, by job id: { cpu (1 = one
+     whole core), memMb }. One `docker stats` for all of them, about a
+     second; gVisor's boxes report through their cgroup like any other.
+     Resolves to {} when it cannot tell, never rejects. */
+  stats(ids) {
+    return new Promise((resolve) => {
+      if (!ids.length) return resolve({});
+      let out = "";
+      let p;
+      try {
+        p = this.sp(["stats", "--no-stream", "--format", "{{.Name}}|{{.CPUPerc}}|{{.MemUsage}}"].concat(ids.map((id) => "fk-" + id)),
+          { stdio: ["ignore", "pipe", "ignore"] });
+      } catch (e) { return resolve({}); }
+      const t = setTimeout(() => { try { p.kill("SIGKILL"); } catch (e) {} }, 8000);
+      p.stdout.on("data", (b) => { if (out.length < 65536) out += b; });
+      p.on("error", () => { clearTimeout(t); resolve({}); });
+      p.on("close", () => { clearTimeout(t); resolve(parseStats(out)); });
+    });
+  }
+
   args(job) {
     const L = job.limits, cname = "fk-" + job.id;
     const image = (this.cfg.images || {})[job.plan.image];
@@ -352,6 +372,14 @@ class DockerDriver {
       a.push("--mount", "type=bind,source=" + this.hostPath(job.save) + ",target=/save", "--env", "SAVE=/save");
       /* wine-run keeps this program's Windows user folder there. */
       if (job.plan.title) a.push("--env", "FK_TITLE=" + job.plan.title);
+      /* A window drawn in software (Mesa) compiles its shaders on the
+         processor, which is the stutter of a game's first minutes.
+         Mesa's cache, kept per program in /save, makes the second run
+         skip it. Capped, because it counts against the member's folder. */
+      if (job.plan.screen) {
+        a.push("--env", "MESA_SHADER_CACHE_DIR=/save/.cache/mesa/" + (job.plan.title || "programs"),
+          "--env", "MESA_SHADER_CACHE_MAX_SIZE=128M");
+      }
     }
     if (job.net) {
       /* Both spellings: curl reads the lower-case ones, most else
@@ -451,10 +479,28 @@ class DockerDriver {
   }
 }
 
+/* "fk-<job>|101.10%|96.51MiB / 30.27GiB" lines, as docker stats
+   prints them, into { job: { cpu: 1.01, memMb: 97 } }. */
+const UNITS = { b: 1 / 1048576, kib: 1 / 1024, kb: 1 / 1048.576, mib: 1, mb: 1 / 1.048576, gib: 1024, gb: 1000 / 1.048576 };
+function parseStats(text) {
+  const out = {};
+  String(text || "").split(/\r?\n/).forEach((line) => {
+    const p = line.split("|");
+    if (p.length < 3 || p[0].indexOf("fk-") !== 0) return;
+    const cpu = parseFloat(p[1]);
+    const m = /^\s*([\d.]+)\s*([a-z]+)/i.exec(p[2]);
+    const unit = m && UNITS[m[2].toLowerCase()];
+    if (!isFinite(cpu) || !m || !unit) return;
+    out[p[0].slice(3)] = { cpu: Math.round(cpu * 10) / 1000, memMb: Math.round(parseFloat(m[1]) * unit) };
+  });
+  return out;
+}
+
 /* ---- process: NO ISOLATION, tests only --------------------------- */
 class ProcessDriver {
   constructor(cfg, log) { this.cfg = cfg; this.log = log || (() => {}); this.name = "process"; }
   check() { return { ok: true, version: "none — plain child processes, NOT a sandbox", images: {} }; }
+  stats() { return Promise.resolve(this.fakeStats || {}); }
   sweep() { return 0; }
 
   start(job, on) {
@@ -493,4 +539,4 @@ function make(cfg, log) {
   return cfg.driver === "process" ? new ProcessDriver(cfg, log) : new DockerDriver(cfg, log);
 }
 
-module.exports = { make, plan, cleanArgs, demux, gpuRuntime, DockerDriver, ProcessDriver, ARG_MAX, ARG_LEN, EGRESS, SCREEN, titleOf };
+module.exports = { make, plan, cleanArgs, demux, gpuRuntime, DockerDriver, ProcessDriver, ARG_MAX, ARG_LEN, EGRESS, SCREEN, titleOf, parseStats };

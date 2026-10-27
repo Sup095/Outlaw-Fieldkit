@@ -170,6 +170,23 @@ const frame = (k, body) => { const b = Buffer.from(body), h = Buffer.alloc(5); h
     ok("at most 64 events from one message", /"x":63,/.test(said(alice, id)) && !/"x":64,/.test(said(alice, id)));
   }
 
+  section("what each box is using");
+  {
+    await app._internals.sampleUse();
+    await until(() => alice.got.some((m) => m.t === "use" && m.job === id), 3000);
+    const u = alice.got.filter((m) => m.t === "use" && m.job === id).pop();
+    ok("its owner is told what their program is using", !!u && u.cpu === 0.125 && u.memMb === 41 && u.memLimitMb > 0,
+      JSON.stringify(u));
+    const boss = await as("boss", "admin");
+    const o = (await boss.ask({ t: "adm-overview" })).data.jobs.find((j) => j.id === id);
+    ok("and an admin sees it beside the job", o && o.cpu === 0.125 && o.memMb === 41 && typeof o.outKb === "number", JSON.stringify(o));
+    await boss.close();
+    const sb = require("../runnerd/sandbox");
+    const p = sb.parseStats("fk-a|101.10%|96.51MiB / 30.27GiB\nfk-b|3.50%|1.5GiB / 4GiB\nfk-c|--|-- / --\nother|9%|1MiB / 1GiB\n");
+    ok("docker's lines are read as cores and megabytes", p.a.cpu === 1.011 && p.a.memMb === 97 && p.b.cpu === 0.035 && p.b.memMb === 1536);
+    ok("and a line that is not one of ours, or says nothing, is left out", !p.c && !p.other && Object.keys(p).length === 2);
+  }
+
   section("the video steps down while the house upload is busy");
   {
     const A = app.access;

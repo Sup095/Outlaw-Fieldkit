@@ -126,6 +126,23 @@ const tagOf = (au) => au.readUInt32BE(au.length - 4);
     delete process.env.FK_FAKE_FFMPEG_DIE;
   }
 
+  section("reading what a process uses, from /proc");
+  {
+    const pu = require("../relay/proc-usage");
+    if (process.platform === "linux") {
+      const m = new pu.Meter();
+      const first = m.read(process.pid);
+      const end = Date.now() + 400; let x = 0; while (Date.now() < end) x += Math.sqrt(x + 1);
+      const second = m.read(process.pid);
+      ok("the first reading has no CPU figure yet, only memory", first.cpu === null && first.memMb > 5);
+      ok("the second says this busy process used about a core", second.cpu > 0.4 && second.cpu < 2.5, JSON.stringify(second));
+      ok("a process's children are counted with it", pu.tree(1).length > 1 || pu.tree(process.pid).length >= 1);
+      ok("a process that is not there reads as nothing", m.read(999999999) === null && pu.readStat(999999999) === null);
+    } else {
+      ok("(not Linux: readings are null, and nothing breaks)", pu.tree(process.pid).length === 0 && new pu.Meter().read(process.pid) === null);
+    }
+  }
+
   section("the route: video for panels that ask, pictures for the rest");
   {
     process.env.FK_FAKE_FFMPEG_LOG = path.join(TMP, "ff2.log");
@@ -187,6 +204,28 @@ const tagOf = (au) => au.readUInt32BE(au.length - 4);
     v.viewer.onFrame(jpeg(1000, 600, 9).toString("base64"));
     await until(() => v.text.some((m) => m.t === "quality" && m.step === 0));
     ok("after half a minute of calm it goes back up", v.viewer.quality.own === 0 && v.viewer.video.kbps === 1500);
+
+    /* USAGE: what the browser costs, for an admin only. */
+    const usage = async (tier) => {
+      let out = null;
+      await route.route({ method: "GET", headers: {} }, {}, new URL("http://x/browser/usage"), {
+        send: (res, code, body) => { out = { code, body }; }, readBody: async () => null,
+        clientIp: () => "127.0.0.1", authorise: () => "u-admin", tierOf: () => tier });
+      return out;
+    };
+    const no = await usage("member");
+    ok("USAGE is refused to anyone but an admin", no.code === 403 && /admins only/.test(no.body.error));
+    const yes = await usage("admin");
+    const uv = yes.body.viewers.find((x) => x.who === "u-true" && x.video);
+    ok("an admin gets Chromium, the sessions and every open panel",
+      yes.code === 200 && "chromium" in yes.body && Array.isArray(yes.body.sessions) && yes.body.viewers.length >= 2, JSON.stringify(yes.body));
+    ok("each panel with what it was sent, its cap and its step", uv && uv.capKbps === 1500 && uv.step === 0 &&
+      uv.sentMb >= 0 && typeof uv.kbps === "number" && uv.sinceSec >= 0, JSON.stringify(uv));
+    const up = yes.body.viewers.find((x) => x.who === "u-false");
+    ok("a panel on pictures has no encoder to report", up && up.video === false && up.capKbps === null && up.encCpu === null);
+    if (process.platform === "linux") {
+      ok("on Linux the encoder's own process is measured", uv.encMemMb > 0, JSON.stringify(uv));
+    }
 
     process.env.FK_FAKE_FFMPEG_DIE = "1";
     const f = await open(true);
