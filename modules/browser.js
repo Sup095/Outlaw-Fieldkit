@@ -148,7 +148,10 @@
   var TICKET_FRESH_MS = 20 * 60 * 1000;
 
   function relayBase() {
-    var u = String(ctx.settings.get("relayUrl") || "").trim();
+    /* Also asked before the panel is mounted (prewarm), when there is
+       no ctx yet. */
+    var st = (ctx && ctx.settings) || FieldKit.service("settings");
+    var u = String((st && st.get("relayUrl")) || "").trim();
     return u ? u.replace(/\/+$/, "") : "";
   }
 
@@ -474,7 +477,30 @@
     return e.key && e.key.length === 1 && !e.ctrlKey && !e.metaKey;
   }
 
-  async function liveStatus() {
+  /* FASTER FIRST OPEN (RUNNER_PLAN.md §16). Chromium on the relay
+     starts on the first ticket and is parked after 10 idle minutes,
+     so the first open after a quiet spell waited a second or two for
+     it. Now pointing at the BROWSER tile asks for the status and a
+     ticket straight away: the relay starts Chromium while the hand
+     is still moving, and the panel uses what was fetched. A ticket
+     lasts 60 s and works once; one older than WARM_TICKET_MS is let
+     go and a fresh one fetched as before. */
+  var WARM_TICKET_MS = 40000, WARM_STATUS_MS = 15000;
+  var warm = { ticket: null, ticketAt: 0, status: null, statusAt: 0 };
+
+  async function prewarm() {
+    if (!relayBase()) return;
+    var st = await liveStatus(true);
+    warm.status = st; warm.statusAt = Date.now();
+    if (!(st && st.enabled && (st.ready || st.available))) return;
+    if (!streamSources().length) return;
+    if (warm.ticket && Date.now() - warm.ticketAt < WARM_TICKET_MS) return;
+    var t = await getStreamTicket(true);
+    warm.ticket = t; warm.ticketAt = Date.now();
+  }
+
+  async function liveStatus(fresh) {
+    if (!fresh && warm.status && Date.now() - warm.statusAt < WARM_STATUS_MS) return warm.status;
     var base = relayBase();
     if (!base) return null;
     try {
@@ -484,7 +510,7 @@
     } catch (e) { return null; }
   }
 
-  async function getStreamTicket() {
+  function streamSources() {
     var sources = [];
     var relay = FieldKit.service("transportRelay");
     var store = FieldKit.service("store");
@@ -496,6 +522,16 @@
     if (msg && typeof msg.streamTicket === "function" && msg.signedIn && msg.signedIn()) {
       sources.push({ what: "your MESSAGES account", get: function () { return msg.streamTicket(); } });
     }
+    return sources;
+  }
+
+  async function getStreamTicket(fresh) {
+    if (!fresh && warm.ticket && Date.now() - warm.ticketAt < WARM_TICKET_MS) {
+      var t = warm.ticket;
+      warm.ticket = null;            /* it works once */
+      return t;
+    }
+    var sources = streamSources();
     if (!sources.length) {
       throw new Error("sign in to MESSAGES, or unlock the vault, to use the browser");
     }
@@ -1694,6 +1730,7 @@
     height: 640,
     guestSafe: false,
     selfcheck: selfcheck,
+    prewarm: prewarm,
 
     async mount(host, context) {
       ctx = context; ui = ctx.ui; el = ui.el;

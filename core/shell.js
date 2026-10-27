@@ -400,6 +400,9 @@
     if (iconLayer) iconLayer.classList.toggle("searching", !!q);
     if (!q) return;
     var guest = FieldKit.service("guest");
+    /* The highlighted hit is the one Enter opens: let it get ready. */
+    var top = hits[hitSel];
+    if (top && !(guest && !guest.allowed(top.m))) prewarm(top.id, top.m);
     hits.forEach(function (h, i) {
       var sealed = guest && !guest.allowed(h.m);
       searchHits.appendChild(el("button", {
@@ -540,11 +543,28 @@
     }
     return el("button", {
       class: "fk-app", type: "button", title: m.title + (m.about ? " — " + m.about : ""),
-      onclick: function () { closeFolder(); open(id); }
+      onclick: function () { closeFolder(); open(id); },
+      onpointerenter: function () { prewarm(id, m); },
+      ontouchstart: function () { prewarm(id, m); },
+      onfocus: function () { prewarm(id, m); }
     }, [
       el("span", { class: "g", text: m.icon }),
       el("span", { class: "n", text: m.title })
     ]);
+  }
+
+  /* A module can start something slow before it is opened: the
+     pointer resting on its tile, a finger touching it or the keyboard
+     reaching it is a good sign it is about to be. At most once every
+     30 seconds per module, and nothing that goes wrong here is shown:
+     opening it works the same without. */
+  var warmedAt = {};
+  function prewarm(id, m) {
+    if (!m || typeof m.prewarm !== "function") return;
+    var now = Date.now();
+    if (warmedAt[id] && now - warmedAt[id] < 30000) return;
+    warmedAt[id] = now;
+    try { Promise.resolve(m.prewarm()).catch(function () {}); } catch (e) {}
   }
 
   function folderTile(name, ids, mods, bad) {

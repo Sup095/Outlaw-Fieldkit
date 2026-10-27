@@ -62,7 +62,8 @@ FieldKit.provide("store", {
   async put(type, data, opts) { const id = (opts && opts.id) || "r" + (++nid); recs.set(id, { id, type, data: JSON.parse(JSON.stringify(data)) }); return { id, type }; },
   async remove(id) { recs.delete(id); return true; }
 });
-FieldKit.provide("transportRelay", { streamTicket: async () => ({ ticket: "TICKET" }) });
+let tickets = 0;
+FieldKit.provide("transportRelay", { streamTicket: async () => { tickets++; return { ticket: "TICKET" }; } });
 const uploads = [];
 FieldKit.provide("files", { upload: async (file) => { uploads.push(file); return { id: "f1" }; } });
 
@@ -82,7 +83,21 @@ const until = async (fn, ms) => { const end = Date.now() + (ms || 3000); while (
 
 (async () => {
   settings.set("relayUrl", "http://relay.test");
+  const statuses = () => fetched.filter((f) => /\/browser\/status$/.test(f.url)).length;
 
+  section("a warm start: pointing at the tile");
+  {
+    unlocked = false;
+    await def.prewarm();
+    ok("with nothing to prove who you are, it only asks the status", tickets === 0 && statuses() === 1);
+    unlocked = true;
+    await def.prewarm();
+    ok("signed in, it fetches a ticket (which starts Chromium on the relay)", tickets === 1);
+    await def.prewarm();
+    ok("and does not fetch another while that one is fresh", tickets === 1);
+  }
+
+  const statusBefore = statuses();
   await def.mount(host, ctx);
   await until(() => socks.length === 1 && socks[0].sent.length > 0);
   const ws = socks[0];
@@ -94,6 +109,8 @@ const until = async (fn, ms) => { const end = Date.now() + (ms || 3000); while (
   {
     ok("a stream ticket, in the socket's address", /\/browser\/stream\?t=TICKET$/.test(ws.url), ws.url);
     ok("and hello with the panel's size", sent("hello").length === 1 && sent("hello")[0].w > 0);
+    ok("opening used the warmed ticket and status: no new ticket, no new status",
+      tickets === 1 && statuses() === statusBefore, tickets + " " + statuses());
   }
 
   section("tabs");

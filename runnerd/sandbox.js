@@ -105,10 +105,19 @@ const UNZIP = [
 /* What to execute for a file, decided from its first bytes and its
    extension. Returns { argv, image } or throws with a sentence a
    person can read. `at` is where the file sits inside the box. */
+/* The name a Windows program's kept user folder goes under, in the
+   member's /save: "Game.zip" and "Game.exe" both become "Game". Only
+   plain characters, because wine-run makes a folder of it. */
+function titleOf(name) {
+  const t = String(name || "").replace(/\.[^.]*$/, "").replace(/[^A-Za-z0-9 ._-]+/g, "_")
+    .replace(/^[.\s]+/, "").trim().slice(0, 60);
+  return t || "program";
+}
+
 function plan(name, kind, args, at, screen, zip) {
   if (screen) {
     const p = plan(name, kind, args, at, false, zip);
-    return { argv: ["fk-screen"].concat(p.argv), image: "screen", screen: true };
+    return { argv: ["fk-screen"].concat(p.argv), image: "screen", screen: true, title: p.title, entry: p.entry };
   }
   const ext = (String(name).match(/\.([A-Za-z0-9]+)$/) || [, ""])[1].toLowerCase();
   const file = at + "/" + name;
@@ -119,9 +128,9 @@ function plan(name, kind, args, at, screen, zip) {
     if (!entry) throw new Error("choose which file inside the zip to run");
     const cap = Math.max(1, Math.floor(zip.capBytes || 0));
     return { argv: ["python3", "-c", UNZIP, file, entry, String(cap), "/work/app"].concat(extra),
-      image: /\.exe$/i.test(entry) ? "wine" : "base", entry: entry };
+      image: /\.exe$/i.test(entry) ? "wine" : "base", entry: entry, title: titleOf(name) };
   }
-  if (kind === "pe" || ext === "exe") return { argv: ["wine-run", file].concat(extra), image: "wine" };
+  if (kind === "pe" || ext === "exe") return { argv: ["wine-run", file].concat(extra), image: "wine", title: titleOf(name) };
   if (kind === "elf") return { argv: [file].concat(extra), image: "base" };
   if (ext === "py") return { argv: ["python3", "-u", file].concat(extra), image: "base" };
   if (ext === "js" || ext === "mjs" || ext === "cjs") return { argv: ["node", file].concat(extra), image: "base" };
@@ -341,6 +350,8 @@ class DockerDriver {
       "--mount", "type=bind,source=" + this.hostPath(job.dir) + ",target=/job,readonly"];
     if (job.save) {
       a.push("--mount", "type=bind,source=" + this.hostPath(job.save) + ",target=/save", "--env", "SAVE=/save");
+      /* wine-run keeps this program's Windows user folder there. */
+      if (job.plan.title) a.push("--env", "FK_TITLE=" + job.plan.title);
     }
     if (job.net) {
       /* Both spellings: curl reads the lower-case ones, most else
@@ -456,6 +467,7 @@ class ProcessDriver {
     if (argv[0] === "node") argv[0] = process.execPath;
     const env = { PATH: process.env.PATH, HOME: work, TMPDIR: work, SystemRoot: process.env.SystemRoot };
     if (job.save) env.SAVE = job.save;
+    if (job.save && job.plan.title) env.FK_TITLE = job.plan.title;
     const proc = spawn(argv[0], argv.slice(1), { cwd: work, stdio: ["pipe", "pipe", "pipe"], env: env });
     let done = false;
     const finish = (code, why) => {
@@ -481,4 +493,4 @@ function make(cfg, log) {
   return cfg.driver === "process" ? new ProcessDriver(cfg, log) : new DockerDriver(cfg, log);
 }
 
-module.exports = { make, plan, cleanArgs, demux, gpuRuntime, DockerDriver, ProcessDriver, ARG_MAX, ARG_LEN, EGRESS, SCREEN };
+module.exports = { make, plan, cleanArgs, demux, gpuRuntime, DockerDriver, ProcessDriver, ARG_MAX, ARG_LEN, EGRESS, SCREEN, titleOf };

@@ -161,6 +161,18 @@ const NOISY = "setInterval(() => process.stdout.write('x'.repeat(1000)), 5);";
     catch (e) { said = e.message; }
     ok("a Windows program says it is not switched on, when it is not", /not switched on/.test(said), said);
 
+    /* A member's Windows program keeps its user folder in /save/Windows/<title>. */
+    const w = new sandbox.DockerDriver({ storePath: "/s", images: { base: "img:1", wine: "wine:1" } });
+    const exe = sandbox.plan("My Game!.exe", "pe", [], "/job");
+    const wa = (save) => w.args(Object.assign({}, job, { plan: exe, save: save })).argv.join(" ");
+    ok("a Windows program is named for its kept folder, in plain characters",
+      exe.title === "My Game_" && sandbox.titleOf("../../x.zip") === "_.._x" && sandbox.titleOf(".exe") === "program");
+    ok("the name never starts with a dot or holds a slash",
+      ["..x.exe", "a/b.exe", "\\\\srv\\x.exe"].every((n) => !/^\.|\//.test(sandbox.titleOf(n))));
+    ok("the box is told the name when there is a /save", /--env FK_TITLE=My Game_/.test(wa("/s/saves/alice")));
+    ok("and not without one (a guest keeps nothing)", !/FK_TITLE/.test(wa(null)));
+    ok("a window keeps the name", sandbox.plan("G.exe", "pe", [], "/job", true).title === "G");
+
     const refuses = (fn) => { try { fn(); return ""; } catch (e) { return e.message; } };
     ok("a file type nobody knows is refused in words",
       /does not know how to run/.test(refuses(() => sandbox.plan("notes.docx", "data", [], "/job"))));

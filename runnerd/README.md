@@ -179,6 +179,12 @@ Every one of these is written to `/srv/fieldkit/store/audit.json`.
   members, 4 GB for admins). It is listed, downloaded and emptied from the panel.
   It lives in `/srv/fieldkit/store/save/<name>` and is deleted after 30 days
   without a run.
+- **Windows programs keep their saves.** A member's .exe (loose or in a .zip)
+  keeps its Windows user folder (Documents, Saved Games, AppData) and its user
+  registry in `/save/Windows/<program>`, one folder per program, so a game's
+  saves and settings are there next time. The registry is written back when the
+  program ends normally; a program that is killed keeps its files but not
+  registry changes from that run.
 - **The web, filtered.** Each member's job gets a private network whose only
   other member is the `fk-egress` container. That proxy looks every name up
   through CleanBrowsing, refuses this house's and the tailnet's addresses, opens

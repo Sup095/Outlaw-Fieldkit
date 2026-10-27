@@ -325,6 +325,9 @@ class Engine {
 
     this.ready = true;
     this.startedAt = Date.now();
+    /* Started ahead of the panel (a warm-up), it gets the full park
+       time to be used, not whatever was left since the last session. */
+    this.lastUsed = Date.now();
     this.lastFailure = null;
     this.log("INFO", "browser: ready — " + (this.cdp.info.Browser || "chromium") +
       ", egress through the guard, " + this.guard.dnsName);

@@ -209,6 +209,25 @@ const named = (sel, text) =>
     icons().querySelector(".fk-folder-back").click();
   }
 
+  section("pointing at a tile lets its app get ready");
+  {
+    let warmed = 0;
+    reg("warm-one", "TOOLS", { prewarm: function () { warmed++; return Promise.reject(new Error("relay away")); } });
+    named(".fk-folder", "TOOLS").click();
+    const tile = () => all(".fk-app").find((n) => n.querySelectorAll(".n").some((x) => x.textContent === "WARM ONE"));
+    ok("the tile is there", !!tile());
+    tile().dispatchEvent({ type: "pointerenter" });
+    ok("the pointer resting on it asks the app to get ready", warmed === 1);
+    tile().dispatchEvent({ type: "focus" });
+    tile().dispatchEvent({ type: "touchstart" });
+    ok("but not again within half a minute", warmed === 1);
+    const plain = all(".fk-app").find((n) => n.querySelectorAll(".n").some((x) => x.textContent === "BETA ONE"));
+    let threw = null;
+    try { plain.dispatchEvent({ type: "pointerenter" }); } catch (e) { threw = e.message; }
+    ok("an app without it is left alone, and a failed warm-up shows nothing", threw === null);
+    icons().querySelector(".fk-folder-back").click();
+  }
+
   section("a guest sees the folders and cannot open what is sealed");
   {
     let opened = null;
@@ -439,7 +458,9 @@ const named = (sel, text) =>
      ============================================================ */
   section("search finds an app by its name, by what it does, and by its group");
   {
-    reg("browser", "ONLINE", { title: "BROWSER", about: "Browse the web through the relay", keywords: "web internet site google", guestSafe: true });
+    let browserWarmed = 0;
+    reg("browser", "ONLINE", { title: "BROWSER", about: "Browse the web through the relay", keywords: "web internet site google", guestSafe: true,
+      prewarm: function () { browserWarmed++; } });
     reg("savecode", "FILES", { title: "SAVE CODES", about: "Decode, edit and compare a game's save codes", keywords: "save code decode game", guestSafe: true });
     reg("messages", "ONLINE", { title: "MESSAGES", about: "Encrypted chat with your people", keywords: "chat dm talk friends", guestSafe: true });
     const ids = (q) => shell.search(q).map((h) => h.id);
@@ -461,6 +482,7 @@ const named = (sel, text) =>
     ok("and the home screen gives way to the results", icons().classList.contains("searching"));
     ok("the first result is marked as the one Enter opens",
       icons().querySelector(".fk-hit.sel").querySelector(".n").textContent === "BROWSER");
+    ok("and it is asked to get ready", browserWarmed === 1, String(browserWarmed));
     ok("the last row offers the rest to Ctrl+K", !!icons().querySelector(".fk-hit.more"));
     input.dispatchEvent({ type: "keydown", key: "Enter", preventDefault() {} });
     ok("Enter opens the first hit", shell.openWindows().indexOf("browser") >= 0, shell.openWindows().join());

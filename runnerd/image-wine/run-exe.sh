@@ -31,4 +31,28 @@ fi
 # flags one at a time.
 unset TMPDIR
 export WINEDEBUG=-all WINEARCH=win64 WINEPREFIX="$W" XDG_RUNTIME_DIR=/tmp
+
+# A member's program keeps its Windows user folder (Documents, Saved
+# Games, AppData) and its user registry in /save/Windows/<program>, so
+# a game's saves and settings are there next time. Without /save (a
+# guest) all of it goes with the box, as before.
+K=""
+if [ -n "$SAVE" ] && [ -d "$SAVE" ] && [ -w "$SAVE" ] && [ -n "$FK_TITLE" ]; then
+  case "$FK_TITLE" in */*|.*) ;; *) K="$SAVE/Windows/$FK_TITLE" ;; esac
+fi
+if [ -n "$K" ] && mkdir -p "$K" 2>/dev/null; then
+  [ -d "$K/users" ] || cp -a "$W/drive_c/users" "$K/users"
+  [ -f "$K/user.reg" ] && cp "$K/user.reg" "$W/user.reg"
+  rm -rf "$W/drive_c/users" && ln -s "$K/users" "$W/drive_c/users"
+  # Wine replaces user.reg by renaming a new file over it, so it cannot
+  # be a link: it is copied back once Wine has written it, at the end.
+  wine "$@" <&0 &
+  pid=$!
+  trap 'kill -TERM $pid 2>/dev/null' TERM INT HUP
+  wait $pid; code=$?
+  wait $pid 2>/dev/null
+  wineserver -w 2>/dev/null
+  cp "$W/user.reg" "$K/.user.reg.new" 2>/dev/null && mv -f "$K/.user.reg.new" "$K/user.reg"
+  exit $code
+fi
 exec wine "$@"
