@@ -50,6 +50,9 @@ const INPUT_PER_SEC = 240;           /* generous for a dragged mouse */
 /* Video to one panel: over this much waiting on its connection, new
    pictures are held back (the newest kept) until it drains. */
 const VIDEO_HIGH = 1024 * 1024;
+/* Binary frames: video is 0 or 1 (keyframe) first, a picture is a JPEG
+   (0xFF first), and sound is 2 first. */
+const AUDIO_TAG = Buffer.from([2]);
 /* Each panel's own connection (RUNNER_PLAN.md §16, adaptive quality).
    The house step above follows the home upload; this follows one
    viewer's link and decoder. Three strains inside STRAIN_MS (frames
@@ -335,7 +338,7 @@ async function upgrade(req, sock, head, url) {
       const kbps = now > rate.at ? Math.round((sent - rate.sent) * 8 / (now - rate.at)) : 0;
       rate.sent = sent; rate.at = now;
       const enc = viewer.video && viewer.video.usage ? viewer.video.usage() : null;
-      return { who: String(who), tier: tier, sinceSec: Math.round((now - since) / 1000), video: !!viewer.video,
+      return { who: String(who), tier: tier, sinceSec: Math.round((now - since) / 1000), video: !!viewer.video, sound: !!viewer.sound,
         kbps: kbps, capKbps: viewer.video ? kbpsNow() : null, step: q.own, sentMb: Math.round(sent / 104857.6) / 10,
         encCpu: enc ? enc.cpu : null, encMemMb: enc ? enc.memMb : null };
     },
@@ -359,7 +362,14 @@ async function upgrade(req, sock, head, url) {
       }
       tell(msg);
     },
-    onGone(why) { tell({ t: "gone", why }); socket.close(1000, why); }
+    onGone(why) { tell({ t: "gone", why }); socket.close(1000, why); },
+    /* One Opus packet of this session's sound: 2 | packet. Dropped,
+       not queued, while the socket is backed up: late sound is worse
+       than a gap, and the picture matters more. */
+    onAudio(pkt) {
+      if (!alive || (socket.sock && socket.sock.writableLength > VIDEO_HIGH)) return;
+      out(Buffer.concat([AUDIO_TAG, pkt]));
+    }
   };
 
   viewers.add(viewer);
@@ -459,9 +469,16 @@ async function upgrade(req, sock, head, url) {
       switch (m.t) {
         case "hello":
           if (m.video && engine.videoBin && !viewer.video) startVideo();
+          /* Sound only if the panel asked and can play it; the panel's
+             SOUND button changes it later. */
+          viewer.sound = !!m.sound;
           await engine.resize(session, m.w, m.h, m.scale);
           await engine.attach(session, viewer);
-          tell({ t: "ready", who, url: session.url, title: session.title, video: !!viewer.video, zoom: session.zoom || 1 });
+          tell({ t: "ready", who, url: session.url, title: session.title, video: !!viewer.video, zoom: session.zoom || 1,
+            sound: !!(engine.soundOn && session.host) });
+          break;
+        case "sound":
+          tell({ t: "sound", on: engine.setSound(session, viewer, !!m.on) });
           break;
         case "keyframe":
           /* The panel's decoder lost its place: a fresh encoder and a

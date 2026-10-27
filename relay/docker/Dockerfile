@@ -45,6 +45,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       # The browser as video (video-encoder.js). The base image has it
       # today; named here so that never quietly changes.
       ffmpeg \
+      # The browser's sound (pulse.js): a private sound server the relay
+      # starts itself, a silent sound card per session, and pactl to
+      # make and remove them.
+      pulseaudio pulseaudio-utils \
  && rm -rf /var/lib/apt/lists/*
 
 # Where browser-engine.js looks first. The Debian package installs

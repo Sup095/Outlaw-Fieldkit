@@ -69,6 +69,8 @@ const crypto = require("crypto");
 const { CDP, version } = require("./cdp");
 const { Guard } = require("./guard");
 const { Meter } = require("./proc-usage");
+const { Pulse } = require("./pulse");
+const { OggOpus } = require("./ogg-opus");
 
 const DEFAULTS = {
   enabled: false,
@@ -90,8 +92,15 @@ const DEFAULTS = {
   uploads: true,
   uploadMaxMB: 50,
   guestGraceSec: 60,            /* a guest's closed browser is ended after this (a dropped connection comes back) */
-  keepSignInsHours: 12          /* members' cookies across a park or an idle end; memory only; 0 = never */
+  keepSignInsHours: 12,         /* members' cookies across a park or an idle end; memory only; 0 = never */
+  sound: true,                  /* sound, when the image has PulseAudio: a Chromium per session, each on its own sink */
+  soundKbps: 48,                /* Opus, per session that someone is listening to */
+  pulse: ""                     /* path to pulseaudio; "" means search */
 };
+/* Opus packets this small are silence. Not sent: a quiet page then
+   costs nothing, and the panel's player starts afresh when sound
+   comes back. */
+const SILENT_BYTES = 12;
 const DL_KEEP_MS = 15 * 60 * 1000;
 /* Pointer shapes a page may ask for. Anything else (a picture of its
    own, say) shows as the ordinary arrow. */
@@ -149,6 +158,18 @@ class Engine {
     this.cdp = null;
     this.guard = null;
     this.ready = false;
+    /* SOUND (RUNNER_PLAN.md §23). One Chromium cannot give each person
+       their own sound: every page in it plays to the same card. So with
+       sound on, each session gets a Chromium of its own (a "host") on a
+       sink of its own (pulse.js), and one spare host is kept started
+       so opening the browser is still quick. Without PulseAudio it is
+       as before: one shared Chromium, a context per session, muted. */
+    this.pulse = new Pulse({ bin: this.cfg.pulse || null, log: this.log });
+    this.soundOn = false;
+    this.hosts = new Set();
+    this.main = null;                   /* the shared host, without sound */
+    this.spare = null;
+    this._sparing = null;
     /* Members' cookies kept while their session is ended for being
        idle or for Chromium parking: in memory only, never on disk,
        and gone with the relay process. key -> { cookies, at } */
@@ -171,7 +192,7 @@ class Engine {
   /* ---- lifecycle ------------------------------------------------ */
 
   async start() {
-    if (this.ready) return true;
+    if (this.ready) { this._topUp(); return true; }
     /* Concurrent callers share one launch. Without this, two people
        opening the browser at the same moment start two Chromiums
        and the second one's debugging port collides. */
@@ -188,13 +209,51 @@ class Engine {
         ". Set browser.chromium in config.json, or run an image that has one.");
       return false;
     }
+    this.chromiumPath = found.path;
 
     this.guard = new Guard({ log: this.log, dnsFilter: this.cfg.dnsFilter, filter: this.filter });
-    const guardPort = await this.guard.listen();
+    this.guardPort = await this.guard.listen();
 
+    this.soundOn = false;
+    if (this.cfg.sound && this.pulse.available()) this.soundOn = await this.pulse.start();
+    try {
+      if (this.soundOn) {
+        this.spare = await this._launch(true);
+      } else {
+        const h = await this._launch(false);
+        this.main = h;
+        this.proc = h.proc;
+        this.cdp = h.cdp;
+        this.profileDir = h.profile;
+      }
+    } catch (e) {
+      this.lastFailure = e.message;
+      return false;
+    }
+
+    this.ready = true;
+    this.startedAt = Date.now();
+    /* Started ahead of the panel (a warm-up), it gets the full park
+       time to be used, not whatever was left since the last session. */
+    this.lastUsed = Date.now();
+    this.lastFailure = null;
+    this.log("INFO", "browser: ready — " + (this.version || "chromium") +
+      ", egress through the guard, " + this.guard.dnsName +
+      (this.soundOn ? ", with sound (a Chromium per session)" : ", without sound"));
+    return true;
+  }
+
+  /* One Chromium: a "host". Shared by every session when there is no
+     sound; one per session, on its own sink, when there is. */
+  async _launch(withSink) {
     const port = await freePort();
     const profile = fs.mkdtempSync(path.join(os.tmpdir(), "fk-browser-"));
-    this.profileDir = profile;
+    let sink = null;
+    if (withSink) {
+      try { sink = await this.pulse.sink(); }
+      catch (e) { try { fs.rmSync(profile, { recursive: true, force: true }); } catch (x) {} throw new Error("no sound card for the browser: " + e.message); }
+    }
+    const guardPort = this.guardPort;
 
     const args = [
       "--headless=new",
@@ -213,7 +272,6 @@ class Engine {
          happily try to put a compositor surface in it. */
       "--disable-dev-shm-usage",
       "--disable-gpu",
-      "--mute-audio",
 
       /* Nothing that phones home on its own. Not evasion — this is
          a browser somebody else's relay is running on their behalf,
@@ -235,6 +293,8 @@ class Engine {
 
       "--window-size=1280,800"
     ];
+    /* Its own sink, or no sound at all. */
+    if (!sink) args.push("--mute-audio");
 
     /* The container IS the boundary here, and that is the honest
        framing. Chromium's own sandbox needs user namespaces that a
@@ -245,7 +305,7 @@ class Engine {
        able to find out without reading this file. */
     if (this.cfg.noSandbox) args.push("--no-sandbox", "--disable-setuid-sandbox");
 
-    this.log("INFO", "browser: starting " + found.path);
+    this.log("INFO", "browser: starting " + this.chromiumPath + (sink ? " on " + sink.name : ""));
     /* Chromium's home is its own throwaway profile, not the relay's.
 
        The crash handler insists on a database directory and looks for
@@ -263,112 +323,158 @@ class Engine {
       HOME: profile,
       XDG_CONFIG_HOME: path.join(profile, "config"),
       XDG_CACHE_HOME: path.join(profile, "cache")
-    });
-    const proc = spawn(found.path, args, { stdio: ["ignore", "pipe", "pipe"], env: env });
-    this.proc = proc;
+    }, sink ? Object.assign(this.pulse.env(), { PULSE_SINK: sink.name }) : {});
+    const proc = spawn(this.chromiumPath, args, { stdio: ["ignore", "pipe", "pipe"], env: env });
+    const host = { proc: proc, cdp: null, profile: profile, sink: sink, shared: !withSink, meter: new Meter() };
+    this.hosts.add(host);
 
     let stderr = "";
     proc.stderr.on("data", (d) => {
       stderr += d.toString();
       if (stderr.length > 8000) stderr = stderr.slice(-4000);
     });
-    proc.on("exit", (code, sig) => {
-      /* Only the current one. A Chromium that was stopped on purpose
-         (park, stop) has already been let go, and one exiting late
-         must not tear down its replacement. */
-      if (this.proc !== proc) return;
-      this.proc = null;
-      this.log("WARN", "browser: chromium exited (" + (sig || code) + ")");
-      this._teardown();
-    });
+    /* A Chromium that was stopped on purpose (park, stop, a session
+       ending) has already been let go, and one exiting late must not
+       tear down its replacement: _hostExited checks. */
+    proc.on("exit", (code, sig) => this._hostExited(host, String(sig || code)));
     proc.on("error", (e) => {
       this.lastFailure = e.message;
       this.log("WARN", "browser: could not run chromium — " + e.message);
     });
 
     const deadline = Date.now() + this.cfg.startTimeoutMs;
+    const fail = (why, words) => {
+      this.lastFailure = why;
+      this.log("WARN", "browser: " + words + " " + (stderr.trim().split("\n").slice(-4).join(" | ") || "(nothing)"));
+      this._dropHost(host);
+      return new Error(why);
+    };
     for (;;) {
-      if (proc.exitCode !== null) {
-        this.lastFailure = "chromium exited during startup";
-        this.log("WARN", "browser: chromium died on startup. Its last words: " +
-          (stderr.trim().split("\n").slice(-4).join(" | ") || "(nothing)"));
-        return false;
-      }
+      if (proc.exitCode !== null || host.gone) throw fail("chromium exited during startup", "chromium died on startup. Its last words:");
       try { await version(port); break; }
       catch (e) {
-        if (Date.now() > deadline) {
-          this.lastFailure = "chromium did not open its debugging port";
-          this.log("WARN", "browser: chromium started but never opened its debugging port. " +
-            (stderr.trim().split("\n").slice(-4).join(" | ") || ""));
-          try { proc.kill("SIGKILL"); } catch (x) {}
-          return false;
-        }
+        if (Date.now() > deadline) throw fail("chromium did not open its debugging port", "chromium started but never opened its debugging port.");
         await sleep(200);
       }
     }
 
-    this.cdp = await CDP.open(port);
-    this.cdp.on("disconnected", () => this._teardown());
+    const cdp = await CDP.open(port);
+    host.cdp = cdp;
+    cdp.on("disconnected", () => this._hostExited(host, "its debugging connection closed"));
     /* Every page Chromium opens, so a pop-up becomes a tab, and every
        title and address change, which is what the tab strip shows. */
-    this.cdp.on("Target.targetCreated", (p) => { this._adopt(p.targetInfo).catch(() => {}); });
-    this.cdp.on("Target.targetDestroyed", (p) => { this._tabGone(p.targetId).catch(() => {}); });
-    this.cdp.on("Target.targetInfoChanged", (p) => this._tabInfo(p.targetInfo));
-    this.cdp.on("Browser.downloadWillBegin", (p) => this._dlBegin(p));
-    this.cdp.on("Browser.downloadProgress", (p) => this._dlProgress(p));
-    await this.cdp.send("Target.setDiscoverTargets", { discover: true }).catch(() => {});
+    cdp.on("Target.targetCreated", (p) => { this._adopt(p.targetInfo, cdp).catch(() => {}); });
+    cdp.on("Target.targetDestroyed", (p) => { this._tabGone(p.targetId).catch(() => {}); });
+    cdp.on("Target.targetInfoChanged", (p) => this._tabInfo(p.targetInfo));
+    cdp.on("Browser.downloadWillBegin", (p) => this._dlBegin(p));
+    cdp.on("Browser.downloadProgress", (p) => this._dlProgress(p));
+    await cdp.send("Target.setDiscoverTargets", { discover: true }).catch(() => {});
 
     /* Refused unless a session says otherwise: each one that may
        download gets its own folder (sessionFor), so nothing lands
        anywhere shared, and a site gets a clean answer instead of a
        stall. */
-    await this.cdp.send("Browser.setDownloadBehavior", { behavior: "deny" }).catch(() => {});
+    await cdp.send("Browser.setDownloadBehavior", { behavior: "deny" }).catch(() => {});
+    this.version = cdp.info.Browser || this.version;
+    return host;
+  }
 
-    this.ready = true;
-    this.startedAt = Date.now();
-    /* Started ahead of the panel (a warm-up), it gets the full park
-       time to be used, not whatever was left since the last session. */
-    this.lastUsed = Date.now();
-    this.lastFailure = null;
-    this.log("INFO", "browser: ready — " + (this.cdp.info.Browser || "chromium") +
-      ", egress through the guard, " + this.guard.dnsName);
-    return true;
+  /* A Chromium stopped. On purpose (dropped first): nothing to do. The
+     shared one: everything stops, as it always has. A session's: that
+     session ends. The spare: there is no spare. */
+  _hostExited(host, why) {
+    if (host.gone) return;
+    host.gone = true;
+    if (host === this.main) {
+      this.log("WARN", "browser: chromium exited (" + why + ")");
+      this.proc = null;
+      this._teardown();
+      return;
+    }
+    if (host === this.spare) this.spare = null;
+    const s = [...this.sessions.values()].find((x) => x.host === host);
+    this._dropHost(host);
+    if (s) {
+      this.log("WARN", "browser: " + s.who + "'s chromium exited (" + why + ")");
+      this.destroy(s.key, "the browser for this session stopped").catch(() => {});
+    }
+  }
+
+  _dropHost(host) {
+    if (!host || host.dropped) return;
+    host.dropped = host.gone = true;
+    this.hosts.delete(host);
+    if (host.cdp) { try { host.cdp.close(); } catch (e) {} }
+    const p = host.proc;
+    if (p && p.exitCode === null) {
+      try { p.kill("SIGTERM"); } catch (e) {}
+      const t = setTimeout(() => { try { if (p.exitCode === null) p.kill("SIGKILL"); } catch (e) {} }, 3000);
+      if (t.unref) t.unref();
+    }
+    /* The profile is Chromium's, so it goes once Chromium has. */
+    const gone = () => { try { fs.rmSync(host.profile, { recursive: true, force: true }); } catch (e) {} };
+    if (p && p.exitCode === null) p.once("exit", gone); else gone();
+    if (host.sink) this.pulse.drop(host.sink).catch(() => {});
+  }
+
+  /* With sound, one Chromium is kept started and waiting, so the next
+     person to open the browser does not wait for one. Started when the
+     browser is asked for (a ticket, a warm-up) and not already there. */
+  _topUp() {
+    if (!this.ready || !this.soundOn || this.spare || this._sparing) return;
+    if (this.sessions.size >= this.cfg.maxSessions) return;
+    this._sparing = this._launch(true).then((h) => {
+      if (!this.ready || this.spare) return this._dropHost(h);
+      this.spare = h;
+    }, (e) => {
+      this.log("WARN", "browser: could not start a spare chromium — " + e.message);
+    }).finally(() => { this._sparing = null; });
   }
 
   _teardown() {
     this.ready = false;
     for (const s of this.sessions.values()) {
+      this._audioStop(s);
       for (const v of s.viewers) { try { v.onGone("the browser restarted"); } catch (e) {} }
       s.viewers.clear();
     }
     this.sessions.clear();
-    if (this.cdp) { try { this.cdp.close(); } catch (e) {} this.cdp = null; }
+    for (const h of [...this.hosts]) this._dropHost(h);
+    this.main = null;
+    this.spare = null;
+    this.proc = null;
+    this.cdp = null;
+    this.profileDir = null;
     if (this.guard) { try { this.guard.close(); } catch (e) {} this.guard = null; }
-    if (this.profileDir) {
-      try { fs.rmSync(this.profileDir, { recursive: true, force: true }); } catch (e) {}
-      this.profileDir = null;
-    }
+    this.pulse.stop();
+    this.soundOn = false;
     try { fs.rmSync(this.filesDir, { recursive: true, force: true }); } catch (e) {}
   }
 
   stop() {
     clearInterval(this._sweep);
-    const p = this.proc;
     this._teardown();
-    if (p) { try { p.kill("SIGTERM"); } catch (e) {} }
-    this.proc = null;
   }
 
   /* What the browser costs (RUNNER_PLAN.md §17): Chromium with all its
      processes, and each session. For admins only (browser-route.js). */
   usage() {
-    if (!this._meter) this._meter = new Meter();
     const now = Date.now();
+    const read = new Map();
+    for (const h of this.hosts) read.set(h, h.proc && h.proc.pid ? h.meter.read(h.proc.pid) : null);
+    const all = [...read.values()].filter(Boolean);
+    const chromium = all.length ? {
+      cpu: all.some((r) => r.cpu === null) ? null : Math.round(all.reduce((n, r) => n + r.cpu, 0) * 100) / 100,
+      memMb: all.reduce((n, r) => n + r.memMb, 0), procs: all.reduce((n, r) => n + r.procs, 0),
+      instances: all.length, sound: this.soundOn } : null;
     return {
-      chromium: this.proc && this.proc.pid ? this._meter.read(this.proc.pid) : null,
-      sessions: Array.from(this.sessions.values()).map((s) => ({
-        who: String(s.who), tier: s.tier, tabs: (s.tabs || []).length, viewers: s.viewers.size,
-        idleSec: Math.round((now - (s.lastSeen || now)) / 1000) }))
+      chromium: chromium,
+      sessions: Array.from(this.sessions.values()).map((s) => {
+        const r = s.host ? read.get(s.host) : null;
+        return { who: String(s.who), tier: s.tier, tabs: (s.tabs || []).length, viewers: s.viewers.size,
+          idleSec: Math.round((now - (s.lastSeen || now)) / 1000),
+          cpu: r ? r.cpu : null, memMb: r ? r.memMb : null, sound: !!s.audio };
+      })
     };
   }
 
@@ -377,7 +483,8 @@ class Engine {
       enabled: !!this.cfg.enabled,
       ready: this.ready,
       available: !!this.cfg.enabled && !!this.binary,
-      chromium: this.ready && this.cdp ? this.cdp.info.Browser : null,
+      sound: this.soundOn,
+      chromium: this.ready ? this.version || null : null,
       sessions: this.sessions.size,
       maxSessions: this.cfg.maxSessions,
       dnsFilter: this.guard ? this.guard.dnsName : null,
@@ -425,12 +532,27 @@ class Engine {
       if (cold) await this.destroy(cold.key, "made room for another session");
     }
 
-    const { browserContextId } = await this.cdp.send("Target.createBrowserContext", {
-      disposeOnDetach: false
-    });
+    /* With sound, the spare Chromium becomes this session's (or one is
+       started), and another spare is started for whoever is next. */
+    let host = null;
+    if (this.soundOn) {
+      if (!this.spare && this._sparing) await this._sparing.catch(() => {});
+      host = this.spare;
+      this.spare = null;
+      if (!host || host.gone) host = await this._launch(true);
+    }
+    const cdp = host ? host.cdp : this.cdp;
+    let browserContextId;
+    try {
+      ({ browserContextId } = await cdp.send("Target.createBrowserContext", { disposeOnDetach: false }));
+    } catch (e) {
+      if (host) this._dropHost(host);
+      throw e;
+    }
     const tier = (opts && opts.tier) || "admin";
     const s = {
       key, who, tier, browserContextId, page: null, active: null, tabs: [], creating: new Set(),
+      host: host, cdp: cdp, audio: null, audioFails: 0,
       viewers: new Set(),
       casting: false,
       width: 1280, height: 800, scale: 1, zoom: 1, world: null,
@@ -442,17 +564,18 @@ class Engine {
       downloads: new Map(), chooser: null, uploads: [], cursor: "default", cursorAt: 0
     };
     this.sessions.set(key, s);
+    if (host) this._topUp();
 
     if (this.cfg.downloads) {
       try { fs.mkdirSync(path.join(s.dir, "dl"), { recursive: true }); } catch (e) {}
-      await this.cdp.send("Browser.setDownloadBehavior", { behavior: "allowAndName", browserContextId,
+      await cdp.send("Browser.setDownloadBehavior", { behavior: "allowAndName", browserContextId,
         downloadPath: path.join(s.dir, "dl"), eventsEnabled: true }).catch(() => {});
     }
     /* A member's sign-ins, from a session that ended while they were away. */
     const kept = this.kept.get(key);
     this.kept.delete(key);
     if (kept && tier !== "guest" && Date.now() - kept.at < this.cfg.keepSignInsHours * 3600000 && kept.cookies.length) {
-      await this.cdp.send("Storage.setCookies", { cookies: kept.cookies, browserContextId }).catch(() => {});
+      await cdp.send("Storage.setCookies", { cookies: kept.cookies, browserContextId }).catch(() => {});
       this.log("INFO", "browser: " + who + "'s sign-ins put back (" + kept.cookies.length + " cookies)");
     }
 
@@ -473,7 +596,7 @@ class Engine {
     const gate = new Promise((r) => { done = r; });
     s.creating.add(gate);
     try {
-      const { targetId } = await this.cdp.send("Target.createTarget", {
+      const { targetId } = await s.cdp.send("Target.createTarget", {
         url: "about:blank", browserContextId: s.browserContextId
       });
       return await this._attachTab(s, targetId, null);
@@ -484,8 +607,8 @@ class Engine {
   }
 
   async _attachTab(s, targetId, info) {
-    const { sessionId } = await this.cdp.send("Target.attachToTarget", { targetId, flatten: true });
-    const tab = { id: targetId, page: this.cdp.session(sessionId),
+    const { sessionId } = await s.cdp.send("Target.attachToTarget", { targetId, flatten: true });
+    const tab = { id: targetId, page: s.cdp.session(sessionId),
       url: (info && info.url) || "about:blank", title: (info && info.title) || "", dialog: null };
     s.tabs.push(tab);
     this._wirePage(s, tab);
@@ -512,14 +635,14 @@ class Engine {
   /* A page Chromium opened: a pop-up, or a link meant for a new
      window. Only pages, only in a context that is someone's session,
      and only once whatever tab we were making ourselves is made. */
-  async _adopt(info) {
+  async _adopt(info, cdp) {
     if (!info || info.type !== "page") return;
-    const s = [...this.sessions.values()].find((x) => x.browserContextId === info.browserContextId);
+    const s = [...this.sessions.values()].find((x) => x.browserContextId === info.browserContextId && (!cdp || x.cdp === cdp));
     if (!s) return;
     while (s.creating.size) await Promise.all([...s.creating]);
     if (s.tabs.some((t) => t.id === info.targetId)) return;
     if (s.tabs.length >= this.cfg.maxTabs) {
-      await this.cdp.send("Target.closeTarget", { targetId: info.targetId }).catch(() => {});
+      await s.cdp.send("Target.closeTarget", { targetId: info.targetId }).catch(() => {});
       this._push(s, { t: "note", why: "a page tried to open another tab, but " + this.cfg.maxTabs + " is the most a session can have" });
       return;
     }
@@ -585,7 +708,7 @@ class Engine {
   async closeTab(s, id) {
     const tab = s.tabs.find((t) => t.id === id);
     if (!tab) return false;
-    await this.cdp.send("Target.closeTarget", { targetId: id }).catch(() => {});
+    await s.cdp.send("Target.closeTarget", { targetId: id }).catch(() => {});
     /* Not waiting for Chromium to say so: the strip should change now. */
     await this._tabGone(id);
     return true;
@@ -698,17 +821,33 @@ class Engine {
     this.log("INFO", "browser: " + s.who + " is downloading " + name);
   }
 
+  /* The most one download may be: downloadMaxMB, or less when the
+     temporary folder is smaller. On the Pterodactyl relay /tmp is a
+     100 MB tmpfs, so a 200 MB download used to fill it and fail half
+     way. Counted as what is free now plus what this download already
+     holds, less 30 MB for Chromium's own files. */
+  downloadRoom(d) {
+    let room = this.cfg.downloadMaxMB * 1048576;
+    try {
+      const st = fs.statfsSync(path.dirname(this.filesDir));
+      const free = Number(st.bavail) * Number(st.bsize) + ((d && d.got) || 0) - 30 * 1048576;
+      room = Math.max(1048576, Math.min(room, free));
+    } catch (e) { /* no statfs: the setting alone */ }
+    return room;
+  }
+
   _dlProgress(p) {
     const s = this._dlSession(p);
     const d = s && s.downloads.get(p.guid);
     if (!d) return;
     d.got = p.receivedBytes || 0;
     d.total = p.totalBytes || 0;
-    const max = this.cfg.downloadMaxMB * 1048576;
+    const max = this.downloadRoom(d);
     if (p.state === "inProgress" && (d.got > max || d.total > max)) {
-      this.cdp.send("Browser.cancelDownload", { guid: p.guid, browserContextId: s.browserContextId }).catch(() => {});
+      s.cdp.send("Browser.cancelDownload", { guid: p.guid, browserContextId: s.browserContextId }).catch(() => {});
       d.state = "canceled";
-      d.why = "over " + this.cfg.downloadMaxMB + " MB, the most the browser downloads";
+      d.why = "over " + Math.floor(max / 1048576) + " MB, the most the browser can hold" +
+        (max < this.cfg.downloadMaxMB * 1048576 ? " right now (its temporary space is small)" : "");
       try { fs.rmSync(d.path, { force: true }); } catch (e) {}
       return this._push(s, { t: "download", id: d.id, name: d.name, state: "canceled", why: d.why });
     }
@@ -796,11 +935,13 @@ class Engine {
     this._pushTabs(s);
     this._pushHistory(s);
     if (s.dropTimer) { clearTimeout(s.dropTimer); s.dropTimer = null; }
+    this._audioCheck(s);
   }
 
   async detach(s, viewer) {
     s.viewers.delete(viewer);
     s.lastSeen = Date.now();
+    this._audioCheck(s);
     /* A guest's browser is a throwaway (RUNNER_PLAN.md §16): closed,
        it is gone, after a minute's grace for a dropped connection. */
     if (s.tier === "guest" && !s.viewers.size && !s.dropTimer) {
@@ -825,6 +966,7 @@ class Engine {
   async pause(s, viewer, paused) {
     viewer.paused = !!paused;
     if (!s.viewers.has(viewer)) return;
+    this._audioCheck(s);
     if (this._watching(s)) {
       if (!paused) {
         if (s.casting) await s.page.send("Page.stopScreencast").catch(() => {});
@@ -834,6 +976,66 @@ class Engine {
       s.casting = false;
       await s.page.send("Page.stopScreencast").catch(() => {});
     }
+  }
+
+  /* ---- sound -------------------------------------------------------
+     Encoded only while someone is listening: a panel that asked for
+     sound, is not hidden, and is on a session with a sink. One encoder
+     per session, shared by its panels, like the screencast. */
+  setSound(s, viewer, on) {
+    viewer.sound = !!on;
+    this._audioCheck(s);
+    return viewer.sound && this.soundOn && !!s.host;
+  }
+
+  _audioCheck(s) {
+    let want = !!(this.soundOn && s.host && s.host.sink && this.videoBin && this.sessions.get(s.key) === s);
+    if (want) { want = false; for (const v of s.viewers) if (v.sound && !v.paused) { want = true; break; } }
+    if (want && !s.audio) this._audioStart(s);
+    else if (!want && s.audio) this._audioStop(s);
+  }
+
+  _audioStart(s) {
+    const bin = Array.isArray(this.videoBin) ? this.videoBin : [this.videoBin];
+    const args = ["-nostdin", "-loglevel", "error",
+      "-f", "pulse", "-fragment_size", "3840", "-i", s.host.sink.name + ".monitor",
+      "-c:a", "libopus", "-b:a", Math.max(16, Math.min(128, this.cfg.soundKbps | 0)) + "k",
+      "-application", "lowdelay", "-frame_duration", "20", "-ar", "48000", "-ac", "2",
+      "-page_duration", "20000", "-flush_packets", "1", "-f", "ogg", "-"];
+    let proc;
+    try {
+      proc = spawn(bin[0], bin.slice(1).concat(args), { stdio: ["ignore", "pipe", "pipe"],
+        env: Object.assign({}, process.env, this.pulse.env()) });
+    } catch (e) { return; }
+    const a = { proc: proc, at: Date.now(), packets: 0 };
+    s.audio = a;
+    const ogg = new OggOpus((pkt) => {
+      if (pkt.length <= SILENT_BYTES) return;
+      a.packets++;
+      for (const v of s.viewers) {
+        if (v.sound && !v.paused && v.onAudio) { try { v.onAudio(pkt); } catch (e) {} }
+      }
+    });
+    proc.stdout.on("data", (d) => ogg.push(d));
+    let said = "";
+    proc.stderr.on("data", (d) => { said = (said + d).slice(-1000); });
+    proc.on("error", () => {});
+    proc.on("exit", (code) => {
+      if (s.audio !== a) return;
+      s.audio = null;
+      this.log("WARN", "browser: sound for " + s.who + " stopped (" + code + ") " + said.trim().split("\n").pop());
+      /* Tried again, a few times: a hiccup should not mean silence for the rest of the session. */
+      if (++s.audioFails <= 3) {
+        const t = setTimeout(() => this._audioCheck(s), 2000);
+        if (t.unref) t.unref();
+      }
+    });
+  }
+
+  _audioStop(s) {
+    const a = s.audio;
+    s.audio = null;
+    if (a) { try { a.proc.kill("SIGTERM"); } catch (e) {} }
   }
 
   _watching(s) {
@@ -1033,7 +1235,7 @@ class Engine {
 
   async clearCookies(s) {
     this.kept.delete(s.key);
-    await this.cdp.send("Storage.clearCookies", { browserContextId: s.browserContextId })
+    await s.cdp.send("Storage.clearCookies", { browserContextId: s.browserContextId })
       .catch(async () => { await s.page.send("Network.clearBrowserCookies").catch(() => {}); });
     this.log("INFO", "browser: cookies cleared for " + s.who);
   }
@@ -1057,7 +1259,7 @@ class Engine {
     if (s.tier !== "guest" && this.cfg.keepSignInsHours > 0 &&
         (why === "idle" || why === "made room for another session")) {
       try {
-        const c = await this.cdp.send("Storage.getCookies", { browserContextId: s.browserContextId });
+        const c = await s.cdp.send("Storage.getCookies", { browserContextId: s.browserContextId });
         if (c && Array.isArray(c.cookies) && c.cookies.length) this.kept.set(s.key, { cookies: c.cookies, at: Date.now() });
       } catch (e) {}
     }
@@ -1066,8 +1268,9 @@ class Engine {
     try { fs.rmSync(s.dir, { recursive: true, force: true }); } catch (e) {}
     for (const v of s.viewers) { try { v.onGone(why || "session ended"); } catch (e) {} }
     s.viewers.clear();
-    try { await this.cdp.send("Target.disposeBrowserContext",
-      { browserContextId: s.browserContextId }); } catch (e) {}
+    this._audioStop(s);
+    if (s.host) this._dropHost(s.host);
+    else { try { await s.cdp.send("Target.disposeBrowserContext", { browserContextId: s.browserContextId }); } catch (e) {} }
     return true;
   }
 
@@ -1108,10 +1311,7 @@ class Engine {
      takes a second or two, exactly as on a freshly started relay. */
   park() {
     if (!this.ready || this.sessions.size) return false;
-    const p = this.proc;
-    this.proc = null;
     this._teardown();
-    if (p) { try { p.kill("SIGTERM"); } catch (e) {} }
     this.log("INFO", "browser: unused for " + this.cfg.parkMinutes + " min, Chromium stopped until it is next opened");
     return true;
   }

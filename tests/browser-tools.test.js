@@ -129,12 +129,35 @@ function session(page) {
     ok("the visible one leaves, the hidden one stays: stopped", !s.casting);
   }
 
+  section("a download is never bigger than the temporary space");
+  {
+    const fsm = require("fs");
+    const real = fsm.statfsSync;
+    const e3 = new Engine({ config: { enabled: false, downloadMaxMB: 200 }, log: () => {} });
+    clearInterval(e3._sweep);
+    fsm.statfsSync = () => ({ bavail: (70 * 1048576) / 4096, bsize: 4096 });
+    ok("with 70 MB free (a 100 MB tmpfs), the most is 40 MB, not 200", Math.round(e3.downloadRoom() / 1048576) === 40);
+    ok("what a download already holds counts as its own", Math.round(e3.downloadRoom({ got: 20 * 1048576 }) / 1048576) === 60);
+    fsm.statfsSync = () => ({ bavail: (900 * 1048576) / 4096, bsize: 4096 });
+    ok("with room to spare, the setting decides", Math.round(e3.downloadRoom() / 1048576) === 200);
+    fsm.statfsSync = () => { throw new Error("no statfs"); };
+    ok("and where free space cannot be read, the setting alone", Math.round(e3.downloadRoom() / 1048576) === 200);
+    fsm.statfsSync = real;
+  }
+
   section("an unused browser stops");
   {
     const e2 = new Engine({ config: { enabled: false, parkMinutes: 10 }, log: () => {} });
     clearInterval(e2._sweep);
     let killed = 0;
-    const arm = () => { e2.ready = true; e2.proc = { kill() { killed++; } }; };
+    /* A stand-in Chromium, as the shared host (browser-engine.js _launch). */
+    const arm = () => {
+      e2.ready = true;
+      const p = { exitCode: null, kill() { killed++; this.exitCode = 0; }, once(ev, fn) { fn(); } };
+      e2.main = { proc: p, profile: require("path").join(require("os").tmpdir(), "fk-no-such-profile"), sink: null };
+      e2.hosts.add(e2.main);
+      e2.proc = p;
+    };
     arm();
     e2.lastUsed = Date.now() - 9 * 60000;
     e2.evictIdle();

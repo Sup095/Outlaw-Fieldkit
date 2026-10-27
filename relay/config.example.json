@@ -144,14 +144,17 @@
     "videoKbps": 1500,
     "videoQuality": 80,
     "searchUrl": "https://www.bing.com/search?q=",
-    "_tabs": "Browser upgrades (FIELDKIT_PROJECT.md 14.26). maxTabs caps the tabs in one session; a pop-up past it is closed. downloads false refuses every download, as before; downloadMaxMB cancels one that grows past it. uploads false leaves a page's choose-file doing nothing; uploadMaxMB caps each file. A guest's session ends guestGraceSec after the panel closes. A member's sign-ins are kept in this relay's memory, never on disk, for keepSignInsHours after an idle end; 0 keeps none.",
+    "_tabs": "Browser upgrades (FIELDKIT_PROJECT.md 14.26). maxTabs caps the tabs in one session; a pop-up past it is closed. downloads false refuses every download, as before; downloadMaxMB cancels one that grows past it, and so does running low on the relay's temporary space (a download is held there until it is fetched; FIELDKIT_PROJECT.md 14.37). uploads false leaves a page's choose-file doing nothing; uploadMaxMB caps each file. A guest's session ends guestGraceSec after the panel closes. A member's sign-ins are kept in this relay's memory, never on disk, for keepSignInsHours after an idle end; 0 keeps none.",
     "maxTabs": 8,
     "downloads": true,
     "downloadMaxMB": 200,
     "uploads": true,
     "uploadMaxMB": 50,
     "guestGraceSec": 60,
-    "keepSignInsHours": 12
+    "keepSignInsHours": 12,
+    "_sound": "Sound (FIELDKIT_PROJECT.md 14.37). With sound true and PulseAudio in the image (relay/docker/Dockerfile), each session gets a Chromium of its own on a sound card of its own, and one spare Chromium is kept started; the sound goes to the panel as Opus at soundKbps while someone listens. Each session then has its own Chromium (see USAGE for what it really costs). false (or an image without PulseAudio) is the old way: one Chromium, muted.",
+    "sound": true,
+    "soundKbps": 48
   },
   "_runner": "RUNNER: upload a file and run it on the second machine, Bastion 2 (RUNNER_PLAN.md). Off by default. The relay does NOT run anything and no file ever passes through it. Its whole part is three small routes: it says whether the run server is up, and it signs a one-minute ticket saying which MESSAGES account is asking and what tier it is (guest, member or admin). The panel then talks to the run server directly. publicUrl is the run server's own https address, the second hostname pointed at Bastion 2, with no path on the end: https://run.example.com. The run server fetches this relay's public ticket key by itself from /runner/pubkey, so there is no key to copy between machines. A MESSAGES account is required; the vault token alone is not enough, because limits and bans are per person. If Bastion 2 is unplugged the panel is told so in a sentence and uploading is blocked. When Bastion 2 sleeps to save power (FIELDKIT_PROJECT.md 14.27), opening RUNNER wakes it through fk-wake.js, a helper run beside this relay on Bastion 1 with the host network, because broadcasts from inside this container never reach the home network. The helper proves itself with a key this relay makes in data/runner/wake/key; set runner.wakeKey to choose it yourself instead.",
   "runner": {

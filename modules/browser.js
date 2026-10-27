@@ -663,7 +663,25 @@
     if (live.ro) { try { live.ro.disconnect(); } catch (e) {} }
     if (live.offKeys) live.offKeys();
     if (live.dec) { try { live.dec.close(); } catch (e) {} }
+    if (live.adec) { try { live.adec.close(); } catch (e) {} }
+    if (live.actx) { try { live.actx.close(); } catch (e) {} }
     live = null;
+  }
+
+  /* SOUND (FIELDKIT_PROJECT.md §14.37). The relay sends this session's
+     sound as Opus packets (binary frames starting with 2); they are
+     decoded with WebCodecs and played back to back. Whether to ask for
+     it is remembered on this computer; it is on unless switched off. */
+  var SOUND_KEY = "fieldkit.browser.sound";
+  function canSound() {
+    return typeof window.AudioDecoder === "function" && typeof window.EncodedAudioChunk === "function" &&
+      !!(window.AudioContext || window.webkitAudioContext);
+  }
+  function soundPref() {
+    try { return localStorage.getItem(SOUND_KEY) !== "off"; } catch (e) { return true; }
+  }
+  function setSoundPref(on) {
+    try { localStorage.setItem(SOUND_KEY, on ? "on" : "off"); } catch (e) {}
   }
 
   function renderLive(host, status) {
@@ -977,6 +995,21 @@
     }
     live_usageStop = function () { if (usageTimer) { clearInterval(usageTimer); usageTimer = null; } };
     var usageBtn = btn("USAGE", "what the browser costs: Chromium, each session and each open panel (admins)", usageOpen);
+
+    /* Shown once the relay says this session has sound. */
+    var soundBtn = btn("SOUND", "turn the page's sound on or off", function () {
+      var on = !(live && live.soundOn);
+      setSoundPref(on);
+      if (on) soundStart();            /* a click: the browser lets sound start now */
+      cmd({ t: "sound", on: on });
+      drawSound(on);
+    });
+    soundBtn.style.display = "none";
+    function drawSound(on) {
+      if (live) live.soundOn = !!on;
+      soundBtn.textContent = on ? "🔊 SOUND" : "🔇 MUTED";
+      soundBtn.classList.toggle("on", !!on);
+    }
     adminBits = [usageBtn];
     showAdmin();
 
@@ -1000,6 +1033,7 @@
       btn("WIPE", "end the session and throw away everything in it", function () {
         cmd({ t: "clear", what: "all" });
       }),
+      soundBtn,
       usageBtn
     ]);
 
@@ -1082,6 +1116,51 @@
        Chromebook. A "video" message gives the size before the first
        frame and again after a resize; { off: true } means pictures
        again, which is also what an older relay sends throughout. */
+    /* Sound may only start from something the person did, so the
+       AudioContext is made on their first click or key in the page (or
+       on SOUND). Until then packets are dropped, not queued. */
+    function soundStart() {
+      if (!live || live.actx) return;
+      var AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC || !live.soundHere) return;
+      try { live.actx = new AC({ sampleRate: 48000, latencyHint: "interactive" }); live.anext = 0; live.ats = 0; }
+      catch (e) { live.actx = null; }
+    }
+    function soundPlay(ad) {
+      try {
+        if (!live || !live.actx) return;
+        var ch = ad.numberOfChannels, n = ad.numberOfFrames;
+        var ab = live.actx.createBuffer(ch, n, ad.sampleRate);
+        for (var c = 0; c < ch; c++) {
+          var dst = new Float32Array(n);
+          ad.copyTo(dst, { planeIndex: c, format: "f32-planar" });
+          ab.copyToChannel(dst, c);
+        }
+        /* Back to back, a little ahead; after a gap (silence is not
+           sent) or a stall, start again just ahead of now. */
+        var now = live.actx.currentTime;
+        if (live.anext < now + 0.02 || live.anext > now + 0.35) live.anext = now + 0.08;
+        var src = live.actx.createBufferSource();
+        src.buffer = ab;
+        src.connect(live.actx.destination);
+        src.start(live.anext);
+        live.anext += ab.duration;
+      } catch (e) {} finally { try { ad.close(); } catch (e) {} }
+    }
+    function soundFrame(buf) {
+      if (!live || !live.actx || !live.soundOn) return;
+      if (!live.adec || live.adec.state === "closed") {
+        try {
+          live.adec = new window.AudioDecoder({ output: soundPlay, error: function () { live && (live.adec = null); } });
+          live.adec.configure({ codec: "opus", sampleRate: 48000, numberOfChannels: 2 });
+        } catch (e) { live.adec = null; return; }
+      }
+      try {
+        live.adec.decode(new window.EncodedAudioChunk({ type: "key", timestamp: (live.ats += 20000),
+          data: new Uint8Array(buf, 1) }));
+      } catch (e) {}
+    }
+
     function canVideo() {
       return typeof window.VideoDecoder === "function" && typeof window.EncodedVideoChunk === "function";
     }
@@ -1141,7 +1220,7 @@
 
       sock.onopen = function () {
         var d = fit();
-        cmd({ t: "hello", w: d.w, h: d.h, scale: 1, video: canVideo() });
+        cmd({ t: "hello", w: d.w, h: d.h, scale: 1, video: canVideo(), sound: canSound() && soundPref() });
         stat.textContent = "connecting…";
         stat.className = "br-status ok";
         canvas.focus();
@@ -1149,6 +1228,7 @@
 
       sock.onmessage = function (ev) {
         if (typeof ev.data !== "string") {
+          if (new Uint8Array(ev.data, 0, 1)[0] === 2) return soundFrame(ev.data);
           return live.video ? videoFrame(ev.data) : draw(new Blob([ev.data], { type: "image/jpeg" }));
         }
         var m;
@@ -1161,7 +1241,12 @@
           stat.textContent = "waiting for a browser: " + (m.ahead ? m.ahead + " ahead of you" : "you are next") +
             " (" + (m.why || "busy") + "). Members go ahead of guests. This connects by itself.";
           stat.className = "br-status warn";
+        } else if (m.t === "sound") {
+          drawSound(!!m.on);
         } else if (m.t === "ready") {
+          live.soundHere = !!m.sound && canSound();
+          soundBtn.style.display = live.soundHere ? "" : "none";
+          drawSound(live.soundHere && soundPref());
           live.zoom = m.zoom || 1;
           zoomBtn.textContent = Math.round(live.zoom * 100) + "%";
           stat.textContent = "connected";
@@ -1264,6 +1349,7 @@
     });
     canvas.addEventListener("mousedown", function (e) {
       e.preventDefault(); canvas.focus();
+      if (live && live.soundOn) soundStart();
       var p = pt(e);
       cmd({ t: "mouse", type: "mousePressed", x: p.x, y: p.y,
         button: BUTTON[e.button] || "left", buttons: e.buttons,
@@ -1303,6 +1389,7 @@
     }
     canvas.addEventListener("touchstart", function (e) {
       e.preventDefault();
+      if (live && live.soundOn) soundStart();
       if (glide) { cancelAnimationFrame(glide); glide = 0; }
       var ts = e.touches;
       if (ts.length >= 2) {
@@ -1370,6 +1457,7 @@
     canvas.addEventListener("touchcancel", function () { touch = null; }, { passive: false });
 
     function onKeyDown(e) {
+      if (live && live.soundOn && document.activeElement === canvas) soundStart();
       if (!live || document.activeElement === addr) return;
       /* Keys the panel needs to keep. Everything else belongs to the
          page, including Tab — a form is not usable without it. */
@@ -1910,6 +1998,7 @@
       ".br-places-list{max-height:220px;overflow-y:auto;display:flex;flex-direction:column;gap:1px}",
       ".br-places-none{font-size:11px;color:var(--fg-dimmer);padding:4px}",
       ".br-use-line{font-size:11px;white-space:pre-wrap;color:var(--fg-dim)}",
+      ".br-nav.on{color:var(--accent)}",
       ".br-place{display:flex;gap:4px;align-items:center}",
       ".br-place-go{flex:1;min-width:0;display:flex;gap:8px;align-items:baseline;background:none;border:0;padding:3px 4px;",
       "  font:inherit;color:var(--fg);text-align:left;cursor:pointer}",

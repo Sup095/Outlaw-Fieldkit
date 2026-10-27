@@ -42,7 +42,7 @@ wall is that a person answers them, not that the relay slips past them.
 | | |
 |---|---|
 | **Memory** | ~150 MB for Chromium plus 80–150 MB per active session. Six sessions fit in 4 GB alongside the rest of the relay. |
-| **Audio** | Does not travel. A screencast is video frames. Video plays; you will not hear it. |
+| **Sound** | With PulseAudio in the image (it is, from 2026-10-27) each session gets its own Chromium and its own silent sound card; what plays is sent as Opus while the panel's SOUND is on, and silence is not sent. About 350 MB per session (PSS, measured), plus a spare kept started. `"sound": false` goes back to one shared, muted Chromium. |
 | **It is a picture** | FIND and zoom act on the real page; text is selected and copied through the page, and copy and paste work both ways. |
 | **Downloads** | Saved to your device or encrypted into VAULT FILES; a page's "choose file" opens your own picker. |
 

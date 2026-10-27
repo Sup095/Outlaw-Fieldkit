@@ -42,6 +42,13 @@ global.fetch = async (url, opts) => {
   throw new Error("unexpected fetch " + url);
 };
 
+/* WebCodecs' audio half and an AudioContext, as stand-ins. */
+const decoded = [];
+let actxMade = 0;
+window.AudioDecoder = class { constructor(o) { this.o = o; this.state = "configured"; } configure() {} decode(c) { decoded.push(c); } close() { this.state = "closed"; } };
+window.EncodedAudioChunk = class { constructor(o) { Object.assign(this, o); } };
+window.AudioContext = class { constructor() { actxMade++; this.currentTime = 0; } close() {} };
+
 const socks = [];
 class FakeWS {
   constructor(url) { this.url = url; this.sent = []; this.readyState = 1; socks.push(this); setTimeout(() => this.onopen && this.onopen(), 0); }
@@ -135,6 +142,31 @@ const until = async (fn, ms) => { const end = Date.now() + (ms || 3000); while (
     await wait(50);
     ok("CLOSE puts it away and it stops asking", !/CHROMIUM/.test(text()) || byClass("br-usage")[0].style.display === "none");
     ok("(asked once while open)", asked >= 1);
+  }
+
+  section("sound");
+  {
+    ok("hello asks for sound when the panel can play it", sent("hello")[0].sound === true);
+    ok("SOUND is hidden until the relay says this session has it", button("🔊 SOUND") === null);
+    ws.say({ t: "ready", zoom: 1, sound: true });
+    ok("then it shows, on", !!button("🔊 SOUND") && button("🔊 SOUND").style.display !== "none");
+    const audio = (bytes) => ws.onmessage({ data: new Uint8Array([2].concat(bytes)).buffer });
+    audio([1, 2, 3]);
+    ok("before the person has clicked, sound is dropped (a browser would not play it)", decoded.length === 0 && actxMade === 0);
+    fire(canvas, "mousedown", { button: 0, buttons: 1, detail: 1, clientX: 5, clientY: 5 });
+    ok("their first click in the page starts it", actxMade === 1);
+    audio([9, 8, 7, 6]);
+    ok("a sound frame is decoded as Opus, without its tag byte", decoded.length === 1 && decoded[0].data.length === 4 && decoded[0].data[0] === 9);
+    const before = ws.sent.length;
+    click(button("🔊 SOUND"));
+    ok("SOUND switches it off, tells the relay, and says so", ws.sent.slice(before).some((m) => m.t === "sound" && m.on === false) &&
+      !!button("🔇 MUTED"));
+    ok("and is remembered on this computer", localStorage.getItem("fieldkit.browser.sound") === "off");
+    audio([5, 5, 5]);
+    ok("muted, nothing is decoded", decoded.length === 1);
+    click(button("🔇 MUTED"));
+    ws.say({ t: "sound", on: true });
+    ok("on again, as the relay confirms", !!button("🔊 SOUND") && localStorage.getItem("fieldkit.browser.sound") === "on");
   }
 
   section("tabs");

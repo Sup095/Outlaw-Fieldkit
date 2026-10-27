@@ -58,6 +58,19 @@ function tree(root) {
   return out;
 }
 
+/* Memory a process really costs: its PSS, where pages it shares with
+   other processes (Chromium's dozen share most of theirs) count as a
+   share each, not in full. Summing plain resident memory over Chromium's
+   processes came out about three times too high (§14.37). Falls back to
+   resident memory where smaps_rollup cannot be read. */
+function pssBytes(pid, rssBytes) {
+  try {
+    const m = /^Pss:\s+(\d+) kB/m.exec(fs.readFileSync("/proc/" + pid + "/smaps_rollup", "utf8"));
+    if (m) return Number(m[1]) * 1024;
+  } catch (e) {}
+  return rssBytes;
+}
+
 /* Cores in use since the last reading (1 = one whole core). The first
    reading has nothing to compare with, so its cpu is null. */
 class Meter {
@@ -72,8 +85,8 @@ class Meter {
       cpu = Math.max(0, Math.round(((ticks - this.last.ticks) / HZ) / ((at - this.last.at) / 1000) * 100) / 100);
     }
     this.last = { root: root, ticks: ticks, at: at };
-    return { cpu: cpu, memMb: Math.round(procs.reduce((n, p) => n + p.rssBytes, 0) / 1048576), procs: procs.length };
+    return { cpu: cpu, memMb: Math.round(procs.reduce((n, p) => n + pssBytes(p.pid, p.rssBytes), 0) / 1048576), procs: procs.length };
   }
 }
 
-module.exports = { readStat, tree, Meter };
+module.exports = { readStat, tree, Meter, pssBytes };
