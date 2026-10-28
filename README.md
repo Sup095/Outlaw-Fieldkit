@@ -20,6 +20,10 @@ says plainly that it is not.
 > answers at each of these addresses:
 >
 > - `https://relay.outlawfieldkit.com`
+> - `https://run.outlawfieldkit.com`
+> - `https://tool.outlawfieldkit.com`
+> - `https://save.outlawfieldkit.com`
+> - `https://learn.outlawfieldkit.com`
 
 ---
 
