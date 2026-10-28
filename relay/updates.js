@@ -84,13 +84,13 @@ function init(opts) {
   if (!cfg.enabled) return { enabled: false };
 
   fs.mkdirSync(DIR, { recursive: true });
-  if (cfg.githubRepo && validRepo(cfg.githubRepo) && opts.mirror !== false) {
+  if (cfg.githubRepo && !validRepo(cfg.githubRepo)) {
+    log("WARN", "updates: githubRepo should look like owner/name; not mirroring");
+  } else if (cfg.githubRepo && opts.mirror !== false) {
     const every = Math.max(10, Number(cfg.mirrorEveryMin) || 360) * 60000;
     setTimeout(() => { mirror().catch(() => {}); }, 15000).unref();
     timer = setInterval(() => { mirror().catch(() => {}); }, every);
     if (timer.unref) timer.unref();
-  } else if (cfg.githubRepo) {
-    log("WARN", "updates: githubRepo should look like owner/name; not mirroring");
   }
   const cur = current();
   if (!cur) {
