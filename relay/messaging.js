@@ -41,6 +41,7 @@
 "use strict";
 
 const fs = require("fs");
+const jf = require("./jsonfile");
 const path = require("path");
 const crypto = require("crypto");
 
@@ -85,7 +86,15 @@ function init(opts) {
   [DIR, CONV_DIR, REPORT_DIR].forEach((d) => fs.mkdirSync(d, { recursive: true }));
   if (!fs.existsSync(USERS)) writeJson(USERS, { version: 1, users: {} });
 
-  const users = readUsers();
+  /* A damaged account list must not stop the relay: everything but
+     MESSAGES keeps working, and MESSAGES refuses changes until fixed. */
+  let users;
+  try { users = readUsers(); }
+  catch (e) {
+    if (!e.damaged) throw e;
+    log("ERROR", "messaging: the account list is DAMAGED (and so is its .bak); sign-ins and new accounts fail until " + USERS + " is restored");
+    return { enabled: true, users: 0, moderators: cfg.moderators.length, damaged: true };
+  }
   const n = Object.keys(users).length;
   const made = adminList(users).length - cfg.moderators.length;
   log("INFO", `messaging: ${n} account(s), ${cfg.moderators.length} admin(s) from config.json` +
@@ -116,15 +125,19 @@ function init(opts) {
 }
 
 /* ---- storage -------------------------------------------------- */
+/* jsonfile.js: survives a power cut. readJson is for looking (a damaged
+   file reads as missing, loudly); readStrict is for anything about to
+   be written back, and throws rather than let a damaged file be saved
+   over: one damaged users.json used to become a one-account list. */
 function readJson(f) {
-  try { return JSON.parse(fs.readFileSync(f, "utf8")); } catch (e) { return null; }
+  return jf.readSoft(f, null, (e) => log("ERROR", "messaging: " + e.message));
 }
-function writeJson(f, obj) {
-  const tmp = f + ".tmp";
-  fs.writeFileSync(tmp, JSON.stringify(obj), "utf8");
-  fs.renameSync(tmp, f);
+function readStrict(f) {
+  try { return jf.read(f, null); }
+  catch (e) { if (e.damaged) log("ERROR", "messaging: " + e.message); throw e; }
 }
-function readUsers() { return (readJson(USERS) || { users: {} }).users || {}; }
+function writeJson(f, obj) { jf.write(f, obj); }
+function readUsers() { return (readStrict(USERS) || { users: {} }).users || {}; }
 function writeUsers(users) { writeJson(USERS, { version: 1, users: users }); }
 
 /* Conversation ids are server-minted and opaque. Never derived from
@@ -259,7 +272,7 @@ function failureSummary() {
 const AUDIT_KEEP = 500;
 
 function readRoles() {
-  const r = readJson(ROLES) || {};
+  const r = readStrict(ROLES) || {};
   return { version: 1, admins: r.admins || {}, audit: Array.isArray(r.audit) ? r.audit : [] };
 }
 
@@ -303,7 +316,8 @@ function stripEscrow(handle) {
   names.forEach((f) => {
     if (!f.endsWith(".json")) return;
     const p = path.join(REPORT_DIR, f);
-    const r = readJson(p);
+    let r;
+    try { r = readStrict(p); } catch (e) { return; }
     if (!r || !r.escrow || !r.escrow[handle]) return;
     delete r.escrow[handle];
     writeJson(p, r);
@@ -829,7 +843,7 @@ async function route(req, res, url, helpers) {
 
     const id = String(body.reportId || "");
     const file = validId(id) ? path.join(REPORT_DIR, id + ".json") : null;
-    const r = file ? readJson(file) : null;
+    const r = file ? readStrict(file) : null;
     if (!r) return send(res, 404, { error: "no such report" }), true;
     if (r.status !== "open") return send(res, 409, { error: "already resolved" }), true;
 

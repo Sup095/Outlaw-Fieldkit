@@ -21,6 +21,7 @@
 "use strict";
 
 const fs = require("fs");
+const jf = require("../relay/jsonfile");
 
 const DAY = 24 * 3600 * 1000;
 const STALE_MS = 5 * 60 * 1000;
@@ -38,7 +39,7 @@ class Power {
 
   settings() {
     let s = {};
-    try { s = JSON.parse(fs.readFileSync(this.settingsFile, "utf8")) || {}; } catch (e) {}
+    try { s = jf.read(this.settingsFile, {}) || {}; } catch (e) {}
     return {
       pricePerKwh: num(s.pricePerKwh, 100) || 0,
       otherWatts: num(s.otherWatts, 1000) == null ? 30 : s.otherWatts,
@@ -64,9 +65,7 @@ class Power {
       if (!/^[^\s<>"'&]{1,4}$/.test(c)) throw new Error("a currency is a symbol or code of up to 4 characters");
       cur.currency = c;
     }
-    const tmp = this.settingsFile + ".tmp";
-    fs.writeFileSync(tmp, JSON.stringify(cur), "utf8");
-    fs.renameSync(tmp, this.settingsFile);
+    jf.write(this.settingsFile, cur);
     return cur;
   }
 

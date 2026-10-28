@@ -171,8 +171,83 @@
     ])
   ];
 
+  /* ---- ONLINE SERVICES: what the relay offers, and whether this
+     machine and this network can use it. In FULL and the exercise,
+     never at boot: each is a request to the relay. Addresses are not
+     printed for a guest (see the NETWORK note in the exercise). */
+  function relayBase() {
+    var u = svc("settings") && svc("settings").get("relayUrl");
+    if (!u) throw new Error("SKIPPED — no relay address set");
+    return String(u).replace(/\/+$/, "");
+  }
+  async function getJson(url, ms) {
+    var ac = typeof AbortController === "function" ? new AbortController() : null;
+    var t = setTimeout(function () { if (ac) ac.abort(); }, ms || 8000);
+    try {
+      var r = await fetch(url, { cache: "no-store", signal: ac ? ac.signal : undefined });
+      if (r.status === 404) return null;
+      return JSON.parse(await r.text());
+    } finally { clearTimeout(t); }
+  }
+  function onlineGroup() {
+    return group("ONLINE SERVICES", [
+      check("RELAY ADDRESSES", false, async function () {
+        skipIfGuest();
+        var rc = svc("relayChoice"), st = svc("settings");
+        if (!rc || !st) throw new Error("SKIPPED — this build has no address list");
+        var list = rc.known(st);
+        if (!list.length) throw new Error("SKIPPED — no relay address set");
+        var good = [];
+        for (var i = 0; i < list.length; i++) if (await rc.answers(list[i], 5000)) good.push(new URL(list[i]).host);
+        if (!good.length) throw new Error("none of the " + list.length + " saved address(es) answers from this network");
+        return good.length + " of " + list.length + " answer: " + good.join(", ");
+      }),
+      check("WEBSOCKETS", false, async function () {
+        var base = relayBase();
+        if (typeof WebSocket !== "function") throw new Error("this browser has no WebSocket");
+        return await new Promise(function (resolve, reject) {
+          var done = false, ws;
+          var t = setTimeout(function () { finish(new Error("no answer in 8 s: this network may block WebSockets, which the streamed browser and RUNNER need")); }, 8000);
+          function finish(e, v) { if (done) return; done = true; clearTimeout(t); try { ws.close(); } catch (x) {} if (e) reject(e); else resolve(v); }
+          try { ws = new WebSocket(base.replace(/^http/i, "ws") + "/ws-check"); }
+          catch (e) { return finish(e); }
+          ws.onmessage = function (m) { finish(null, m.data === "fieldkit-ws-ok" ? "they get through this network" : "answered oddly: " + String(m.data).slice(0, 40)); };
+          ws.onerror = function () { finish(new Error("refused: this network blocks WebSockets, or the relay predates this check")); };
+        });
+      }),
+      check("STREAMED BROWSER", false, async function () {
+        var b = await getJson(relayBase() + "/browser/status");
+        if (!b) throw new Error("this relay has no streamed browser");
+        if (!b.enabled) throw new Error("switched off on this relay");
+        var helpers = Array.isArray(b.helpers) ? b.helpers : [];
+        return (b.available === false ? "not available right now" : "available") + ", " + (b.sessions || 0) + " of " + (b.maxSessions || "?") +
+          " sessions in use" + (b.video ? ", video" : "") + (b.sound ? ", sound" : "") +
+          (helpers.length ? ", helpers: " + helpers.filter(function (h) { return h.up; }).length + " of " + helpers.length + " up" : "");
+      }),
+      check("RUNNER", false, async function () {
+        var r = await getJson(relayBase() + "/runner/status");
+        if (!r || !r.enabled) throw new Error("SKIPPED — RUNNER is not on this relay");
+        if (!r.online || r.ready === false) throw new Error(r.why || "the run server is offline");
+        return "ready (" + (r.sandbox || "?") + ")" + (r.viaRelay ? ", through the relay's own address" : ", on its own address");
+      }),
+      check("VIDEO DECODING", false, async function () {
+        if (typeof VideoDecoder !== "function") throw new Error("no WebCodecs here: the browser and RUNNER windows fall back to pictures, which use more data");
+        var s = await VideoDecoder.isConfigSupported({ codec: "avc1.42E01F", codedWidth: 1280, codedHeight: 720 });
+        if (!s.supported) throw new Error("H.264 cannot be decoded here: the browser falls back to pictures");
+        return "H.264 decodes here";
+      }),
+      check("SOUND DECODING", false, async function () {
+        if (typeof AudioDecoder !== "function") throw new Error("no WebCodecs audio here: the browser and RUNNER play without sound");
+        var s = await AudioDecoder.isConfigSupported({ codec: "opus", sampleRate: 48000, numberOfChannels: 2 });
+        if (!s.supported) throw new Error("Opus cannot be decoded here: no sound");
+        return "Opus decodes here";
+      })
+    ]);
+  }
+
   /* ---- FULL: manual, allowed to be slow ----------------------- */
   var FULL_GROUPS = QUICK_GROUPS.concat([
+    onlineGroup(),
     group("CRYPTO", [
       check("KDF BENCHMARK", false, async function () {
         var ms = await need("crypto").benchmark();
@@ -554,6 +629,7 @@
        then confirmed it was live from their network. RELAY LINK,
        whose whole job is that URL, is correctly sealed; printing it
        here went around the seal. */
+    groups.push(onlineGroup());
     groups.push(group("NETWORK", [
       check("ACTIVE TRANSPORT", false, async function () {
         return store().transportName();

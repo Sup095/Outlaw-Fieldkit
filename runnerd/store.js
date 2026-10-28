@@ -22,6 +22,8 @@
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
+/* Survives a power cut, and never saves over a damaged index (relay/jsonfile.js). */
+const jf = require("../relay/jsonfile");
 
 const SHA_RE = /^[a-f0-9]{64}$/;
 const ID_RE = /^[a-f0-9]{16,64}$/;
@@ -58,13 +60,10 @@ class Store {
   /* ---- owners ---- */
   _userFile(handle) { return path.join(this.dirs.users, handle + ".json"); }
   _readUser(handle) {
-    try { return JSON.parse(fs.readFileSync(this._userFile(handle), "utf8")); }
-    catch (e) { return { version: 1, files: {} }; }
+    return jf.read(this._userFile(handle), { version: 1, files: {} });
   }
   _writeUser(handle, u) {
-    const f = this._userFile(handle), tmp = f + ".tmp";
-    fs.writeFileSync(tmp, JSON.stringify(u), "utf8");
-    fs.renameSync(tmp, f);
+    jf.write(this._userFile(handle), u);
   }
   _blob(sha) { return path.join(this.dirs.blobs, sha.slice(0, 2), sha); }
   _guestDir(sid) { return path.join(this.dirs.guests, sid); }
@@ -128,6 +127,9 @@ class Store {
         return got === size;
       },
       finish() {
+        /* On the disk before it gets a real name: after a power cut a
+           file is either whole or not there. */
+        if (open) { try { fs.fsyncSync(fd); } catch (e) {} }
         close();
         const sha = hash.digest("hex");
         if (got !== size) { abort(); throw new Error("the upload stopped short"); }
@@ -194,13 +196,15 @@ class Store {
     for (const n of names) {
       if (!n.endsWith(".json")) continue;
       let u;
-      try { u = JSON.parse(fs.readFileSync(path.join(this.dirs.users, n), "utf8")); }
+      try { u = jf.read(path.join(this.dirs.users, n), { files: {} }); }
       catch (e) { return true; }          /* unreadable index: assume it is in use */
       for (const id of Object.keys(u.files || {})) if (u.files[id].sha256 === sha) return true;
     }
-    const lib = this._readLib().files;
-    for (const id of Object.keys(lib)) if (lib[id].sha256 === sha) return true;
-    return this._readTrash().files.some((x) => x.entry.sha256 === sha);
+    try {
+      const lib = this._readLib().files;
+      for (const id of Object.keys(lib)) if (lib[id].sha256 === sha) return true;
+      return this._readTrash().files.some((x) => x.entry.sha256 === sha);
+    } catch (e) { return true; }
   }
 
   dropGuest(sid) {
@@ -236,16 +240,15 @@ class Store {
      unpinning gives it back to them with a fresh 30-day clock. The
      bytes never move: the blob is the same blob either way. */
   _readLib() {
-    try { return JSON.parse(fs.readFileSync(path.join(this.root, "library.json"), "utf8")); }
-    catch (e) { return { version: 1, files: {} }; }
+    return jf.read(path.join(this.root, "library.json"), { version: 1, files: {} });
   }
   _writeLib(l) {
-    const f = path.join(this.root, "library.json"), tmp = f + ".tmp";
-    fs.writeFileSync(tmp, JSON.stringify(l), "utf8");
-    fs.renameSync(tmp, f);
+    jf.write(path.join(this.root, "library.json"), l);
   }
   library() {
-    return Object.values(this._readLib().files).map((f) => Object.assign({}, f, { library: true }))
+    /* On screen a damaged library is an empty one; changing it still refuses. */
+    const lib = jf.readSoft(path.join(this.root, "library.json"), { version: 1, files: {} }, (e) => { this.damaged = e.message; });
+    return Object.values(lib.files).map((f) => Object.assign({}, f, { library: true }))
       .sort((a, b) => String(a.name).localeCompare(String(b.name)));
   }
 
@@ -322,15 +325,14 @@ class Store {
      mistake, by its owner, by an admin or by the expiry sweep, can be
      undone. Its bytes stay until the tombstone runs out. */
   _readTrash() {
-    try { return JSON.parse(fs.readFileSync(path.join(this.root, "trash.json"), "utf8")); }
-    catch (e) { return { version: 1, files: [] }; }
+    return jf.read(path.join(this.root, "trash.json"), { version: 1, files: [] });
   }
   _writeTrash(t) {
-    const f = path.join(this.root, "trash.json"), tmp = f + ".tmp";
-    fs.writeFileSync(tmp, JSON.stringify(t), "utf8");
-    fs.renameSync(tmp, f);
+    jf.write(path.join(this.root, "trash.json"), t);
   }
-  trash() { return this._readTrash().files.slice().reverse(); }
+  trash() {
+    return jf.readSoft(path.join(this.root, "trash.json"), { version: 1, files: [] }, (e) => { this.damaged = e.message; }).files.slice().reverse();
+  }
 
   _toTrash(from, entry, reason, by) {
     const t = this._readTrash();
@@ -385,7 +387,8 @@ class Store {
     now = now || Date.now();
     const expired = [];
     for (const h of this.handles()) {
-      const u = this._readUser(h);
+      let u;
+      try { u = this._readUser(h); } catch (e) { this.damaged = e.message; continue; }   /* left alone, not expired */
       for (const id of Object.keys(u.files)) {
         if (this.expiresAt(u.files[id], ttlMs) <= now) {
           expired.push({ handle: h, name: u.files[id].name });
@@ -393,7 +396,8 @@ class Store {
         }
       }
     }
-    const t = this._readTrash();
+    let t;
+    try { t = this._readTrash(); } catch (e) { this.damaged = e.message; return { expired: expired, purged: 0 }; }
     const keep = [], gone = [];
     t.files.forEach((x) => (now - Date.parse(x.deletedAt) >= tombMs ? gone : keep).push(x));
     if (gone.length) {
@@ -409,7 +413,8 @@ class Store {
   dropHash(sha) {
     let n = 0;
     for (const h of this.handles()) {
-      const u = this._readUser(h);
+      let u;
+      try { u = this._readUser(h); } catch (e) { this.damaged = e.message; continue; }
       const ids = Object.keys(u.files).filter((id) => u.files[id].sha256 === sha);
       ids.forEach((id) => { delete u.files[id]; n++; });
       if (ids.length) this._writeUser(h, u);

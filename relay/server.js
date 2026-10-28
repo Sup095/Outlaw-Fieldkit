@@ -25,6 +25,7 @@
 
 const http = require("http");
 const fs = require("fs");
+const jf = require("./jsonfile");
 const path = require("path");
 const crypto = require("crypto");
 const { spawn } = require("child_process");
@@ -649,21 +650,23 @@ function recordPath(id) {
   return p;
 }
 
+/* jsonfile.js: a damaged file reads as missing here, loudly. The vault
+   header is read with readStrict: a damaged header read as "missing"
+   would invite provisioning a new vault over the old one. */
 function readJson(file) {
-  try { return JSON.parse(fs.readFileSync(file, "utf8")); }
-  catch (e) { return null; }
+  return jf.readSoft(file, null, (e) => log("ERROR", e.message));
+}
+function readStrict(file) {
+  try { return jf.read(file, null); }
+  catch (e) { if (e.damaged) log("ERROR", e.message); throw e; }
 }
 
 /* Write to a temp file then rename, so a crash or a yanked drive
    cannot leave a half-written record behind. */
-function writeJsonAtomic(file, obj) {
-  const tmp = file + ".tmp";
-  fs.writeFileSync(tmp, JSON.stringify(obj), "utf8");
-  fs.renameSync(tmp, file);
-}
+function writeJsonAtomic(file, obj) { jf.write(file, obj); }
 
 /* ---- auth ---------------------------------------------------- */
-function loadVault() { return readJson(VAULT_PATH); }
+function loadVault() { return readStrict(VAULT_PATH); }
 
 function constantTimeEqual(a, b) {
   const ba = Buffer.from(a, "utf8");
@@ -679,7 +682,8 @@ function checkAuth(req) {
   const m = /^Bearer\s+([A-Fa-f0-9]{16,256})$/.exec(header.trim());
   if (!m) return { ok: false, reason: "missing or malformed bearer token" };
 
-  const vault = loadVault();
+  let vault;
+  try { vault = loadVault(); } catch (e) { return { ok: false, reason: "the vault header on the relay is damaged" }; }
   if (!vault || !vault.authKeyHash) return { ok: false, reason: "no vault provisioned" };
 
   let digest;
@@ -1214,7 +1218,10 @@ async function route(req, res, url) {
 
   /* --- health: public, deliberately says almost nothing --- */
   if (seg[0] === "health" && method === "GET") {
-    const vault = loadVault();
+    /* A damaged header still counts as provisioned: "not provisioned"
+       would invite setting up a new vault over it. */
+    let vault;
+    try { vault = loadVault(); } catch (e) { vault = { damaged: true }; }
     return send(res, 200, {
       service: "fieldkit-relay",
       version: 1,
@@ -1353,7 +1360,7 @@ async function route(req, res, url) {
     }
 
     if (method === "DELETE") {
-      try { fs.unlinkSync(file); } catch (e) { /* already gone is fine */ }
+      jf.remove(file);   /* and its backup; already gone is fine */
       return send(res, 200, { ok: true, id: id });
     }
   }
@@ -1446,7 +1453,8 @@ async function route(req, res, url) {
          decrypts to garbage. AES-GCM would catch it, but "the file
          is corrupt" is a worse answer than "the chunk is missing". */
       const tmp = bfile + ".tmp";
-      fs.writeFileSync(tmp, buf);
+      const fd = fs.openSync(tmp, "w");
+      try { fs.writeSync(fd, buf); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }   /* on the disk before it has its name */
       fs.renameSync(tmp, bfile);
       return send(res, 200, { ok: true, key: key, size: buf.length });
     }
@@ -1805,6 +1813,20 @@ server.on("upgrade", (req, sock, head) => {
   try { url = new URL(req.url, "http://" + (req.headers.host || "relay")); }
   catch (e) { try { sock.destroy(); } catch (x) {} return; }
 
+  /* Do WebSockets get through this network? PREFLIGHT and DIAGNOSTICS
+     ask, because the browser and RUNNER need them and some networks
+     pass ordinary requests but not these. One message, then closed;
+     no account, nothing read, rate-limited like everything else. */
+  if (url.pathname === "/ws-check") {
+    if (!hit("wscheck:" + clientIp(req), config.rateLimit.browserStreamMax)) {
+      try { sock.end("HTTP/1.1 429 Too Many Requests\r\nConnection: close\r\n\r\n"); } catch (e) {}
+      return;
+    }
+    const w = require("./ws").accept(req, sock, { maxPayload: 1024 });
+    if (w) { try { w.send("fieldkit-ws-ok"); } catch (e) {} setTimeout(() => { try { w.close(1000, "checked"); } catch (e) {} }, 200).unref(); }
+    return;
+  }
+
   /* RUNNER, passed through to Bastion 2 (runner.js), so it answers on
      whatever address the relay itself was reached by. */
   if (runner.isAttach(url)) {
@@ -1860,7 +1882,11 @@ server.on("error", (e) => {
 server.listen(config.port, config.host, () => {
   log("INFO", `fieldkit-relay listening on ${config.host}:${config.port}`);
   log("INFO", `data dir: ${DATA_DIR}`);
-  log("INFO", `vault: ${loadVault() ? "provisioned" : "NOT provisioned"}`);
+  {
+  let v = null, bad = false;
+  try { v = loadVault(); } catch (e) { bad = true; }
+  log(bad ? "ERROR" : "INFO", "vault: " + (bad ? "the header is DAMAGED (and so is its .bak); nothing can sign in until it is restored" : v ? "provisioned" : "NOT provisioned"));
+}
   log("INFO", `ai targets: ${config.aiTargets.length
     ? orderedTargets().map((t) => `${t.name}(${t.priority || 99})`).join(", ")
     : "none configured"}`);

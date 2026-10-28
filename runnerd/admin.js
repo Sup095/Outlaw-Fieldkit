@@ -27,6 +27,8 @@ const fs = require("fs");
 const path = require("path");
 const zip = require("./zip");
 
+/* relay/jsonfile.js: survives a power cut; a damaged record is never saved over. */
+const jf = require("../relay/jsonfile");
 const AUDIT_KEEP = 1000;
 const SHA_RE = /^[a-f0-9]{64}$/;
 const HANDLE_RE = /^[a-z0-9._-]{3,24}$/;
@@ -35,15 +37,25 @@ class Admin {
   constructor(root) {
     this.files = { people: path.join(root, "people.json"), audit: path.join(root, "audit.json"),
       deny: path.join(root, "deny.json") };
+    this.damaged = {};
   }
 
   _read(k, empty) {
-    try { return JSON.parse(fs.readFileSync(this.files[k], "utf8")); } catch (e) { return empty; }
+    /* Damaged: treated as empty so connections still work, but said in
+       ADMIN, and _write refuses to replace it (bans must not vanish). */
+    return jf.readSoft(this.files[k], empty, (e) => { this.damaged[k] = e.message; });
   }
   _write(k, v) {
-    const tmp = this.files[k] + ".tmp";
-    fs.writeFileSync(tmp, JSON.stringify(v), "utf8");
-    fs.renameSync(tmp, this.files[k]);
+    try { jf.read(this.files[k], null); delete this.damaged[k]; }
+    catch (e) {
+      if (!e.damaged || k !== "audit") throw e;
+      /* The record of what admins did is a log: kept aside, started again. */
+      const aside = this.files[k] + ".damaged-" + Date.now();
+      try { fs.renameSync(this.files[k], aside); } catch (x) {}
+      try { fs.renameSync(this.files[k] + ".bak", aside + ".bak"); } catch (x) {}
+      delete this.damaged[k];
+    }
+    jf.write(this.files[k], v);
   }
 
   /* ---- the record ---- */
@@ -139,7 +151,8 @@ function overview(ctx) {
   const { store, admin, jobs, sessions } = ctx;
   const disk = store.disk();
   const users = store.handles().map((h) => {
-    const files = store.list({ kind: "user", handle: h });
+    let files = [];
+    try { files = store.list({ kind: "user", handle: h }); } catch (e) { store.damaged = e.message; }
     const st = admin.state(h);
     return { handle: h, files: files.length, bytes: files.reduce((n, f) => n + f.size, 0),
       suspended: st.suspended, cooldown: st.cooldown, noGpu: st.noGpu,
@@ -159,6 +172,8 @@ function overview(ctx) {
       from: x.from, reason: x.reason, by: x.by, deletedAt: x.deletedAt })),
     blocked: admin.denyList(),
     power: ctx.power ? ctx.power.view() : null,
+    /* Records that could not be read, in words (relay/jsonfile.js). */
+    damaged: Object.values(admin.damaged).concat(store.damaged ? [store.damaged] : []),
     access: ctx.access ? ctx.access.view(ctx.runningOf) : null,
     audit: admin.recent(40)
   };

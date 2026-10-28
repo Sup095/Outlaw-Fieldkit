@@ -44,10 +44,10 @@ const arg = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1
    into the image, so nothing here may be a secret. */
 const RELAY_CODE = ["start.js", "server.js", "browse.js", "browse-runtime.js", "messaging.js",
   "updates.js", "ws.js", "cdp.js", "guard.js", "browser-engine.js", "browser-route.js", "video-encoder.js", "proc-usage.js", "pulse.js", "ogg-opus.js", "fairness.js",
-  "overflow.js", "browser-helper.js", "runner.js", "fetch-cloudflared.js", "fetch-tailscale.js"];
+  "overflow.js", "browser-helper.js", "runner.js", "jsonfile.js", "fetch-cloudflared.js", "fetch-tailscale.js"];
 
 const BASTION2 = [
-  ["relay/ws.js", "relay/ws.js"], ["relay/guard.js", "relay/guard.js"],
+  ["relay/ws.js", "relay/ws.js"], ["relay/guard.js", "relay/guard.js"], ["relay/jsonfile.js", "relay/jsonfile.js"],
   ["runnerd/server.js"], ["runnerd/ticket.js"], ["runnerd/limits.js"], ["runnerd/sandbox.js"],
   ["runnerd/store.js"], ["runnerd/admin.js"], ["runnerd/save.js"], ["runnerd/egress.js"], ["runnerd/power.js"], ["runnerd/fk-power.sh"], ["runnerd/access.js"], ["runnerd/zip.js"], ["runnerd/Dockerfile"], ["runnerd/compose.yml"],
   ["runnerd/config.example.json"], ["runnerd/setup.sh"], ["runnerd/inspect.sh"],

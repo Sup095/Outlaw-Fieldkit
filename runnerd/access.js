@@ -40,6 +40,7 @@
 "use strict";
 
 const fs = require("fs");
+const jf = require("../relay/jsonfile");
 const crypto = require("crypto");
 
 const KINDS = ["console", "screen"];
@@ -109,7 +110,7 @@ class Access {
   /* ---- settings an admin changes in ADMIN ---- */
   settings() {
     let s = {};
-    try { s = JSON.parse(fs.readFileSync(this.settingsFile, "utf8")) || {}; } catch (e) {}
+    try { s = jf.read(this.settingsFile, {}) || {}; } catch (e) {}
     const pick = (v, lo, hi, d) => { const n = clampNum(v, lo, hi); return n == null ? d : n; };
     const g = s.guest || {}, m = s.member || {};
     return {
@@ -141,9 +142,7 @@ class Access {
       if (n == null) throw new Error("the upload is in Mbit/s, 1 to 10000");
       out.uploadMbps = Math.round(n * 10) / 10;
     }
-    const tmp = this.settingsFile + ".tmp";
-    fs.writeFileSync(tmp, JSON.stringify(out), "utf8");
-    fs.renameSync(tmp, this.settingsFile);
+    jf.write(this.settingsFile, out);
     return this.settings();
   }
 

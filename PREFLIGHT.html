@@ -76,7 +76,7 @@
 <div class="wrap">
 
 <h1>FIELDKIT // PREFLIGHT</h1>
-<div class="sub">RUN THIS BEFORE YOU OPEN FIELDKIT &mdash; v2 &mdash; nothing here touches your vault</div>
+<div class="sub">RUN THIS BEFORE YOU OPEN FIELDKIT &mdash; for FieldKit <span id="pfFor"></span> &mdash; nothing here touches your vault</div>
 
 <div class="verdict v-idle" id="verdict">
   <span class="big" id="verdictBig">NOT YET CHECKED</span>
@@ -91,7 +91,7 @@
 </div>
 
 <div class="bar">
-  <input type="text" id="relayUrl" placeholder="relay URL (https://fieldkit.example.com) — blank skips the relay checks">
+  <input type="text" id="relayUrl" placeholder="relay address (relay.example.com) — several, separated by spaces, are all tried; blank skips">
   <button id="btnRelay" disabled>CHECK RELAY</button>
 </div>
 
@@ -107,7 +107,8 @@
 
 <div class="bar">
   <button class="launch" id="btnLaunch" disabled>OPEN FIELDKIT &rarr;</button>
-  <span class="hint" id="launchNote">Unlocked once the checks come back clear.</span>
+  <button id="btnOutpost" disabled>OPEN OUTPOST &rarr;</button>
+  <span class="hint" id="launchNote">Unlocked once the checks come back clear. OUTPOST holds no vault, so it opens once the checks have run.</span>
 </div>
 
 <div class="banner limits">
@@ -127,6 +128,7 @@
     <li>Catching a browser that has something sitting between FieldKit and the crypto it depends on.</li>
     <li>Catching FieldKit data left behind on this PC by an earlier session, and wiping it.</li>
     <li>Confirming the relay is the relay, and that this machine's clock is close enough for TLS to work.</li>
+    <li>Saying which of your relay addresses this network lets through, and whether the streamed browser and RUNNER will work here (WebSockets, video and sound decoding).</li>
   </ul>
 </div>
 
@@ -192,6 +194,13 @@ var out = document.getElementById("out");
 var groupEls = {};
 var driveChecked = false, relayChecked = false, ranAuto = false;
 var manifestInfo = null;
+/* The FieldKit version this page was written for; a test keeps it
+   equal to core/kernel.js, so it is updated with every release. */
+var FOR_VERSION = "0.2.0";
+/* Next to the drive's files (FIELDKIT.html, core/...), or next to the
+   downloaded single-file builds. Decided by whether core/kernel.js loads. */
+var layout = "unknown";
+(function () { var e = document.getElementById("pfFor"); if (e) e.textContent = FOR_VERSION; })();
 
 GROUPS.forEach(function (g) {
   var d = document.createElement("div");
@@ -783,24 +792,41 @@ async function checkRelay() {
   var G = "THE RELAY";
   clearGroup(G);
 
-  var base = document.getElementById("relayUrl").value.trim();
-  if (!base) {
-    rec(G, "relay", "SKIP", "no URL given");
+  /* Several addresses may lead to one relay, in case a network blocks
+     one; they can all be typed here, separated by spaces or commas. */
+  var list = document.getElementById("relayUrl").value.split(/[\s,]+/).filter(Boolean)
+    .map(function (u) { return (/^https?:\/\//i.test(u) ? u : "https://" + u).replace(/\/+$/, ""); })
+    .filter(function (u, i, a) { return a.indexOf(u) === i; }).slice(0, 8);
+  if (!list.length) {
+    rec(G, "relay", "SKIP", "no address given");
     relayChecked = true;
     finish();
     return;
   }
-  if (!/^https?:\/\//i.test(base)) base = "https://" + base;
-  base = base.replace(/\/+$/, "");
+  var good = [];
+  for (var i = 0; i < list.length; i++) {
+    if (await checkOneRelay(G, list[i], list.length > 1)) good.push(list[i]);
+  }
+  if (list.length > 1) {
+    rec(G, "addresses", good.length ? "PASS" : "FAIL", good.length + " of " + list.length + " answer from this network" +
+      (good.length && good.length < list.length ? " — FieldKit switches to one that does by itself at boot" : ""));
+  }
+  if (good.length) await checkServices(G, good[0]);
+  relayChecked = true;
+  finish();
+}
 
-  rec(G, "target", "INFO", base);
+/* One address. True if it is the relay and answers. */
+async function checkOneRelay(G, base, many) {
+  var P = many ? base.replace(/^https?:\/\//i, "") + " — " : "";
+  rec(G, P + "target", "INFO", base);
   if (/^http:\/\//i.test(base)) {
-    rec(G, "transport", "WARN",
+    rec(G, P + "transport", "WARN",
       "plain http. The vault's contents stay encrypted either way, but your auth token travels in clear " +
       "and anyone on this network can replay it. Put the relay behind https before using it from a machine " +
       "you do not control.");
   } else {
-    rec(G, "transport", "PASS", "https");
+    rec(G, P + "transport", "PASS", "https");
   }
 
   var t0 = Date.now();
@@ -819,43 +845,37 @@ async function checkRelay() {
   var ms = Date.now() - t0;
 
   if (!h.v) {
-    rec(G, "GET /health", "FAIL",
+    rec(G, P + "GET /health", "FAIL",
       (h.to ? "no answer in 10s" : errStr(h.e)) +
       " — either the relay is down, this network blocks it, or the URL is wrong. " +
       "FieldKit will still open and work offline; it just will not sync.");
-    relayChecked = true;
-    finish();
-    return;
+    return false;
   }
 
   if (h.v.status !== 200) {
-    rec(G, "GET /health", "FAIL",
+    rec(G, P + "GET /health", "FAIL",
       "answered " + h.v.status + " in " + ms + " ms: " + h.v.raw +
       "  — something is listening on this URL, but it is not answering as the relay. " +
       "If you expected a tunnel here, the tunnel is pointed somewhere else.", true);
-    relayChecked = true;
-    finish();
-    return;
+    return false;
   }
 
   var b = h.v.body;
   if (!b || b.service !== "fieldkit-relay") {
-    rec(G, "is this actually the relay", "FAIL",
+    rec(G, P + "is this actually the relay", "FAIL",
       "answered 200 but did not identify as fieldkit-relay: " + h.v.raw +
       "  — do not point FieldKit at this. Something else owns this hostname.", true);
-    relayChecked = true;
-    finish();
-    return;
+    return false;
   }
 
-  rec(G, "is this actually the relay", "PASS",
+  rec(G, P + "is this actually the relay", "PASS",
     "fieldkit-relay v" + b.version + ", answered in " + ms + " ms");
-  rec(G, "vault on the relay", b.vaultProvisioned ? "PASS" : "WARN",
+  rec(G, P + "vault on the relay", b.vaultProvisioned ? "PASS" : "WARN",
     b.vaultProvisioned
       ? "a vault is provisioned — FieldKit can unlock against it"
       : "the relay is up but holds no vault. First boot on a new relay looks like this: open RELAY LINK " +
         "inside FieldKit and press PROVISION.");
-  rec(G, "features", "INFO", (b.features || []).join(", ") || "none reported");
+  rec(G, P + "features", "INFO", (b.features || []).join(", ") || "none reported");
 
   /* Clock skew breaks TLS and makes every timestamp in the vault
      lie about when work happened. The relay's own clock is the only
@@ -866,7 +886,7 @@ async function checkRelay() {
        without a proper time protocol. */
     var skew = Math.round((Date.now() - (theirs + ms / 2)) / 1000);
     var mag = Math.abs(skew);
-    rec(G, "clock agreement", mag > 300 ? "FAIL" : (mag > 60 ? "WARN" : "PASS"),
+    rec(G, P + "clock agreement", mag > 300 ? "FAIL" : (mag > 60 ? "WARN" : "PASS"),
       "this machine is " + (skew >= 0 ? skew + "s ahead of" : mag + "s behind") + " the relay" +
       (mag > 300
         ? " — five minutes out is enough to break TLS and to date your work wrongly. Fix this machine's clock."
@@ -882,17 +902,60 @@ async function checkRelay() {
     return { status: res.status, len: (await res.text()).length };
   });
   if (v.v) {
-    rec(G, "GET /vault", v.v.status === 200 || v.v.status === 404 ? "PASS" : "WARN",
+    rec(G, P + "GET /vault", v.v.status === 200 || v.v.status === 404 ? "PASS" : "WARN",
       v.v.status === 200 ? "serving a wrapped vault header, " + v.v.len + " bytes (ciphertext — the relay " +
                            "cannot read it and neither can anyone who fetches it)"
         : v.v.status === 404 ? "no vault yet, which matches /health"
         : "answered " + v.v.status);
   } else {
-    rec(G, "GET /vault", "WARN", v.to ? "timed out" : errStr(v.e));
+    rec(G, P + "GET /vault", "WARN", v.to ? "timed out" : errStr(v.e));
   }
 
-  relayChecked = true;
-  finish();
+  return true;
+}
+
+
+/* What the relay offers beyond the vault, and whether this network
+   lets FieldKit use it. Public status routes only, and one WebSocket
+   that the relay answers with a single message. */
+async function checkServices(G, base) {
+  var b = await guard(10000, async function () {
+    var res = await fetch(base + "/browser/status", { cache: "no-store", mode: "cors" });
+    return res.status === 200 ? JSON.parse(await res.text()) : null;
+  });
+  if (b.v && b.v.enabled) {
+    var hs = Array.isArray(b.v.helpers) ? b.v.helpers : [];
+    rec(G, "streamed browser", b.v.available === false ? "WARN" : "PASS",
+      (b.v.available === false ? "on, but not available right now" : "available") + ", " + (b.v.sessions || 0) + " of " +
+      (b.v.maxSessions || "?") + " sessions in use" + (hs.length ? ", " + hs.filter(function (h) { return h.up; }).length +
+      " of " + hs.length + " helper machine(s) up" : ""));
+  } else {
+    rec(G, "streamed browser", "INFO", b.v ? "switched off on this relay" : "this relay does not offer it");
+  }
+  var r = await guard(10000, async function () {
+    var res = await fetch(base + "/runner/status", { cache: "no-store", mode: "cors" });
+    return res.status === 200 ? JSON.parse(await res.text()) : null;
+  });
+  if (r.v && r.v.enabled) {
+    rec(G, "RUNNER", r.v.online && r.v.ready !== false ? "PASS" : "WARN",
+      r.v.online && r.v.ready !== false
+        ? "the run server is ready" + (r.v.viaRelay ? ", through this same address" : ", on its own address")
+        : (r.v.why || "the run server is offline") + " — everything else still works");
+  } else {
+    rec(G, "RUNNER", "INFO", r.v ? "switched off on this relay" : "this relay does not offer it");
+  }
+  var w = await guard(9000, function () {
+    return new Promise(function (resolve, reject) {
+      var ws;
+      try { ws = new WebSocket(base.replace(/^http/i, "ws") + "/ws-check"); } catch (e) { reject(e); return; }
+      ws.onmessage = function (m) { try { ws.close(); } catch (e) {} resolve(String(m.data)); };
+      ws.onerror = function () { reject(new Error("refused")); };
+    });
+  });
+  rec(G, "WebSockets", w.v === "fieldkit-ws-ok" ? "PASS" : "WARN",
+    w.v === "fieldkit-ws-ok" ? "they get through this network — the streamed browser and RUNNER can connect"
+      : (w.to ? "no answer" : errStr(w.e)) + " — this network may block WebSockets (or the relay predates this check). " +
+        "Messages and sync still work; the streamed browser and RUNNER will not.");
 }
 
 /* ============================================================
@@ -984,11 +1047,37 @@ async function checkCapability() {
       document.head.appendChild(s);
     });
   });
-  rec(G, "loading core/kernel.js", r.v ? "PASS" : "FAIL",
-    r.v ? "separate script files load from this location — FieldKit.html will boot"
-        : (r.to ? "timed out" : errStr(r.e)) +
-          " — if this fails on a machine you trust, open FIELDKIT-STANDALONE.html instead; " +
-          "it carries every module inside one file.");
+  layout = r.v ? "drive" : "standalone";
+  rec(G, "loading core/kernel.js", r.v ? "PASS" : "INFO",
+    r.v ? "separate script files load from this location — FIELDKIT.html will boot"
+        : "not next to this file, so this is the downloaded single-file builds: OPEN FIELDKIT and OPEN OUTPOST " +
+          "open FIELDKIT-STANDALONE.html and OUTPOST-STANDALONE.html, which must be in the same folder as this page. " +
+          "(On a FieldKit drive this would mean the drive is incomplete: " + (r.to ? "timed out" : errStr(r.e)) + ".)");
+  if (!r.v && !driveChecked) {
+    rec("THE DRIVE", "drive", "SKIP", "downloaded files, not a FieldKit drive: there is no manifest to verify. " +
+      "The release page lists each file's SHA-256 if you want to check them by hand.");
+    driveChecked = true;
+  }
+  rec(G, "WebSocket", typeof WebSocket === "function" ? "PASS" : "WARN",
+    typeof WebSocket === "function" ? "available (CHECK RELAY says whether this network lets them through)"
+      : "missing — the streamed browser and RUNNER cannot connect");
+  r = await guard(5000, async function () {
+    if (typeof VideoDecoder !== "function") throw new Error("no WebCodecs");
+    var s = await VideoDecoder.isConfigSupported({ codec: "avc1.42E01F", codedWidth: 1280, codedHeight: 720 });
+    if (!s.supported) throw new Error("H.264 not supported");
+    return true;
+  });
+  rec(G, "video decoding (H.264)", r.v ? "PASS" : "INFO",
+    r.v ? "the streamed browser and RUNNER windows arrive as video"
+        : (r.to ? "timed out" : errStr(r.e)) + " — they fall back to one picture per frame, which uses more data");
+  r = await guard(5000, async function () {
+    if (typeof AudioDecoder !== "function") throw new Error("no WebCodecs audio");
+    var s = await AudioDecoder.isConfigSupported({ codec: "opus", sampleRate: 48000, numberOfChannels: 2 });
+    if (!s.supported) throw new Error("Opus not supported");
+    return true;
+  });
+  rec(G, "sound decoding (Opus)", r.v ? "PASS" : "INFO",
+    r.v ? "sound from the streamed browser and RUNNER can play" : (r.to ? "timed out" : errStr(r.e)) + " — they play without sound");
 
   r = await guard(5000, function () {
     if (!window.WebAssembly) throw new Error("WebAssembly is undefined");
@@ -1103,6 +1192,7 @@ function buildReport() {
   lines.push("generated: " + new Date().toString());
   lines.push("location:  " + shortUrl(location.href));
   lines.push("browser:   " + navigator.userAgent);
+  lines.push("preflight: for FieldKit " + FOR_VERSION + ", " + (layout === "standalone" ? "next to the downloaded files" : layout === "drive" ? "on a FieldKit drive" : "layout not checked yet"));
   if (manifestInfo && manifestInfo.actual) {
     lines.push("drive:     build " + (manifestInfo.version || "?") +
       ", fingerprint " + manifestInfo.actual.slice(0, 16));
@@ -1163,6 +1253,7 @@ document.getElementById("btnRun").addEventListener("click", async function () {
   }
   ranAuto = true;
   finish();
+  document.getElementById("btnOutpost").disabled = false;
   b.textContent = "RE-RUN CHECKS"; b.disabled = false;
   document.getElementById("btnDrive").disabled = false;
   document.getElementById("btnRelay").disabled = false;
@@ -1186,8 +1277,12 @@ document.getElementById("btnRelay").addEventListener("click", async function () 
 
 document.getElementById("ackChk").addEventListener("change", setVerdict);
 
+/* The drive's own files, or the downloaded single files beside this page. */
 document.getElementById("btnLaunch").addEventListener("click", function () {
-  location.href = "FIELDKIT.html";
+  location.href = layout === "standalone" ? "FIELDKIT-STANDALONE.html" : "FIELDKIT.html";
+});
+document.getElementById("btnOutpost").addEventListener("click", function () {
+  location.href = layout === "standalone" ? "OUTPOST-STANDALONE.html" : "OUTPOST.html";
 });
 
 document.getElementById("btnCopy").addEventListener("click", async function () {

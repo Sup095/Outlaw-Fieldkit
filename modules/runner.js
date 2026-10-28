@@ -1374,6 +1374,12 @@
       (d.pressure === "full" ? " Uploads are paused for everyone but admins." : "") }));
     box.appendChild(ui.button("RUN THE CLEAN-UP NOW", go({ t: "adm-sweep" })));
 
+    /* A record the run server could not read (a power cut, a full disk):
+       first, because nothing that touches it can be changed until it is fixed. */
+    if (d.damaged && d.damaged.length) {
+      box.appendChild(head("DAMAGED RECORDS"));
+      d.damaged.forEach(function (w) { box.appendChild(el("div", { class: "rn-dim", text: "✗ " + w })); });
+    }
     drawPower(box, d.power, go);
     drawAccess(box, d.access, go);
 

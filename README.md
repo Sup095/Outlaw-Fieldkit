@@ -11,7 +11,8 @@ machine and streams the window back.
 Everything that leaves your machine is either encrypted before it goes, or
 says plainly that it is not.
 
-> **Get it:** download `OUTPOST-STANDALONE.html` from the
+> **Get it:** download `OUTPOST-STANDALONE.html` (and `PREFLIGHT.html`, a
+> safety check to run first on a computer you do not know) from the
 > [latest release](../../releases/latest) and open it in Chrome. While it
 > starts, it shows the relay address it is about to use: press **C** (or
 > CHANGE OR ADD ADDRESS) to add or change one. Add more than one and, if the
@@ -20,16 +21,12 @@ says plainly that it is not.
 > answers at each of these addresses:
 >
 > - `https://relay.outlawfieldkit.com`
-> - `https://run.outlawfieldkit.com`
-> - `https://tool.outlawfieldkit.com`
-> - `https://save.outlawfieldkit.com`
-> - `https://learn.outlawfieldkit.com`
 
 ---
 
 ## Contents
 
-- [Two builds](#two-builds)
+- [Three files](#three-files)
 - [What is in it](#what-is-in-it)
 - [Using it](#using-it)
 - [How it fits together](#how-it-fits-together)
@@ -44,9 +41,30 @@ says plainly that it is not.
 
 ---
 
-## Two builds
+## Three files
 
-Both are built from the same tree, every time.
+Each release has three files. Put them in the same folder.
+
+| File | What it is |
+|---|---|
+| `OUTPOST-STANDALONE.html` | **The one most people want.** Messages, the streamed browser, RUNNER and the small tools. No vault. |
+| `FIELDKIT-STANDALONE.html` | The full build, for the people who run the relay: everything in OUTPOST plus the encrypted vault and the admin tools. |
+| `PREFLIGHT.html` | **A check to run first** on a computer you do not know. It opens nothing and stores nothing. It says what it finds, then opens either build. |
+
+**What PREFLIGHT checks.** On this computer and in this browser:
+- whether a browser extension has replaced the crypto functions FieldKit relies on;
+- whether an earlier session left FieldKit data behind (it offers to wipe it);
+- the clock;
+- whether the computer can decode the video and sound the streamed browser and RUNNER send.
+
+Type one or more relay addresses and it also says which of them this network lets through, whether WebSockets get through (the browser and
+RUNNER need them), and whether the streamed browser and RUNNER are up. On a
+FieldKit drive it also checks every file against the drive's manifest. It
+cannot see keyloggers or anything outside the browser, and says so at the
+top. Its verdict is CLEAR, CAUTION or DO NOT UNLOCK; the last only matters
+for the full build's vault, so OPEN OUTPOST is allowed once the checks have run.
+
+The two builds are made from the same tree, every time.
 
 | | **OUTPOST** | **FIELDKIT** |
 |---|---|---|
@@ -127,9 +145,9 @@ self-test.
 Settings are kept in the browser's local storage, so you enter the relay
 once per computer. Clearing site data forgets them.
 
-`PREFLIGHT.html` (in the source tree and on a built drive) checks that the
-files on a drive match the manifest the build wrote, before you trust it with
-a password.
+On a computer you do not know, open `PREFLIGHT.html` first (it is in the
+release and on a built drive; see [Three files](#three-files)), press RUN
+CHECKS, then open a build from its buttons.
 
 ---
 
@@ -275,7 +293,7 @@ fetcher and the WebLLM bundler.
 | Path | What |
 |---|---|
 | `FIELDKIT.html`, `OUTPOST.html` | The two builds' entry points; each lists its modules |
-| `PREFLIGHT.html` | Checks a drive against its manifest before you unlock anything |
+| `PREFLIGHT.html` | The check to run first: this computer, this browser, the relay and its services, and a drive against its manifest |
 | `core/` | The kernel, UI, desktop, crypto, store, sync, messaging crypto, CritterScript |
 | `modules/` | One file per app |
 | `relay/` | The relay server, the streamed browser, its Docker image |

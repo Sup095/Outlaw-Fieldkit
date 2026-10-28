@@ -13,7 +13,7 @@ FROM docker:27-cli AS dockercli
 FROM node:22-slim
 COPY --from=dockercli /usr/local/bin/docker /usr/local/bin/docker
 WORKDIR /app
-COPY relay/ws.js relay/guard.js /app/relay/
+COPY relay/ws.js relay/guard.js relay/jsonfile.js /app/relay/
 COPY runnerd/server.js runnerd/ticket.js runnerd/limits.js runnerd/sandbox.js runnerd/store.js runnerd/admin.js runnerd/save.js runnerd/egress.js runnerd/power.js runnerd/access.js runnerd/zip.js /app/runnerd/
 ENV NODE_ENV=production FK_RUNNER_CONFIG=/etc/fieldkit/runnerd.json
 EXPOSE 25580

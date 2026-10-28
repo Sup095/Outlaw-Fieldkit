@@ -31,7 +31,7 @@ bootstrap(["core/kernel.js"]);   // sets up window/document/localStorage/crypto
 const IDS = ["out", "btnRun", "btnDrive", "btnRelay", "btnCopy", "btnSave",
   "ackChk", "btnLaunch", "verdict", "verdictBig", "verdictWhy",
   "ackBox", "ackText", "launchNote", "relayUrl", "fpBox", "fpVal", "fpNote",
-  "tally", "report", "cPASS", "cFAIL", "cWARN", "cINFO", "cSKIP"];
+  "tally", "report", "cPASS", "cFAIL", "cWARN", "cINFO", "cSKIP", "btnOutpost", "pfFor"];
 IDS.forEach((id) => {
   const el = fakeElement("div");
   el.setAttribute("id", id);
@@ -68,21 +68,39 @@ try {
   {
     ok("no external stylesheet or script", !/<link\b|<script[^>]+src=/i.test(html));
 
-    /* The only two requests this page may ever make, and both only
-       after the user typed a relay URL and pressed the button. A
-       third fetch target appearing here is a page that phones
+    /* The only requests this page may ever make, all to the relay the
+       user typed and only after they pressed the button: its public
+       /health and /vault header, and the browser's and RUNNER's public
+       status. Another target appearing here is a page that phones
        somewhere from a machine the user does not trust. */
     const targets = (scriptSrc.match(/fetch\(\s*([^,)]+)/g) || [])
       .map((f) => f.replace(/^fetch\(\s*/, "").trim());
-    ok("it makes exactly two kinds of request, both to the relay the user typed",
-      targets.length === 2 &&
-      targets.every((t) => t.startsWith("base +")) &&
-      targets.join(" ").includes('"/health"') &&
-      targets.join(" ").includes('"/vault"'),
-      targets.join(" | "));
-    ok("both live inside checkRelay, which only a button press reaches",
+    const want = ['"/health"', '"/vault"', '"/browser/status"', '"/runner/status"'];
+    ok("it makes exactly four kinds of request, all to the relay the user typed",
+      targets.length === 4 && targets.every((t) => t.startsWith("base +")) &&
+      want.every((w) => targets.join(" ").includes(w)), targets.join(" | "));
+    ok("all inside the relay checks, which only a button press reaches",
       (scriptSrc.split("async function checkRelay")[1] || "").split("async function checkCapability")[0]
-        .match(/fetch\(/g).length === 2);
+        .match(/fetch\(/g).length === 4);
+    const sockets = scriptSrc.match(/new WebSocket\(/g) || [];
+    ok("and one WebSocket, to the same relay's /ws-check", sockets.length === 1 &&
+      scriptSrc.includes('new WebSocket(base.replace(/^http/i, "ws") + "/ws-check")'));
+  }
+
+  /* It must be kept up to date with the app it vouches for. */
+  section("it keeps up with FieldKit");
+  {
+    const kernel = fs.readFileSync(path.join(__dirname, "..", "core", "kernel.js"), "utf8");
+    const v = (kernel.match(/var VERSION = "([^"]+)"/) || [])[1];
+    ok("it says which FieldKit version it was written for, and that is the current one",
+      new RegExp('var FOR_VERSION = "' + String(v).replace(/\./g, "\\.") + '"').test(scriptSrc), v);
+    ok("it opens either build, from the drive or from the downloaded files",
+      /FIELDKIT-STANDALONE\.html/.test(scriptSrc) && /OUTPOST-STANDALONE\.html/.test(scriptSrc) &&
+      /"OUTPOST\.html"/.test(scriptSrc) && /"FIELDKIT\.html"/.test(scriptSrc));
+    ok("it checks what the streamed browser and RUNNER need: WebSockets, H.264 and Opus",
+      /\/ws-check/.test(scriptSrc) && /avc1\./.test(scriptSrc) && /codec: "opus"/.test(scriptSrc));
+    ok("it tries every relay address it is given", /checkOneRelay\(G, list\[i\]/.test(scriptSrc));
+    ok("the release ships it beside the two builds", /PREFLIGHT\.html/.test(fs.readFileSync(path.join(__dirname, "..", "README.md"), "utf8")));
   }
 
   /* It runs on a machine the user does not trust, and it must not
