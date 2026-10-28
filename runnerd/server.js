@@ -44,7 +44,6 @@ const { Store } = require("./store");
 const { Admin, overview, command } = require("./admin");
 const { Saves } = require("./save");
 const { Power } = require("./power");
-const { Sleep } = require("./sleep");
 const zip = require("./zip");
 const { Access, IDLE_CPU } = require("./access");
 
@@ -72,8 +71,7 @@ const DEFAULTS = {
   ttlDays: 30, pressureTtlDays: 14, tombstoneHours: 48, sweepHours: 6,
   finishedHours: 24,             /* how long a result waits for its owner */
   egress: {},                    /* sandbox.js EGRESS has the defaults */
-  powerFile: "/run/fieldkit/power.json",  /* written by fk-power on the host (setup.sh) */
-  wakeFile: "/run/fieldkit/wake.json"     /* written by fk-sleep on the host (setup.sh) */
+  powerFile: "/run/fieldkit/power.json"   /* written by fk-power on the host (setup.sh) */
 };
 const SAVE_GET_MAX = 32 * 1024 * 1024, SAVE_CHUNK = 192 * 1024;
 
@@ -107,9 +105,6 @@ function create(cfg, logFn) {
   const admin = new Admin(cfg.storePath);
   const saves = new Saves(cfg.storePath);
   const power = new Power({ file: cfg.powerFile, settingsFile: path.join(cfg.storePath, "power-settings.json") });
-  /* Asleep when nobody needs it (sleep.js); fk-sleep on the host reads the plan. */
-  const sleep = new Sleep({ settingsFile: path.join(cfg.storePath, "sleep-settings.json"),
-    planFile: path.join(cfg.storePath, "sleep-plan.json"), hostFile: cfg.wakeFile });
   /* Who gets in, and the line (access.js). */
   const access = new Access({ settingsFile: path.join(cfg.storePath, "access-settings.json"),
     sent: () => state.sentBytes,
@@ -125,11 +120,7 @@ function create(cfg, logFn) {
     if (!text || !state.key) return;
     const v = ticket.verifyReport(state.key, text);
     if (!v.ok || !reports.use(v.claims)) return;
-    state.relayUp = { kbps: v.claims.up, wait: Math.max(0, Math.min(1000, v.claims.wait | 0)), at: Date.now(),
-      /* browser sessions the relay has put on this machine's helper */
-      hb: Math.max(0, Math.min(1000, v.claims.hb | 0)),
-      /* how long ago the relay last heard its wake helper, -1 never */
-      wh: Number.isInteger(v.claims.wh) && v.claims.wh >= -1 ? v.claims.wh : null };
+    state.relayUp = { kbps: v.claims.up, wait: Math.max(0, Math.min(1000, v.claims.wait | 0)), at: Date.now() };
     if (!state.relayHeard) { state.relayHeard = true; log("INFO", "runnerd: hearing the relay's load reports (one home upload for both)"); }
   }
 
@@ -298,8 +289,6 @@ function create(cfg, logFn) {
       sessions: sessions.size, jobs: jobs.size, ran: state.ran, upSince: state.upSince,
       /* For the relay, whose browser shares the home line and the
          thresholds (RUNNER_PLAN.md §22). Numbers only. */
-      /* Enough for the relay to wake this machine (sleep.js). */
-      sleep: sleep.forRelay(),
       load: { upKbps: access.meter.upKbps, waiting: access.line.length,
         settings: (() => { const s = access.settings(); return { guest: s.guest, member: s.member, uploadMbps: s.uploadMbps }; })() } };
   }
@@ -632,9 +621,7 @@ function create(cfg, logFn) {
   function onText(s, m) {
     if (m.t.indexOf("adm-") === 0) {
       if (s.tier !== "admin") throw new Error("admins only");
-      const ctx = { store, admin, jobs, sessions, kick, decorate, ttlMs, pressure, sweep: runSweep, saves, power, sleep,
-        sleepTick, helperSec: () => (state.relayUp && state.relayUp.wh != null
-          ? (state.relayUp.wh < 0 ? -1 : state.relayUp.wh + Math.round((Date.now() - state.relayUp.at) / 1000)) : null),
+      const ctx = { store, admin, jobs, sessions, kick, decorate, ttlMs, pressure, sweep: runSweep, saves, power,
         access, runningOf, tellWho: toWho, tickAccess,
         tombHours: () => cfg.tombstoneHours };
       const ref = String(m.ref || "").slice(0, 40);
@@ -903,15 +890,12 @@ function create(cfg, logFn) {
       if (!binary && ++s.n > MSGS_PER_SEC) return;
       let ref;
       try {
-        if (binary) { sleep.touch(); return onBinary(s, data); }
+        if (binary) return onBinary(s, data);
         if (data.length > TEXT_MAX) throw new Error("that message is too large");
         let m;
         try { m = JSON.parse(data); } catch (e) { return; }
         if (!m || typeof m.t !== "string") return;
         ref = typeof m.ref === "string" ? m.ref.slice(0, 40) : undefined;
-        /* A person doing something keeps the machine awake; the
-           panel's own renewal every ten minutes does not. */
-        if (m.t !== "renew") sleep.touch();
         onText(s, m);
       } catch (e) {
         if (binary && s.upload) { ref = s.upload.ref; s.upload.h.abort(); s.upload = null; }
@@ -937,19 +921,7 @@ function create(cfg, logFn) {
   });
   server.on("upgrade", upgrade);
 
-  let keyTimer = null, renewTimer = null, sweepTimer = null, sweepFirst = null, powerTimer = null, accessTimer = null, sleepTimer = null;
-  let sleepSaid = null;
-  function sleepTick() {
-    const r = sleep.tick({ jobs: jobs.size, line: access.line.length, browser: relayFresh() ? state.relayUp.hb || 0 : 0 });
-    const said = r.sleep ? "sleep" : r.soon ? "soon" : null;
-    if (said !== sleepSaid) {
-      if (said === "soon") log("INFO", "runnerd: nothing to do, so this machine sleeps in under a minute");
-      else if (said === "sleep") log("INFO", "runnerd: asking fk-sleep to put this machine to sleep");
-      else if (sleepSaid) log("INFO", "runnerd: staying awake — " + r.why);
-      sleepSaid = said;
-    }
-    return r;
-  }
+  let keyTimer = null, renewTimer = null, sweepTimer = null, sweepFirst = null, powerTimer = null, accessTimer = null;
 
   async function listen() {
     const opened = store.open();
@@ -974,9 +946,6 @@ function create(cfg, logFn) {
     access.sample();
     accessTimer = setInterval(() => tickAccess(), 2000);
     accessTimer.unref();
-    sleepTick();
-    sleepTimer = setInterval(sleepTick, 15000);
-    sleepTimer.unref();
     sweepTimer = setInterval(runSweep, cfg.sweepHours * 3600000);
     sweepTimer.unref();
 
@@ -1001,7 +970,7 @@ function create(cfg, logFn) {
   }
 
   async function close() {
-    [keyTimer, renewTimer, sweepTimer, powerTimer, accessTimer, sleepTimer, useTimer].forEach((t) => t && clearInterval(t));
+    [keyTimer, renewTimer, sweepTimer, powerTimer, accessTimer, useTimer].forEach((t) => t && clearInterval(t));
     if (sweepFirst) clearTimeout(sweepFirst);
     for (const s of Array.from(sessions.values())) {
       try { s.sock.close(1001, "the server is shutting down"); } catch (e) {}
@@ -1011,7 +980,7 @@ function create(cfg, logFn) {
   }
 
   return { server, listen, close, health, state, store, driver, limits: L,
-    admin, saves, access, sleep, _internals: { sleepTick, sampleUse, driver, sessions, jobs, finished, setKey, fetchKey, runSweep, checkRenewals, RENEW_MS, tickAccess, setCpuOf: (f) => { cpuOf = f; } } };
+    admin, saves, access, _internals: { sampleUse, driver, sessions, jobs, finished, setKey, fetchKey, runSweep, checkRenewals, RENEW_MS, tickAccess, setCpuOf: (f) => { cpuOf = f; } } };
 }
 
 if (require.main === module) {

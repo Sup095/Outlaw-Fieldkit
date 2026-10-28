@@ -42,20 +42,20 @@ global.window.fetch = async (url) => {
   }
   throw new Error("the panel fetched something unexpected: " + url);
 };
-global.window.WebSocket = WebSocket;
+const dialed = [];
+global.window.WebSocket = class extends WebSocket { constructor(u) { dialed.push(String(u)); super(u); } };
 global.window.confirm = () => true;
 global.window.FileReader = class {
   readAsArrayBuffer(blob) {
     blob.arrayBuffer().then((ab) => { this.result = ab; this.onload(); }, () => this.onerror());
   }
 };
-let wakes = 0, wakeAnswer = () => ({ waking: true });
 FieldKit.provide("messages", {
   signedIn: () => signedIn,
-  runnerWake: async () => { wakes++; const a = wakeAnswer(); if (a instanceof Error) throw a; return a; },
-  /* The run server's first address answers nothing (blocked, say): the
-     panel tries the next. */
-  runnerTicket: async () => ({ url: "http://127.0.0.1:1", urls: ["http://127.0.0.1:1", "http://127.0.0.1:" + port], tier: tier,
+  /* The relay passes RUNNER through (viaRelay), so its own address comes
+     first; here neither it nor the run server's first address answers
+     (blocked, say), and the panel tries the next. */
+  runnerTicket: async () => ({ viaRelay: true, url: "http://127.0.0.1:1", urls: ["http://127.0.0.1:1", "http://127.0.0.1:" + port], tier: tier,
     ticket: ticket.sign(pair.privateKey, { handle: "tester", tier: tier, exp: Date.now() + 30000 }) })
 });
 
@@ -126,37 +126,6 @@ const remount = () => { def.unmount(); host = fakeElement("div"); def.mount(host
     ok("and does not connect to anything", app._internals.sessions.size === 0);
   }
 
-  section("when the run server is asleep");
-  {
-    relayStatus = { enabled: true, online: false, asleep: true, wakeable: true, why: "the run server is asleep to save power" };
-    signedIn = false;
-    remount();
-    await until(() => /ASLEEP/.test(text()));
-    ok("signed out: it says it is asleep, and to sign in to wake it", /THE RUN SERVER IS ASLEEP/.test(text()) &&
-      /Sign in to MESSAGES to wake it/.test(text()) && wakes === 0, text().slice(0, 300));
-    signedIn = true; tier = "member";
-    remount();
-    await until(() => /WAKING THE RUN SERVER/.test(text()));
-    ok("signed in: opening RUNNER wakes it, once", wakes === 1, String(wakes));
-    ok("and says how long that takes", /20 to 40 seconds/.test(text()));
-    relayStatus = { enabled: true, online: true, ready: true };
-    await until(() => byClass("rn-drop").length === 1, 9000);
-    ok("once it answers, it connects as usual", byClass("rn-drop").length === 1 && wakes === 1);
-
-    relayStatus = { enabled: true, online: false, asleep: true, wakeable: true, why: "the run server is asleep to save power",
-      quiet: { from: 1, to: 7, tz: "UTC" } };
-    remount();
-    await until(() => /ASLEEP/.test(text()));
-    ok("in quiet hours it does not wake it by itself, and says why", wakes === 1 &&
-      /stays asleep from 1:00 to 7:00 unless an admin wakes it/.test(text()) && !!button("WAKE IT"), text().slice(0, 300));
-    wakeAnswer = () => Object.assign(new Error("only an admin can wake it then"), { status: 403 });
-    fire(button("WAKE IT"), "click");
-    await until(() => /Not woken/.test(text()));
-    ok("a refusal is said in words, with the reason", wakes === 2 && /Not woken: only an admin can wake it then/.test(text()));
-    relayStatus = { enabled: true, online: true, ready: true };
-    tier = "guest";
-  }
-
   section("a guest: upload, run, and what happens on the way out");
   {
     signedIn = true; tier = "guest";
@@ -164,6 +133,8 @@ const remount = () => { def.unmount(); host = fakeElement("div"); def.mount(host
     await until(() => byClass("rn-drop").length === 1);
     ok("the drop area appears once connected, through the run server's second address: the first answers nothing (FIELDKIT_PROJECT.md §14.39)",
       byClass("rn-drop").length === 1);
+    ok("the relay's own address was tried first (RUNNER through the relay)", dialed[0] && dialed[0].indexOf("ws://relay.test/runner/attach?t=") === 0 &&
+      dialed[1].indexOf("ws://127.0.0.1:1/attach") === 0, dialed.slice(0, 3).join(" "));
     ok("the guest is told plainly that nothing is kept",
       /GUEST SANDBOX/.test(text()) && /deleted when you close this panel/.test(text()), text().slice(0, 160));
     ok("and that there is no GPU", /no GPU/.test(text()));
@@ -276,22 +247,14 @@ const remount = () => { def.unmount(); host = fakeElement("div"); def.mount(host
     for (const b of all(host).filter((n) => n.tagName === "BUTTON" && n.textContent === "DELETE")) fire(b, "click");
     await until(() => byClass("rn-file").length === 0);
 
-    /* An admin's ADMIN screen draws: power, sleeping, the line. */
+    /* An admin's ADMIN screen draws: power and the line, and no sleeping. */
     tier = "admin";
     remount();
     await until(() => !!button("ADMIN"));
     fire(button("ADMIN"), "click");
-    await until(() => /SLEEP WHEN IDLE/.test(text()));
-    ok("ADMIN shows POWER, SLEEP WHEN IDLE and the line", /POWER/.test(text()) && /SLEEP WHEN IDLE/.test(text()) &&
+    await until(() => /LOAD AND THE LINE/.test(text()));
+    ok("ADMIN shows POWER and the line, and nothing about sleeping", /POWER/.test(text()) && !/SLEEP/.test(text()) &&
       /LOAD AND THE LINE/.test(text()), text().slice(0, 200));
-    ok("with what is missing before it can sleep", /fk-sleep has not reported: rerun setup\.sh/.test(text()) &&
-      /wake helper/.test(text()) && /BIOS/.test(text()));
-    ok("and says it is awake, and why", /Awake: sleeping when idle is switched off\./.test(text()), text().slice(-600));
-    ok("SLEEP NOW is offered", !!button("SLEEP NOW"));
-    fire(button("SLEEP NOW"), "click");
-    await new Promise((r) => setTimeout(r, 200));
-    ok("and without fk-sleep it is refused, so nothing sleeps", !app.sleep.force);
-
     /* A library title gets a card, and members get a START for it. */
     fire(button("BACK"), "click");
     await until(() => byClass("rn-drop").length === 1);

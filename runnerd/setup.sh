@@ -14,9 +14,7 @@
 #   4. builds the images jobs run in
 #   5. writes the settings file (only if there is not one already)
 #   6. starts the run server, and the tunnel if a token was given,
-#      fk-power, which reads what the machine draws for ADMIN, and
-#      fk-sleep, which puts it to sleep when RUNNER has nothing to do
-#      (only once an admin switches that on in ADMIN)
+#      and fk-power, which reads what the machine draws for ADMIN
 #   7. checks it answers, and measures your upload speed
 #
 # Options (none are needed):
@@ -302,42 +300,14 @@ systemctl enable fk-power >/dev/null 2>&1 || true
 if systemctl restart fk-power; then note "power readings: the fk-power service (ADMIN -> POWER)"
 else warn "fk-power did not start, so ADMIN will show no power readings:  sudo journalctl -u fk-power"; fi
 
-# Asleep when nobody needs it (RUNNER_PLAN.md §24). Also root: suspending
-# and arming the network card's Wake-on-LAN both need it. It does
-# nothing until an admin switches sleeping on in ADMIN -> POWER, and
-# never while anyone is logged in here.
-command -v ethtool >/dev/null 2>&1 || apt-get install -y -qq ethtool >/dev/null 2>&1 || true
-install -m 0755 "$HERE/runnerd/fk-sleep.sh" /usr/local/sbin/fk-sleep
-cat > /etc/systemd/system/fk-sleep.service <<UNIT
-[Unit]
-Description=FieldKit: sleep when RUNNER has nothing to do, wake by Wake-on-LAN
-After=multi-user.target docker.service
-
-[Service]
-ExecStart=/usr/local/sbin/fk-sleep
-Environment=FK_SLEEP_PLAN=$STORE/sleep-plan.json
-Environment=FK_SLEEP_OUT=$BASE/run/wake.json
-Restart=always
-RestartSec=30
-Nice=10
-ProtectSystem=strict
-ReadWritePaths=$BASE/run
-ProtectHome=true
-PrivateTmp=true
-NoNewPrivileges=true
-
-[Install]
-WantedBy=multi-user.target
-UNIT
-systemctl daemon-reload
-systemctl enable fk-sleep >/dev/null 2>&1 || true
-if systemctl restart fk-sleep; then
-  sleep 2; WOLS=$(cat "$BASE/run/wake.json" 2>/dev/null || true)
-  case "$WOLS" in
-    *'"supports":"'*g*) note "sleeping: fk-sleep is ready; the network card can be woken (switch Wake-on-LAN on in the BIOS, then in ADMIN -> POWER)" ;;
-    *) note "sleeping: fk-sleep is running, but the network card does not offer Wake-on-LAN, so ADMIN will not let it sleep" ;;
-  esac
-else warn "fk-sleep did not start, so this machine will never sleep:  sudo journalctl -u fk-sleep"; fi
+# Sleeping and Wake-on-LAN were taken out (2026-10-27): this machine
+# does other work too. An fk-sleep left by an older setup is removed.
+if [ -f /etc/systemd/system/fk-sleep.service ]; then
+  systemctl disable --now fk-sleep >/dev/null 2>&1 || true
+  rm -f /etc/systemd/system/fk-sleep.service /usr/local/sbin/fk-sleep "$BASE/run/wake.json" "$STORE/sleep-plan.json" "$STORE/sleep-settings.json"
+  systemctl daemon-reload
+  note "removed fk-sleep: this machine no longer sleeps by itself"
+fi
 
 PROFILE="" ; grep -q '^TUNNEL_TOKEN=.' "$ETC/tunnel.env" && PROFILE="--profile tunnel"
 # shellcheck disable=SC2086
@@ -396,7 +366,6 @@ echo "windows exe:  ${WINE_IMAGE:-off}"
 echo "screens:      $(docker image inspect fieldkit-runner-screen:1 >/dev/null 2>&1 && echo on || echo off)"
 echo "gpu:          $GPU_SAID"
 echo "power:        $(cat "$BASE/run/power.json" 2>/dev/null || echo "no reading yet")"
-echo "sleep:        $(cat "$BASE/run/wake.json" 2>/dev/null || echo "fk-sleep has not written yet")"
 echo "disk:         $(df -h --output=size,avail,target "$BASE" | tail -1 | xargs)"
 echo "upload speed: ${UP_MBPS} Mbit/s (measured to Cloudflare just now)"
 echo "tunnel:       $([ -n "$PROFILE" ] && echo "running" || echo "NOT SET UP YET")"

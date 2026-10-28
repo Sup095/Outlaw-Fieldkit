@@ -85,25 +85,10 @@ the first time, and ends with a block headed **PASTE THIS BACK**.
 ### 3. Update the relay
 
 Upload the files in `deploy/relay-upload/` and restart it. `config.json` there
-already has `runner.enabled` and the run server's address.
-
-### 4. The wake helper (Bastion 1, once)
-
-Only needed for SLEEP WHEN IDLE. It sends the Wake-on-LAN packet the relay's
-container cannot. `<server-id>` is the relay's Pterodactyl server folder; the
-`mkdir` makes the key's folder as the relay's own user before Docker would make
-it as root.
-
-```bash
-docker exec <server-id> mkdir -p /home/container/data/runner/wake
-docker run -d --name fk-wake --restart unless-stopped --network host --user 999:981 \
-  -v /var/lib/pterodactyl/volumes/<server-id>/data/runner/wake:/k:ro \
-  -e FK_WAKE_URL=https://relay.example.com \
-  --entrypoint node fieldkit-relay:1 /opt/fieldkit/relay/fk-wake.js
-```
-
-After rebuilding the relay image, `docker rm -f fk-wake` and run it again to
-pick up a new version. `docker logs fk-wake` says what it is doing.
+already has `runner.enabled` and the run server's addresses: `innerUrl`, how the
+relay reaches it over the tailnet (`http://<this machine's tailnet address>:25580`),
+which lets panels use RUNNER through the relay's own address, and `publicUrl`,
+the tunnel's name, kept as a spare.
 
 ---
 
@@ -122,8 +107,6 @@ everyone's files are left alone.
 | `/srv/fieldkit/etc/tunnel.env` | The tunnel token (readable by root only) |
 | `/srv/fieldkit/app/` | The installed copy of this folder |
 | `/srv/fieldkit/run/power.json` | What the machine draws, written once a minute by the `fk-power` service |
-| `/srv/fieldkit/run/wake.json` | The network card and whether it can wake the machine, written by `fk-sleep` |
-| `/srv/fieldkit/store/sleep-plan.json` | runnerd telling `fk-sleep` whether to sleep |
 
 ```bash
 sudo docker logs --tail 50 fieldkit-runner-runnerd-1
@@ -155,17 +138,6 @@ everyone's files, the shared library, the bin and the last actions taken.
   that. Set your price per kWh there. The readings come from `fk-power`, a
   small root service setup.sh installs (`sudo systemctl status fk-power`); it
   only reads, and may write nowhere but `/srv/fieldkit/run`.
-- **SLEEP WHEN IDLE** puts this machine to sleep when RUNNER has nothing to
-  do: nothing running, nobody waiting, nobody doing anything for 20 minutes
-  (you choose). Opening RUNNER wakes it in 20-40 s, with a Wake-on-LAN packet
-  sent by a helper beside the relay on Bastion 1. **Off until you switch it
-  on**, because a machine whose BIOS has Wake-on-LAN off stays asleep until
-  someone presses its power button: the lines above the switch say what is
-  ready, and SLEEP NOW tries it once while you can reach the machine. Quiet
-  hours (say 1 to 7) make it sleep after 5 idle minutes and let only admins
-  wake it. The sleeping is done by `fk-sleep`, a root service setup.sh
-  installs (`sudo systemctl status fk-sleep`); it never sleeps while anyone is
-  logged in to this machine, or within 10 minutes of starting or waking.
 
 Every one of these is written to `/srv/fieldkit/store/audit.json`.
 

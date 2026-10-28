@@ -52,7 +52,7 @@
 
   var info = null;          // the relay's last /runner/status answer
   var conn = null;          // { sock, ready, tier, limits, files, usage, jobs }
-  var phase = "checking";   // checking | off | offline | asleep | waking | signin | connecting | ready | lost
+  var phase = "checking";   // checking | off | offline | signin | connecting | ready | lost
   var problem = "";         // the sentence shown for off / offline / lost
   var busy = null;          // { name, done, total, what } while hashing or uploading
   var scroll = [];          // terminal scrollback, as { k, d } pieces
@@ -67,16 +67,11 @@
   var players = {};         // job id -> the player for a job with a screen
   var zipPick = null;       // { id, list, screen, args } while asking which file in a zip to run
   var cardEdit = null;      // the library file whose card an admin is editing
-  var waking = null;        // { since } while the run server is being woken
-  var wakeFailed = false;   // a wake did not work: wait for a click before trying again
 
   var SCROLL_MAX = 200000;  // characters kept on screen
   var CHUNK = 256 * 1024;   // one upload frame
   var HASH_SLICE = 1024 * 1024;
   var RETRY_MS = 20000;
-  /* Bastion 2 sleeps when nobody uses RUNNER (RUNNER_PLAN.md §24) and
-     wakes in 20-40 s; after this long, waking has not worked. */
-  var WAKE_POLL_MS = 4000, WAKE_GIVE_UP_MS = 150000;
   /* The run server closes a session whose ticket is not renewed
      within 20 minutes. That is how a ban made in MESSAGES reaches a
      session that is already open. */
@@ -261,15 +256,6 @@
     if (!guard()) return;
 
     if (!info.enabled) { phase = "off"; problem = info.why || "RUNNER is switched off on this relay."; }
-    else if (!info.online && (info.asleep || info.waking) || waking && info.ready === false) {
-      /* Asleep to save power. Opening RUNNER wakes it, if this relay
-         can and this person may. */
-      phase = "asleep";
-      problem = info.why || "the run server is asleep";
-      if (waking || info.waking) return wakeWait(guard);
-      if (info.wakeable && account() && !wakeFailed && !info.quiet) return wakeUp(guard);
-      retry = setTimeout(function () { if (guard()) refresh(guard); }, RETRY_MS);
-    }
     else if (!info.online || info.ready === false) {
       phase = "offline";
       problem = info.why || "the run server is offline";
@@ -280,50 +266,6 @@
     else if (!account()) { phase = "signin"; problem = ""; }
     else { phase = "connecting"; problem = ""; render(); return open(guard); }
     render();
-  }
-
-  async function wakeUp(guard) {
-    stopRetry();
-    var a = account();
-    if (!a || typeof a.runnerWake !== "function") { phase = "signin"; return render(); }
-    waking = { since: Date.now() };
-    phase = "waking"; problem = "";
-    render();
-    try {
-      var r = await a.runnerWake();
-      if (!guard()) return;
-      if (r && r.awake) { waking = null; return refresh(guard); }
-    } catch (e) {
-      if (!guard()) return;
-      waking = null; wakeFailed = true;
-      phase = "asleep"; problem = (e && e.message) || "the relay could not wake it";
-      render();
-      retry = setTimeout(function () { if (guard()) refresh(guard); }, RETRY_MS);
-      return;
-    }
-    wakeWait(guard);
-  }
-
-  /* Asks every few seconds until it answers, then connects as usual. */
-  function wakeWait(guard) {
-    stopRetry();
-    if (!waking) waking = { since: Date.now() };
-    phase = "waking";
-    render();
-    retry = setTimeout(async function () {
-      if (!guard()) return;
-      info = await checkStatus();
-      if (!guard()) return;
-      if (info.online && info.ready !== false) { waking = null; wakeFailed = false; return refresh(guard); }
-      if (Date.now() - waking.since > WAKE_GIVE_UP_MS) {
-        waking = null; wakeFailed = true;
-        phase = "asleep";
-        problem = "it did not wake up within " + Math.round(WAKE_GIVE_UP_MS / 1000) + " seconds. Wake-on-LAN may be off " +
-          "in its BIOS, or it is switched off at the wall. Tell an admin.";
-        return render();
-      }
-      wakeWait(guard);
-    }, WAKE_POLL_MS);
   }
 
   function closeConn() {
@@ -351,7 +293,11 @@
        runner.alsoUrls), in case one is blocked where this panel is. Each
        is tried in turn until one opens, the last one that did first. The
        ticket is only spent by a run server that was reached. */
-    var urls = (Array.isArray(t.urls) && t.urls.length ? t.urls : [t.url]).map(String);
+    var urls = (Array.isArray(t.urls) && t.urls.length ? t.urls : [t.url]).map(String).filter(Boolean);
+    /* The relay passes RUNNER through to Bastion 2 (runner.innerUrl), so
+       the address this panel reached the relay by comes first. */
+    if (t.viaRelay && relayBase()) urls = [relayBase() + "/runner"].concat(urls.filter(function (u) { return u !== relayBase() + "/runner"; }));
+    if (!urls.length) { conn = null; phase = "offline"; problem = "the run server has no address"; return render(); }
     if (goodUrl && urls.indexOf(goodUrl) > 0) urls = [goodUrl].concat(urls.filter(function (u) { return u !== goodUrl; }));
     var mine = { sock: null, ready: false, opened: false, tier: t.tier, limits: null, files: [], usage: null,
       jobs: {}, waiting: {}, windows: false };
@@ -874,23 +820,6 @@
     if (phase === "checking") return void nodes.root.appendChild(notice("CHECKING THE RUN SERVER...", ""));
     if (phase === "connecting") return void nodes.root.appendChild(notice("CONNECTING...", ""));
     if (phase === "off") return void nodes.root.appendChild(notice("RUNNER IS NOT AVAILABLE", problem, [again]));
-    if (phase === "waking") {
-      var secs = waking ? Math.round((Date.now() - waking.since) / 1000) : 0;
-      return void nodes.root.appendChild(notice("WAKING THE RUN SERVER...",
-        "Bastion 2 was asleep to save power. Waking it usually takes 20 to 40 seconds" +
-        (secs >= 4 ? " (" + secs + " s so far)" : "") + (info && info.ready === false && info.online ? "; it is starting up" : "") + ".", []));
-    }
-    if (phase === "asleep") {
-      var acct = account();
-      var q = info && info.quiet;
-      return void nodes.root.appendChild(notice("THE RUN SERVER IS ASLEEP",
-        "Bastion 2 sleeps when nobody is using RUNNER, to save power" +
-        (q ? ", and stays asleep from " + q.from + ":00 to " + q.to + ":00 unless an admin wakes it" : "") + ". " +
-        (problem && !/asleep/.test(problem) ? "Not woken: " + problem + ". " : "") +
-        (!acct ? "Sign in to MESSAGES to wake it." : info && info.wakeable === false ? "It cannot be woken from here right now; this checks again by itself." : ""),
-        [acct && info && info.wakeable !== false ? ui.button("WAKE IT", function () { wakeFailed = false; wakeUp(guard); }, { primary: true }) : null,
-          again].filter(Boolean)));
-    }
     if (phase === "offline") {
       return void nodes.root.appendChild(notice("THE RUN SERVER IS OFFLINE",
         "Nothing can be uploaded or run until it is back (" + problem + "). " +
@@ -1435,61 +1364,6 @@
       })]));
   }
 
-  /* Asleep when nobody needs it (RUNNER_PLAN.md §24). Every line that
-     must be true before switching it on is shown above the switch,
-     because a machine that cannot be woken stays asleep until somebody
-     presses its power button. */
-  function drawSleep(box, z, go) {
-    box.appendChild(head("SLEEP WHEN IDLE"));
-    if (!z) return box.appendChild(el("div", { class: "rn-dim", text: "this run server is too old to say" }));
-    var s = z.settings || {}, h = z.host, st = z.state || {};
-    var checks = [];
-    if (!h) checks.push([false, "fk-sleep has not reported: rerun setup.sh on Bastion 2 (it installs it)."]);
-    else if (!h.fresh) checks.push([false, "fk-sleep stopped reporting " + ago(h.at) + " ago: sudo systemctl status fk-sleep on Bastion 2."]);
-    else {
-      var can = (h.supports || "").indexOf("g") >= 0;
-      checks.push([can, can ? "Its network card (" + (h.iface || "?") + ", " + (h.mac || "?") + ") can be woken by a magic packet" +
-        (h.wol === "g" ? ", and that is switched on." : "; fk-sleep switches that on before it sleeps.")
-        : "Its network card (" + (h.iface || "?") + ") says it cannot be woken by a magic packet. Switch Wake-on-LAN on in the BIOS, then rerun setup.sh."]);
-      if (h.blocked) checks.push([null, "Not now: " + h.blocked + "."]);
-    }
-    var hs = z.helperSec;
-    checks.push(hs != null && hs >= 0 && hs < 180 ? [true, "The relay's wake helper on Bastion 1 asked " + hs + " s ago."]
-      : [false, hs == null ? "The relay has not reported about its wake helper (restart the relay with the new version)."
-        : "The relay's wake helper on Bastion 1 is not running, so nothing could wake it."]);
-    checks.push([null, "Wake-on-LAN must also be switched on in Bastion 2's BIOS. Nothing here can see that setting: " +
-      "try SLEEP NOW once while someone is near it."]);
-    checks.forEach(function (c) {
-      box.appendChild(el("div", { class: "rn-dim", text: (c[0] === true ? "✓ " : c[0] === false ? "✗ " : "• ") + c[1] }));
-    });
-    box.appendChild(el("div", { class: "rn-dim", text: z.force ? "SLEEP NOW was pressed by " + z.force.by + "; " +
-      (st.why ? "waiting: " + st.why + "." : "going to sleep.")
-      : st.soon ? "Nothing to do: it goes to sleep within a minute." : "Awake: " + (st.why || "starting") + "." }));
-    var on = el("input", { type: "checkbox" });
-    on.checked = !!s.enabled;
-    var mins = el("input", { class: "rn-input", type: "number", min: "5", max: "720", value: s.idleMinutes || 20, style: { width: "64px", flex: "0 0 auto" } });
-    var hr = function (v) { return el("input", { class: "rn-input", type: "number", min: "0", max: "23", value: v == null ? "" : v, placeholder: "-", style: { width: "52px", flex: "0 0 auto" } }); };
-    var qf = hr(s.quietFrom), qt = hr(s.quietTo);
-    var tz = "UTC";
-    try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"; } catch (e) {}
-    box.appendChild(row([el("label", { class: "rn-dim" }, [on, document.createTextNode(" sleep after")]), mins,
-      el("span", { class: "rn-dim", text: "idle minutes; quiet hours from" }), qf, el("span", { class: "rn-dim", text: "to" }), qt,
-      ui.button("SAVE", function () {
-        go({ t: "adm-sleep", enabled: on.checked, idleMinutes: Number(mins.value),
-          quietFrom: qf.value === "" ? null : Number(qf.value), quietTo: qt.value === "" ? null : Number(qt.value), tz: tz })();
-      })]));
-    box.appendChild(el("div", { class: "rn-dim", text: "Idle means nothing running, nobody waiting and nobody doing anything in RUNNER. " +
-      "In quiet hours (" + (s.quietFrom == null ? "none set" : s.quietFrom + ":00-" + s.quietTo + ":00, " + s.tz) +
-      ") it sleeps after 5 idle minutes and only an admin can wake it. Opening RUNNER wakes it in 20-40 s." }));
-    box.appendChild(row([
-      z.force ? ui.button("STAY AWAKE", go({ t: "adm-sleep-cancel" }))
-        : ui.button("SLEEP NOW", function () {
-          if (window.confirm("Put Bastion 2 to sleep once nothing is running? Everyone connected to RUNNER is disconnected. " +
-            "If Wake-on-LAN is off in its BIOS it stays asleep until someone presses its power button.")) go({ t: "adm-sleep-now" })();
-        }, { danger: true })
-    ]));
-  }
-
   function drawAdmin(box, d, guard) {
     var go = function (cmd, why) { return function () { adminDo(cmd, guard, why); }; };
     var pct = Math.round((d.disk.pct || 0) * 100);
@@ -1501,7 +1375,6 @@
     box.appendChild(ui.button("RUN THE CLEAN-UP NOW", go({ t: "adm-sweep" })));
 
     drawPower(box, d.power, go);
-    drawSleep(box, d.sleep, go);
     drawAccess(box, d.access, go);
 
     box.appendChild(head("RUNNING NOW (" + d.jobs.length + ")"));
@@ -1762,7 +1635,6 @@
       if (alive && alive.end) alive.end();
       scroll = []; scrollChars = 0;
       phase = "checking";
-      waking = null; wakeFailed = false;
       nodes = {};
     }
   });

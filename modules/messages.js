@@ -1040,11 +1040,6 @@
     runnerTicket: async function () {
       if (!session) throw new Error("not signed in to MESSAGES");
       return api("POST", "/runner/ticket");
-    },
-    /* RUNNER, when the run server is asleep (RUNNER_PLAN.md §24). */
-    runnerWake: async function () {
-      if (!session) throw new Error("not signed in to MESSAGES");
-      return api("POST", "/runner/wake");
     }
   });
 

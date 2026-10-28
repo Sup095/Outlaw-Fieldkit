@@ -159,7 +159,6 @@ function overview(ctx) {
       from: x.from, reason: x.reason, by: x.by, deletedAt: x.deletedAt })),
     blocked: admin.denyList(),
     power: ctx.power ? ctx.power.view() : null,
-    sleep: ctx.sleep ? ctx.sleep.view(ctx.helperSec ? ctx.helperSec() : null) : null,
     access: ctx.access ? ctx.access.view(ctx.runningOf) : null,
     audit: admin.recent(40)
   };
@@ -259,26 +258,6 @@ function command(ctx, s, m) {
       const st = ctx.power.set({ pricePerKwh: m.price, otherWatts: m.other, currency: m.currency });
       admin.audit(by, "power-settings", null, st.currency + st.pricePerKwh + "/kWh, rest of the PC " + st.otherWatts + " W");
       return { done: "saved: " + st.currency + st.pricePerKwh + " per kWh, " + st.otherWatts + " W for the rest of the PC" };
-    }
-    case "adm-sleep": {
-      const st = ctx.sleep.set({ enabled: m.enabled, idleMinutes: m.idleMinutes, quietFrom: m.quietFrom,
-        quietTo: m.quietTo, tz: m.tz });
-      const q = st.quietFrom == null ? "no quiet hours" : "quiet " + st.quietFrom + ":00-" + st.quietTo + ":00 " + st.tz;
-      admin.audit(by, "sleep-settings", null, (st.enabled ? "sleeps after " + st.idleMinutes + " idle min" : "never sleeps") + ", " + q);
-      ctx.sleepTick();
-      return { done: st.enabled ? "saved: Bastion 2 sleeps after " + st.idleMinutes + " idle minutes, " + q
-        : "saved: Bastion 2 stays awake" };
-    }
-    case "adm-sleep-now": {
-      ctx.sleep.sleepNow(by);
-      admin.audit(by, "sleep-now", null, null);
-      ctx.sleepTick();
-      return { done: "Bastion 2 goes to sleep in about a minute, once nothing is running. Opening RUNNER wakes it." };
-    }
-    case "adm-sleep-cancel": {
-      ctx.sleep.cancel();
-      ctx.sleepTick();
-      return { done: "it stays awake" };
     }
     case "adm-kill": {
       const j = ctx.jobs.get(String(m.job));

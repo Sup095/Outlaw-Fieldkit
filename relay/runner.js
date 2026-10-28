@@ -8,14 +8,21 @@
      GET  /runner/status   is the run server there, and ready?
      POST /runner/ticket   who you are, signed, good for one minute
      GET  /runner/pubkey   the key that signature can be checked with
-     POST /runner/wake     wake Bastion 2 up (RUNNER_PLAN.md §24)
-     GET  /runner/wake/wait  the wake helper on Bastion 1 waiting
+     WS   /runner/attach   RUNNER itself, passed through to Bastion 2
 
    The relay knows the accounts; Bastion 2 knows nothing. So the
    relay signs a statement — this handle, this tier — and the panel
-   carries it straight to Bastion 2 over that machine's own
-   hostname. After that the relay is out of the picture: no upload,
-   no output and no video ever passes through here.
+   carries it to Bastion 2.
+
+   THE SAME ADDRESS AS EVERYTHING ELSE. With runner.innerUrl set (Bastion
+   2's run server as this relay reaches it over the tailnet), the panel
+   opens RUNNER at <this relay>/runner/attach and the connection is
+   passed through to Bastion 2 byte for byte, so whichever address got
+   someone to the relay also gets them to RUNNER: one name to keep
+   unblocked, not two. Nothing is read or kept on the way through; the
+   ticket is still checked by Bastion 2. runner.publicUrl (and
+   runner.alsoUrls) are then only spares the panel tries if that fails.
+   Without innerUrl, the panel goes to publicUrl as before.
 
    THE KEY. An Ed25519 pair, made on first start and kept in the
    data directory. The private half never leaves this process. The
@@ -28,22 +35,13 @@
    shows it and blocks uploading. Nothing here throws because a
    machine in somebody's house was unplugged.
 
-   WHEN BASTION 2 IS ASLEEP (runnerd/sleep.js). Its /health said what
-   its network card's address is, and that it was about to sleep; both
-   are kept on disk here, because it cannot be asked while asleep.
-   Waking takes a Wake-on-LAN packet on the home network, and this
-   process cannot send one: from inside its container, broadcasts do
-   not reach the LAN. So a helper (fk-wake.js) runs on Bastion 1's own
-   network and waits here, holding a request open; when somebody opens
-   RUNNER, it is answered with the address and sends the packet. It
-   proves itself with a key this relay makes in its data folder, which
-   the helper is given read-only.
    ============================================================ */
 "use strict";
 
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
+const net = require("net");
 
 const TICKET_MS = 60 * 1000;
 const PROBE_FRESH_MS = 8000;
@@ -58,77 +56,6 @@ let probe = { at: 0, result: null, pending: null };
 let peer = null;                 /* Bastion 2's load: { upKbps, settings, waiting, at } */
 let reportTimer = null, lastReport = 0;
 
-/* ---- waking Bastion 2 ---- */
-const WAKE_WAIT_MS = 50 * 1000;       /* one held request from the helper */
-const WAKE_HOLD_MS = 90 * 1000;       /* a wake nobody collected yet */
-const WAKE_AGAIN_MS = 15 * 1000;      /* a second packet, if it is still asleep */
-const WAKING_MS = 2 * 60 * 1000;      /* "waking" is said for this long */
-const HELPER_FRESH_MS = 3 * 60 * 1000;
-const MAX_WAITERS = 4;
-const MAC_RE = /^[0-9a-f]{2}(:[0-9a-f]{2}){5}$/;
-let wake = { mac: null, can: false, on: false, soon: false, quiet: null };
-let wakeFile = null, wakeKey = null;
-let helperAt = 0, waiters = [], pending = null;
-
-/* Same rule as runnerd/sleep.js: from-hour up to to-hour, across
-   midnight when from > to, in the admin's own time zone. */
-function inQuiet(q, now) {
-  if (!q || q.from == null || q.to == null || q.from === q.to) return false;
-  let h;
-  try {
-    h = Number(new Intl.DateTimeFormat("en-GB", { hour: "numeric", hourCycle: "h23", timeZone: q.tz || "UTC" })
-      .format(new Date(now || Date.now()))) % 24;
-  } catch (e) { h = new Date(now || Date.now()).getUTCHours(); }
-  return q.from < q.to ? h >= q.from && h < q.to : h >= q.from || h < q.to;
-}
-
-function loadWake(dir) {
-  wakeFile = path.join(dir, "wake-state.json");
-  try {
-    const w = JSON.parse(fs.readFileSync(wakeFile, "utf8"));
-    if (w && typeof w === "object") wake = Object.assign(wake, w);
-  } catch (e) {}
-  /* The helper's key, in a folder of its own so the helper can be
-     given that folder and nothing else (not the ticket key). */
-  if (cfg.wakeKey) { wakeKey = String(cfg.wakeKey); return; }
-  const kd = path.join(dir, "wake");
-  fs.mkdirSync(kd, { recursive: true, mode: 0o700 });
-  const kf = path.join(kd, "key");
-  if (!fs.existsSync(kf)) fs.writeFileSync(kf, crypto.randomBytes(24).toString("hex"), { mode: 0o600 });
-  wakeKey = fs.readFileSync(kf, "utf8").trim();
-}
-
-/* From Bastion 2's own /health: its card, and whether it was about
-   to sleep. Saved only when something changed. */
-function rememberSleep(sl) {
-  if (!sl || typeof sl !== "object") return;
-  const q = sl.quiet && typeof sl.quiet === "object" && Number.isInteger(sl.quiet.from) && Number.isInteger(sl.quiet.to)
-    ? { from: sl.quiet.from % 24, to: sl.quiet.to % 24, tz: typeof sl.quiet.tz === "string" ? sl.quiet.tz.slice(0, 64) : "UTC" } : null;
-  const mac = typeof sl.mac === "string" && MAC_RE.test(sl.mac) ? sl.mac : wake.mac;
-  const next = { mac: mac, can: !!sl.can, on: !!sl.on, soon: !!sl.soon, quiet: q };
-  if (JSON.stringify(next) === JSON.stringify(wake)) return;
-  wake = next;
-  if (!wakeFile) return;
-  try { fs.writeFileSync(wakeFile, JSON.stringify(wake)); } catch (e) { log("WARN", "runner: could not save Bastion 2's wake details: " + e.message); }
-}
-
-const helperFresh = () => helperAt > 0 && Date.now() - helperAt < HELPER_FRESH_MS;
-
-/* What the panel is told while Bastion 2 does not answer. */
-function wakeView() {
-  const now = Date.now();
-  return { asleep: !!wake.soon, wakeable: !!(wake.mac && wake.can && helperFresh()),
-    waking: !!(pending && now - pending.at < WAKING_MS), quiet: inQuiet(wake.quiet, now) ? wake.quiet : null };
-}
-
-function deliver() {
-  if (!pending || pending.sent || !wake.mac) return;
-  if (!waiters.length) return;
-  pending.sent = true;
-  for (const w of waiters.splice(0)) w.done({ wake: true, mac: wake.mac });
-  log("INFO", "runner: the wake helper is sending Bastion 2 its Wake-on-LAN packet");
-}
-
 const b64u = (b) => Buffer.from(b).toString("base64url");
 const base = () => String(cfg.publicUrl || "").trim().replace(/\/+$/, "");
 /* The run server's address first, then any others it also answers on
@@ -138,6 +65,14 @@ const urls = () => [base()].concat((Array.isArray(cfg.alsoUrls) ? cfg.alsoUrls :
   .map((u) => String(u || "").trim().replace(/\/+$/, ""))
   .filter((u) => /^https:\/\/[a-z0-9.-]+(:\d+)?$/i.test(u)))
   .filter((u, i, a) => u && a.indexOf(u) === i);
+/* Bastion 2's run server as this relay reaches it (the tailnet):
+   http://host:port and nothing more. */
+function inner() {
+  const u = String(cfg.innerUrl || "").trim().replace(/\/+$/, "");
+  return /^http:\/\/[a-z0-9.-]+:\d+$/i.test(u) ? u : "";
+}
+/* Where health checks and load reports go: the short way when there is one. */
+const probeBase = () => inner() || base();
 
 function loadKeys(dir) {
   const file = path.join(dir, "ticket-key.pem");
@@ -158,16 +93,12 @@ function init(opts) {
   whoami = opts.whoami || whoami;
   probe = { at: 0, result: null, pending: null };
   keys = null;
-  for (const w of waiters.splice(0)) w.done({ wake: false });
-  helperAt = 0; pending = null; wakeKey = null; wakeFile = null;
-  wake = { mac: null, can: false, on: false, soon: false, quiet: null };
   if (!cfg.enabled) return { enabled: false };
   keys = loadKeys(path.join(opts.dataDir, "runner"));
-  loadWake(path.join(opts.dataDir, "runner"));
-  if (!base()) {
+  if (!base() && !inner()) {
     log("WARN", "runner: enabled, but runner.publicUrl is empty — the panel will be told the run server is not set up");
   }
-  return { enabled: true, url: base() };
+  return { enabled: true, url: base(), inner: inner() };
 }
 
 /* RUNNER_PLAN.md §22: the two machines share one home line, so each
@@ -177,16 +108,11 @@ const REPORT_AUDIENCE = "fieldkit-load";
 function signReport(r, now) {
   const body = b64u(JSON.stringify({ v: 1, aud: REPORT_AUDIENCE, up: Math.max(0, Math.round(r.up || 0)),
     cpu: r.cpu, mem: r.mem, wait: r.wait | 0,
-    /* browser sessions this relay has on Bastion 2's helper (overflow.js) */
-    hb: Math.max(0, r.hb | 0),
-    /* seconds since the wake helper last asked, -1 never: for ADMIN */
-    wh: helperAt ? Math.max(0, Math.round((Date.now() - helperAt) / 1000)) : -1,
     exp: (now || Date.now()) + 30000, n: crypto.randomBytes(12).toString("hex") }));
   return body + "." + b64u(crypto.sign(null, Buffer.from(body), keys.privateKey));
 }
 
 function remember(body) {
-  if (body && body.service === "fieldkit-runnerd") rememberSleep(body.sleep);
   const l = body && body.load;
   if (!l || typeof l !== "object") return;
   peer = { upKbps: Math.max(0, Number(l.upKbps) || 0), settings: l.settings && typeof l.settings === "object" ? l.settings : null,
@@ -198,13 +124,13 @@ function remember(body) {
 function startReports(mine) {
   if (reportTimer) clearInterval(reportTimer);
   reportTimer = setInterval(async () => {
-    if (!cfg.enabled || !base() || !keys) return;
+    if (!cfg.enabled || !probeBase() || !keys) return;
     const m = mine() || {};
     const busy = m.busy || (peer && peer.waiting > 0);
     if (!busy && Date.now() - lastReport < 30000) return;
     lastReport = Date.now();
     try {
-      const res = await fetch(base() + "/health?load=" + encodeURIComponent(signReport(m)),
+      const res = await fetch(probeBase() + "/health?load=" + encodeURIComponent(signReport(m)),
         { signal: AbortSignal.timeout(PROBE_TIMEOUT_MS), redirect: "error" });
       if (res.ok) remember(await res.json());
     } catch (e) { /* offline is a state, not an error: the browser uses its defaults */ }
@@ -223,21 +149,20 @@ function signTicket(handle, tier, now) {
    outbound requests. Every failure becomes a sentence. */
 async function status() {
   if (!cfg.enabled) return { enabled: false, online: false, why: "RUNNER is switched off on this relay" };
-  if (!base()) return { enabled: true, online: false, why: "the run server has not been set up yet" };
+  if (!probeBase()) return { enabled: true, online: false, why: "the run server has not been set up yet" };
   if (probe.result && Date.now() - probe.at < PROBE_FRESH_MS) return probe.result;
   if (probe.pending) return probe.pending;
 
   probe.pending = (async () => {
     let out;
     try {
-      const res = await fetch(base() + "/health", { signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+      const res = await fetch(probeBase() + "/health", { signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
         redirect: "error" });
       const body = res.ok ? await res.json() : null;
       remember(body);
       if (!body || body.service !== "fieldkit-runnerd") {
         out = { online: false, why: "the run server is offline" };
       } else {
-        pending = null;
         out = { online: true, ready: !!body.ready,
           why: body.ready ? null : "the run server is starting up" + (body.why ? " (" + body.why + ")" : ""),
           sandbox: body.sandbox || null, windows: !!body.windows,
@@ -246,12 +171,9 @@ async function status() {
     } catch (e) {
       out = { online: false, why: "the run server is offline" };
     }
-    if (!out.online) {
-      Object.assign(out, wakeView());
-      if (out.asleep) out.why = out.waking ? "the run server is waking up" : "the run server is asleep to save power";
-    }
     out.enabled = true;
     out.url = base();
+    out.viaRelay = !!inner();
     out.checkedAt = Date.now();
     probe = { at: Date.now(), result: out, pending: null };
     return out;
@@ -301,77 +223,68 @@ async function route(req, res, url, helpers) {
       send(res, 503, { error: st.why || "the run server is offline", offline: true });
       return true;
     }
-    send(res, 201, { ticket: signTicket(me.handle, me.tier), url: base(), urls: urls(), tier: me.tier,
+    send(res, 201, { ticket: signTicket(me.handle, me.tier), url: base(), urls: urls(), viaRelay: !!inner(), tier: me.tier,
       expiresIn: TICKET_MS / 1000 });
     return true;
   }
 
-  /* The helper on Bastion 1, waiting to be told to wake Bastion 2. */
-  if (what === "wake" && seg[2] === "wait" && method === "GET") {
-    const k = String(req.headers["x-fk-wake-key"] || "");
-    const a = Buffer.from(k), b = Buffer.from(wakeKey || "");
-    if (!wakeKey || a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
-      send(res, 401, { error: "wrong wake key" });
-      return true;
-    }
-    if (!helperFresh()) log("INFO", "runner: the wake helper on Bastion 1 is connected");
-    helperAt = Date.now();
-    if (pending && !pending.sent && wake.mac && Date.now() - pending.at < WAKE_HOLD_MS) {
-      pending.sent = true;
-      log("INFO", "runner: the wake helper is sending Bastion 2 its Wake-on-LAN packet");
-      send(res, 200, { wake: true, mac: wake.mac });
-      return true;
-    }
-    if (waiters.length >= MAX_WAITERS) waiters.shift().done({ wake: false });
-    await new Promise((resolve) => {
-      const w = { done: (body) => { if (w.over) return; w.over = true; clearTimeout(w.timer);
-        helperAt = Date.now(); if (!res.writableEnded) send(res, 200, body); resolve(); } };
-      w.timer = setTimeout(() => { waiters = waiters.filter((x) => x !== w); w.done({ wake: false }); }, WAKE_WAIT_MS);
-      res.on("close", () => { if (!w.over) { waiters = waiters.filter((x) => x !== w); w.over = true; clearTimeout(w.timer); resolve(); } });
-      waiters.push(w);
-    });
-    return true;
-  }
-
-  /* Somebody opened RUNNER while Bastion 2 sleeps. */
-  if (what === "wake" && !seg[2] && method === "POST") {
-    const me = whoami(req);
-    if (!me) { send(res, 401, { error: "sign in to MESSAGES to wake the run server" }); return true; }
-    if (me.banned) { send(res, 403, { error: "this account cannot use RUNNER while it is banned" }); return true; }
-    probe = { at: 0, result: null, pending: null };
-    const st = await status();
-    if (st.online) { send(res, 200, { awake: true }); return true; }
-    if (!wake.mac || !wake.can) {
-      send(res, 503, { error: "the run server is offline, and this relay does not know how to wake it" });
-      return true;
-    }
-    if (!helperFresh()) {
-      send(res, 503, { error: "the run server is asleep, but the wake helper on Bastion 1 is not running, so it cannot be woken from here" });
-      return true;
-    }
-    if (inQuiet(wake.quiet) && me.tier !== "admin") {
-      send(res, 403, { error: "the run server sleeps from " + wake.quiet.from + ":00 to " + wake.quiet.to + ":00 (" + wake.quiet.tz +
-        "); only an admin can wake it then", quiet: wake.quiet });
-      return true;
-    }
-    const now = Date.now();
-    if (!pending || now - pending.at > WAKE_AGAIN_MS) {
-      pending = { at: now, by: me.handle, sent: false };
-      log("INFO", "runner: " + me.handle + " asked to wake Bastion 2");
-      deliver();
-    }
-    probe = { at: 0, result: null, pending: null };
-    send(res, 202, { waking: true, expectSec: 30 });
-    return true;
-  }
-
   send(res, 404, { error: "no such runner route", saw: url.pathname,
-    routes: ["GET /runner/status", "POST /runner/ticket", "GET /runner/pubkey", "POST /runner/wake", "GET /runner/wake/wait"] });
+    routes: ["GET /runner/status", "POST /runner/ticket", "GET /runner/pubkey", "WS /runner/attach"] });
   return true;
 }
 
-module.exports = { init, route, status, startReports, load: () => peer, AUDIENCE, REPORT_AUDIENCE, TICKET_MS,
-  _internals: { signTicket, signReport, remember, publicPem: () => keys && keys.publicPem, inQuiet, wakeView,
-    wakeKey: () => wakeKey, wakeState: () => wake, waiters: () => waiters.length, helperAt: (t) => { if (t != null) helperAt = t; return helperAt; },
-    WAKE_WAIT_MS, WAKE_AGAIN_MS,
+/* ---- RUNNER through this relay's own address ---- */
+const isAttach = (url) => url.pathname.replace(/\/+$/, "") === "/runner/attach";
+
+/* Passes one panel's RUNNER connection to Bastion 2. The ticket in the
+   query goes along untouched and Bastion 2 checks it. If Bastion 2
+   does not answer with a 101, the panel gets a 502 and tries the
+   spare addresses. */
+function attach(req, sock, head, url) {
+  const fail = (code, text) => {
+    try { sock.end("HTTP/1.1 " + code + " " + text + "\r\nConnection: close\r\nContent-Length: 0\r\n\r\n"); } catch (e) {}
+    setTimeout(() => { try { sock.destroy(); } catch (e) {} }, 2000).unref();
+  };
+  if (!cfg.enabled || !inner()) return fail(404, "Not Found");
+  const to = new URL(inner());
+  const up = net.connect({ host: to.hostname, port: Number(to.port) });
+  let open = false, first = Buffer.alloc(0);
+  const done = () => { try { up.destroy(); } catch (e) {} try { sock.destroy(); } catch (e) {} };
+  const refuse = (why) => {
+    if (open) return done();
+    open = true;   /* once */
+    try { up.destroy(); } catch (e) {}
+    log("WARN", "runner: could not pass a RUNNER connection to Bastion 2 — " + why);
+    fail(502, "Bad Gateway");
+  };
+  up.setTimeout(PROBE_TIMEOUT_MS * 2, () => refuse("it did not answer"));
+  up.on("connect", () => {
+    up.write(["GET /attach" + url.search + " HTTP/1.1", "Host: " + to.host,
+      "Upgrade: websocket", "Connection: Upgrade",
+      "Sec-WebSocket-Key: " + String(req.headers["sec-websocket-key"] || ""),
+      "Sec-WebSocket-Version: " + String(req.headers["sec-websocket-version"] || "13")].join("\r\n") + "\r\n\r\n");
+    if (head && head.length) up.write(head);
+  });
+  const onFirst = (c) => {
+    first = Buffer.concat([first, c]);
+    if (first.indexOf("\r\n\r\n") < 0) { if (first.length > 8192) refuse("its answer made no sense"); return; }
+    const status = first.toString("latin1", 0, first.indexOf("\r\n"));
+    /* Its refusals (a spent ticket, a full machine) are passed on as they are. */
+    up.removeListener("data", onFirst);
+    up.setTimeout(0);
+    open = true;
+    sock.write(first);
+    if (!/^HTTP\/1\.1 101 /.test(status)) { sock.end(); return up.destroy(); }
+    up.pipe(sock);
+    sock.pipe(up);
+  };
+  up.on("data", onFirst);
+  up.on("error", (e) => refuse(e.message));
+  up.on("close", () => { if (!open) refuse("it closed the connection"); else done(); });
+  sock.on("close", done);
+  sock.on("error", done);
+}
+
+module.exports = { init, route, status, startReports, isAttach, attach, load: () => peer, AUDIENCE, REPORT_AUDIENCE, TICKET_MS,
+  _internals: { signTicket, signReport, remember, publicPem: () => keys && keys.publicPem, inner,
     forget: () => { probe = { at: 0, result: null, pending: null }; } } };

@@ -234,8 +234,11 @@ and is safe to run again:
 - a fixed-size disk for uploads;
 - gVisor;
 - the job images, including Wine and the windowed one;
-- the service, a Cloudflare Tunnel, and small host services for power
-  readings and sleeping when idle (woken by Wake-on-LAN).
+- the service, a Cloudflare Tunnel, and a small host service for power
+  readings.
+
+The relay passes RUNNER through to it over the tailnet (`runner.innerUrl`),
+so RUNNER answers on whatever address the relay does.
 
 See [`runnerd/README.md`](runnerd/README.md).
 

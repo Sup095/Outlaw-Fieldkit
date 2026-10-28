@@ -1,8 +1,10 @@
 # FieldKit RUNNER on Bastion 2. Started by setup.sh; you should not
 # need to run this by hand.
 #
-#   runnerd   the run server. Reachable only from this machine
-#             (127.0.0.1:25580) and from the tunnel below.
+#   runnerd   the run server, on port 25580. The relay reaches it over
+#             the tailnet and passes RUNNER through its own address;
+#             the tunnel below is the spare public name. Nothing on it
+#             works without a ticket the relay signed.
 #   egress    the only way a member's job reaches the internet: a
 #             filtering proxy (runnerd/egress.js). Each such job gets
 #             a private network that only this container also joins.
@@ -26,7 +28,8 @@ services:
       # fk-power's readings (setup.sh installs it on the host).
       - ${FK_RUN:-/srv/fieldkit/run}:/run/fieldkit:ro
     ports:
-      - "127.0.0.1:${FK_PORT:-25580}:25580"
+      # FK_BIND=127.0.0.1 keeps it to this machine (the tunnel only).
+      - "${FK_BIND:-0.0.0.0}:${FK_PORT:-25580}:25580"
     logging:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }

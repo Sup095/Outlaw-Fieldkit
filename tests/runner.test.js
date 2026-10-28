@@ -385,6 +385,49 @@ const NOISY = "setInterval(() => process.stdout.write('x'.repeat(1000)), 5);";
     ok("and the run server takes it at its word", r.handle === "carol" && r.tier === "guest");
     await c.close();
 
+    /* RUNNER through the relay's own address: innerUrl is the run
+       server over the tailnet, and /runner/attach is passed through. */
+    init({ enabled: true, innerUrl: "http://127.0.0.1:" + port, publicUrl: "https://run.example.invalid" });
+    relayRunner._internals.forget();
+    st = (await call("GET", "/runner/status")).body;
+    ok("with innerUrl, status asks the run server the short way", st.online === true && st.viaRelay === true, JSON.stringify(st));
+    const tv = await call("POST", "/runner/ticket");
+    ok("and the ticket says to come through the relay, publicUrl kept as a spare",
+      tv.status === 201 && tv.body.viaRelay === true && tv.body.urls[0] === "https://run.example.invalid");
+    const relaySrv = require("http").createServer((q, s) => { s.writeHead(404); s.end(); });
+    relaySrv.on("upgrade", (q, sock, head) => {
+      const u = new URL(q.url, "http://relay");
+      if (relayRunner.isAttach(u)) return relayRunner.attach(q, sock, head, u);
+      sock.destroy();
+    });
+    await new Promise((r) => relaySrv.listen(0, "127.0.0.1", r));
+    const rport = relaySrv.address().port;
+    /* The relay's path is /runner/attach (connect() dials the run server's /attach). */
+    const dialRelay = (t) => new Promise((resolve) => {
+      const sock = new WebSocket("ws://127.0.0.1:" + rport + "/runner/attach?t=" + encodeURIComponent(t));
+      const c = { sock, got: [], open: false };
+      sock.addEventListener("open", () => { c.open = true; sock.send(JSON.stringify({ t: "hello" })); });
+      sock.addEventListener("message", (e) => { c.got.push(JSON.parse(e.data)); if (c.got.some((m) => m.t === "ready")) resolve(c); });
+      sock.addEventListener("close", () => resolve(c));
+      sock.addEventListener("error", () => resolve(c));
+      setTimeout(() => resolve(c), 8000);
+    });
+    const cv = await dialRelay(tv.body.ticket);
+    const rv = cv.got.find((m) => m.t === "ready");
+    ok("a panel reaches the run server through the relay, ticket and all", cv.open && rv && rv.handle === "carol", JSON.stringify(cv.got).slice(0, 200));
+    try { cv.sock.close(); } catch (e) {}
+    const again = await dialRelay(tv.body.ticket);
+    ok("the run server still refuses a spent ticket that came through the relay", !again.open);
+    ok("other paths are not passed through", !relayRunner.isAttach(new URL("http://relay/runner/attach/../status")) &&
+      !relayRunner.isAttach(new URL("http://relay/browser/stream")));
+    init({ enabled: true, innerUrl: "http://127.0.0.1:1", publicUrl: "" });
+    const dead = await dialRelay(sign("carol", "guest"));
+    ok("with the run server unreachable, the panel gets a refusal (and tries its spares)", !dead.open);
+    init({ enabled: true, innerUrl: "https://not-allowed.example:443", publicUrl: "" });
+    ok("innerUrl must be plain http://host:port over the tailnet", relayRunner._internals.inner() === "");
+    await new Promise((r) => relaySrv.close(r));
+    init({ enabled: true, publicUrl: "http://127.0.0.1:" + port + "/" });
+
     await app.close();
     relayRunner._internals.forget();
     st = (await call("GET", "/runner/status")).body;

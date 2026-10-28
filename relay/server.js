@@ -1805,6 +1805,20 @@ server.on("upgrade", (req, sock, head) => {
   try { url = new URL(req.url, "http://" + (req.headers.host || "relay")); }
   catch (e) { try { sock.destroy(); } catch (x) {} return; }
 
+  /* RUNNER, passed through to Bastion 2 (runner.js), so it answers on
+     whatever address the relay itself was reached by. */
+  if (runner.isAttach(url)) {
+    if (!hit("runnerws:" + clientIp(req), config.rateLimit.browserStreamMax)) {
+      try {
+        sock.end("HTTP/1.1 429 Too Many Requests\r\nConnection: close\r\n\r\n");
+        setTimeout(() => sock.destroy(), 2000).unref();
+      } catch (e) {}
+      return;
+    }
+    runner.attach(req, sock, head, url);
+    return;
+  }
+
   if (!config.browser || !config.browser.enabled || !browser.isStreamUpgrade(url)) {
     try {
       sock.end("HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n");
@@ -1962,9 +1976,8 @@ server.listen(config.port, config.host, () => {
     log("INFO", "browser: " + overflow.helpers.length + " helper(s) take new sessions when this relay is full: " +
       overflow.helpers.map((h) => h.url).join(", "));
   }
-  /* hb: sessions on helpers, so Bastion 2 does not sleep under them. */
   runner.startReports(() => ({ up: fairness.meter.upKbps, cpu: fairness.meter.cpu, mem: fairness.meter.mem,
-    wait: fairness.line.length, hb: overflow ? overflow.sessionsOut() : 0,
+    wait: fairness.line.length,
     busy: fairness.meter.upKbps > 0 || fairness.line.length > 0 || bw.sessions.size > 0 || !!(overflow && overflow.sessionsOut()) }));
   if (!config.browser || !config.browser.enabled) {
     log("INFO", "browser: off (browser.enabled is false)");
