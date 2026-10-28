@@ -225,5 +225,5 @@
     return { url: list[0], ok: false };
   }
 
-  FieldKit.provide("relayChoice", { ask: ask, reachable: reachable, clean: clean, known: known, answers: answers });
+  FieldKit.provide("relayChoice", { ask: ask, reachable: reachable, clean: clean, known: known, save: save, answers: answers });
 })(window.FieldKit);

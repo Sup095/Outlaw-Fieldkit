@@ -158,7 +158,17 @@ class Guard {
     /* How refusals name things. The relay's browser by default. */
     this.words = Object.assign({ place: "relay", who: "this browser" }, opts.words || {});
     this.filter = opts.filter || (() => ({ ok: true }));
-    this.stats = { allowed: 0, refusedPrivate: 0, refusedFilter: 0, refusedDns: 0 };
+    /* Ads and trackers (adblock.js): refused without a log line each,
+       because a page asks for dozens a second. Counted instead. */
+    this.ads = opts.ads || null;
+    /* Which ports may be opened. "web" (the default, RUNNER's jobs):
+       80, 443, 8080, 8443. "browser": those, and any port from 1024 up,
+       because games keep their servers there (Photon, which many web
+       games use, is on 19090-19093). Still only to public addresses,
+       and never the well-known ports below 1024 that mail and other
+       services listen on. */
+    this.ports = opts.ports === "browser" ? "browser" : "web";
+    this.stats = { allowed: 0, refusedPrivate: 0, refusedFilter: 0, refusedDns: 0, refusedAds: 0 };
     /* THE LAST NO, SO SOMEBODY CAN BE TOLD WHY.
 
        A refused CONNECT cannot carry a message: the tunnel never
@@ -227,6 +237,14 @@ class Guard {
     return { up: c.up, down: c.down, done: () => { if (!gone) { gone = true; c.conns--; } } };
   }
 
+  /* Ports a connection may go to. plain: an http:// request, which on
+     the web ports means 80 and 8080 only. */
+  portOk(port, plain) {
+    if (!Number.isInteger(port) || port < 1 || port > 65535) return false;
+    if (plain ? (port === 80 || port === 8080) : (port === 443 || port === 80 || port === 8080 || port === 8443)) return true;
+    return this.ports === "browser" && port >= 1024;
+  }
+
   /* Resolve, then judge. Returns {ok, address, why}. */
   async place(hostname) {
     const host = String(hostname || "").toLowerCase().replace(/^\[|\]$/g, "");
@@ -236,6 +254,10 @@ class Guard {
       return { ok: false, why, kind };
     };
 
+    if (this.ads && this.ads.match(host)) {
+      this.stats.refusedAds++;
+      return { ok: false, why: "an ad or tracker (the browser's ad blocker)", kind: "ads", quiet: true };
+    }
     const verdict = this.filter(host);
     if (!verdict.ok) {
       this.stats.refusedFilter++;
@@ -305,13 +327,14 @@ class Guard {
     if (lim === false) return deny("429 Too Many Requests", "too many connections open at once");
     if (lim) sock.on("close", lim.done);
 
-    if (port !== 443 && port !== 80 && port !== 8080 && port !== 8443) {
+    if (!this.portOk(port)) {
       this.lastRefusal = { host: rawHost, kind: "port", at: Date.now(),
         why: "port " + port + " is not one " + this.words.who + " is allowed to open" };
       return deny("403 Forbidden", "port " + port + " is not one " + this.words.who + " may open");
     }
 
     const where = await this.place(rawHost);
+    if (!where.ok && where.quiet) { try { sock.end("HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"); } catch (e) {} return; }
     if (!where.ok) return deny("403 Forbidden", where.why);
 
     const up = net.connect({ host: where.address, port, family: where.family }, () => {
@@ -356,9 +379,10 @@ class Guard {
     };
 
     const port = Number(u.port) || 80;
-    if (port !== 80 && port !== 8080) return deny("port " + port + " is not one " + this.words.who + " may open");
+    if (!this.portOk(port, true)) return deny("port " + port + " is not one " + this.words.who + " may open");
 
     const where = await this.place(u.hostname);
+    if (!where.ok && where.quiet) { res.writeHead(403, { "Content-Length": 0 }); return res.end(); }
     if (!where.ok) return deny(where.why);
 
     const headers = Object.assign({}, req.headers);

@@ -87,8 +87,11 @@ const mods = FieldKit.modules();
 const ids = Object.keys(mods).sort();
 const moduleFiles = fs.readdirSync(MODULE_DIR).filter((f) => f.endsWith(".js"));
 
-ok("every module file registered a module", ids.length >= moduleFiles.length,
-  ids.length + " registered vs " + moduleFiles.length + " files");
+/* OUTPOST has a few panels of its own (its SETTINGS, its RELAY LINK),
+   not loaded here; that no file is in neither build is checked above. */
+const fullModuleFiles = manifest.filter((f) => f.startsWith("modules/"));
+ok("every module file registered a module", ids.length >= fullModuleFiles.length,
+  ids.length + " registered vs " + fullModuleFiles.length + " files");
 ok("no module failed to load", Object.keys(FieldKit.failedModules()).length === 0);
 console.log("        registered: " + ids.join(", "));
 

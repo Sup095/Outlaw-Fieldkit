@@ -21,6 +21,13 @@ says plainly that it is not.
 > answers at each of these addresses:
 >
 > - `https://relay.outlawfieldkit.com`
+> - `https://tool.outlawfieldkit.com`
+> - `https://save.outlawfieldkit.com`
+> - `https://learn.outlawfieldkit.com`
+>
+> (`run.outlawfieldkit.com` is RUNNER's own server, not a relay address;
+> RUNNER finds it by itself.) If the whole domain is ever blocked, a new one
+> will be listed here.
 
 ---
 
@@ -72,7 +79,8 @@ The two builds are made from the same tree, every time.
 | Messages, browser, RUNNER | ✓ | ✓ |
 | Small tools (QR codes, diff, game math, guestbook) | ✓ | ✓ |
 | Encrypted vault: notes, files, task board, decisions, logs | ✗ | ✓ |
-| Server admin panels, AI chat, terminal, updater | ✗ | ✓ |
+| RELAY LINK (relay addresses) and UPDATE (signed updates) | ✓ | ✓ |
+| Server admin panels, AI chat, terminal | ✗ | ✓ |
 
 OUTPOST is limited by **absence**, not by a setting: the vault's code
 (`core/crypto.js`, `core/store.js` and the transports) is not in its bundle,
@@ -137,7 +145,7 @@ self-test.
 3. **The relay address**: while it starts, press **C** (or CHANGE OR ADD
    ADDRESS) and type the relay's address, such as `relay.example.com`. You
    can save several; if the one in use does not answer, the others are
-   tried in turn. In the full build, RELAY LINK changes it too.
+   tried in turn. RELAY LINK changes it later, in either build.
 4. **MESSAGES → create an account.** On a relay that approves accounts, you
    can sign in once a moderator has approved you.
 5. BROWSER and RUNNER use the same account.
@@ -214,9 +222,13 @@ output or video for RUNNER passes through the relay.
 - Files are kept per person, with quotas and expiry.
 - Only admins can add shared programs.
 
-**Updates.** Release builds are signed with an Ed25519 key kept offline. The
-public half is built into the client (`core/update-key.js`), so a relay that
-is taken over can withhold an update but cannot forge one.
+**Updates.** Release builds are signed with an ECDSA P-256 key kept offline.
+The signed record rides in the GitHub release's notes, and the public half of
+the key is built into the client (`core/update-key.js`). UPDATE asks GitHub
+first and the relay second (the relay keeps a checked copy of the latest
+release, for networks that block GitHub). Each file's hash is checked before
+it is saved, or after, with CHECK A DOWNLOADED FILE. So neither GitHub nor a
+relay that is taken over can forge an update; they can only withhold one.
 
 **Secrets never live in this repository.** Real configuration
 (`relay/config.local.json`, the generated `relay/config.json`), tunnel tokens,

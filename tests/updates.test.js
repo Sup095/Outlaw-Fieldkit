@@ -66,6 +66,21 @@ function sampleRelease() {
 /* The verifier lives inside the module's closure, so it is reached
    the way the app reaches it: mount, then run the selfchecks, plus
    a direct exercise of verify through a stubbed relay. */
+/* No network in the suite: every fetch goes here. Until a test sets
+   routes, nothing answers, as on a network that blocks everything. */
+let routes = {};
+global.fetch = async (u) => {
+  const key = Object.keys(routes).find((k) => String(u).indexOf(k) >= 0);
+  if (!key) throw new TypeError("Failed to fetch");
+  const v = routes[key];
+  const body = typeof v === "function" ? v(u) : v;
+  const status = body && body.__status || 200;
+  const text = Buffer.isBuffer(body) ? body.toString("binary") : JSON.stringify(body);
+  return { ok: status < 400, status,
+    text: async () => text, json: async () => JSON.parse(text),
+    arrayBuffer: async () => Buffer.isBuffer(body) ? body.buffer.slice(body.byteOffset, body.byteOffset + body.length) : Buffer.from(text).buffer };
+};
+
 const host = fakeElement("div");
 const settings = FieldKit.need("settings");
 const ctx = { settings, ui: FieldKit.need("ui"), version: "0.1.0",
@@ -163,8 +178,14 @@ const ctx = { settings, ui: FieldKit.need("ui"), version: "0.1.0",
       rel.signature = signWith(priv, rel);
 
       let accepted = false, why = null;
-      const stub = { updateLatest: async () => rel };
-      FieldKit.provide("transportRelay", stub);
+      /* GitHub answers, with the record in the notes and GitHub's
+         own hashes on the files; the relay answers too. */
+      routes = {
+        "api.github.com/repos/": { tag_name: "v9.9.9", body: build.releaseBody(rel),
+          assets: rel.files.map((f) => ({ name: f.name, digest: "sha256:" + f.sha256,
+            browser_download_url: "https://github.com/x/releases/download/v9.9.9/" + f.name })) },
+        "relay.example/updates/latest": rel
+      };
       settings.set("relayUrl", "https://relay.example");
 
       /* Driven through the panel, because "check" is the path a user
@@ -192,6 +213,43 @@ const ctx = { settings, ui: FieldKit.need("ui"), version: "0.1.0",
         if (bad) { why = texts.join(" | ").slice(0, 200); break; }
       }
       ok("a genuinely signed release is accepted and shown as VERIFIED", accepted, why);
+      const allText = () => { const t = []; (function walk(x) { (x.children || []).forEach((c) => { if (c && c.nodeType !== 3) { t.push(String(c.textContent || "")); walk(c); } }); })(host); return t.join(" | "); };
+      ok("it says it came from GitHub, and the relay's copy is current",
+        /GITHUB \(FILES MATCH/.test(allText()) && /UP TO DATE/.test(allText()), allText().slice(0, 300));
+      ok("each file can be fetched through the relay and checked, or taken from GitHub",
+        /DOWNLOAD \(CHECKED\)/.test(allText()) && /FROM GITHUB/.test(allText()) && /CHECK A DOWNLOADED FILE/.test(allText()));
+
+      const clickCheck = async () => {
+        const b = [];
+        (function walk(x) { (x.children || []).forEach((c) => { if (c && c.nodeType !== 3) { b.push(c); walk(c); } }); })(host);
+        b.find((e) => e.tagName === "BUTTON" && /^CHECK/.test(e.textContent) && !/DOWNLOADED/.test(e.textContent)).click();
+        for (let i = 0; i < 200; i++) {
+          await new Promise((r) => setTimeout(r, 10));
+          const parts = allText().split(" | ");
+          if (parts.some((p) => /^NO UPDATE OFFERED/.test(p)) || parts.indexOf("VERIFIED") >= 0) break;
+        }
+        return allText();
+      };
+
+      /* GitHub blocked: the relay is the fallback. */
+      delete routes["api.github.com/repos/"];
+      let t = await clickCheck();
+      ok("with GitHub blocked, the relay's copy is used, and it says so",
+        /THE RELAY/.test(t) && /used the relay instead/.test(t), t.slice(0, 300));
+
+      /* GitHub holding a file that is not the one signed. */
+      routes["api.github.com/repos/"] = { tag_name: "v9.9.9", body: build.releaseBody(rel),
+        assets: rel.files.map((f) => ({ name: f.name, digest: "sha256:" + "d".repeat(64), browser_download_url: "x" })) };
+      delete routes["relay.example/updates/latest"];
+      t = await clickCheck();
+      ok("GitHub's file not matching the signature means nothing is offered", /NO UPDATE OFFERED/.test(t) && /not the file that was signed/.test(t), t.slice(0, 300));
+
+      /* Notes edited on GitHub: the record no longer verifies. */
+      const forged = JSON.parse(JSON.stringify(rel)); forged.files[0].sha256 = "e".repeat(64);
+      routes["api.github.com/repos/"] = { tag_name: "v9.9.9", body: build.releaseBody(forged), assets: [] };
+      t = await clickCheck();
+      ok("a record edited on GitHub is refused", /NO UPDATE OFFERED/.test(t) && /SIGNATURE DOES NOT MATCH/.test(t), t.slice(0, 300));
+      routes = {};
 
       /* One byte of the signature flipped. Same release, same key,
          and it must not pass. */
@@ -246,9 +304,8 @@ const ctx = { settings, ui: FieldKit.need("ui"), version: "0.1.0",
     await updatesRoute.route({ method: "GET", headers: {} }, res,
       { pathname: "/updates/latest", searchParams: new URLSearchParams("") },
       { send, authorise: () => null });
-    ok("no vault token means no release", sent[0] && sent[0].status === 401);
-    ok("and it says builds are not public for OUTPOST either",
-      /OUTPOST/.test(sent[0].body.detail), JSON.stringify(sent[0].body));
+    ok("no token is needed (the builds are public); with nothing to offer it says so",
+      sent[0] && sent[0].status === 503 && /no release/.test(sent[0].body.error), JSON.stringify(sent[0]));
 
     sent.length = 0;
     await updatesRoute.route({ method: "GET", headers: {} }, res,

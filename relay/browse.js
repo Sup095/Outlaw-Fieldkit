@@ -121,12 +121,12 @@ const CONFIG_DEFAULTS = {
      not as an error, so it reads as "the browser is broken".
 
      Nothing here tries to look like something it is not to get past
-     that; see the scope note in the header. Bing is the default
+     that; see the scope note in the header. DuckDuckGo Lite (strict safe search) is the default: no scripts, no tracking, a few kilobytes a page. Bing was the default before
      because it answered plain HTML results to a request that
      honestly identified itself as a proxy. If it stops doing that
      from your relay's address, /browse/engines tests the
      alternatives from the relay rather than guessing here. */
-  searchUrl: "https://www.bing.com/search?q=",
+  searchUrl: "https://lite.duckduckgo.com/lite/?kp=1&q=",
   /* Whether a proxied page may run its own JavaScript. On, because
      with it off a large part of the web renders as a blank page or
      a spinner, and "the browser is broken" is what that looks like
@@ -155,6 +155,7 @@ const CONFIG_DEFAULTS = {
    general-purpose first, then the indie indexes that are least
    likely to care where a request came from. */
 const ENGINE_CANDIDATES = [
+  { name: "DuckDuckGo Lite, safe search", url: "https://lite.duckduckgo.com/lite/?kp=1&q=" },
   { name: "Bing", url: "https://www.bing.com/search?q=" },
   { name: "Marginalia", url: "https://marginalia-search.com/search?query=" },
   { name: "Mojeek", url: "https://www.mojeek.com/search?q=" },

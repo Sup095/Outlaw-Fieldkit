@@ -179,7 +179,7 @@ const { ok, section, state } = makeRunner("build");
        messaging and a fetch-on-your-behalf proxy. */
     ok("messaging is off by default", ex.messaging.enabled === false);
     ok("browse is off by default", ex.browse.enabled === false);
-    ok("updates are off by default", ex.updates.enabled === false);
+    ok("updates are on, following the public GitHub repo (they are public builds)", ex.updates.enabled === true && /^[\w.-]+\/[\w.-]+$/.test(ex.updates.githubRepo));
 
     const local = path.join(ROOT, "relay", "config.local.json");
     if (fs.existsSync(local)) {

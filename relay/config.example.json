@@ -103,7 +103,7 @@
 
   "browse": {
     "enabled": false,
-    "searchUrl": "https://www.bing.com/search?q=",
+    "searchUrl": "https://lite.duckduckgo.com/lite/?kp=1&q=",
     "runScripts": true,
     "pathMode": false,
     "debugRuntime": false,
@@ -143,7 +143,7 @@
     "ffmpeg": "",
     "videoKbps": 1500,
     "videoQuality": 80,
-    "searchUrl": "https://www.bing.com/search?q=",
+    "searchUrl": "https://lite.duckduckgo.com/lite/?kp=1&q=",
     "_tabs": "Browser upgrades (FIELDKIT_PROJECT.md 14.26). maxTabs caps the tabs in one session; a pop-up past it is closed. downloads false refuses every download, as before; downloadMaxMB cancels one that grows past it, and so does running low on the relay's temporary space (a download is held there until it is fetched; FIELDKIT_PROJECT.md 14.37). uploads false leaves a page's choose-file doing nothing; uploadMaxMB caps each file. A guest's session ends guestGraceSec after the panel closes. A member's sign-ins are kept in this relay's memory, never on disk, for keepSignInsHours after an idle end; 0 keeps none.",
     "maxTabs": 8,
     "downloads": true,
@@ -166,9 +166,11 @@
     "_alsoUrls": "Other https addresses the run server also answers on (more hostnames on its tunnel), in case one is blocked where a panel is. The panel tries publicUrl, then these, in turn, and remembers the one that worked (FIELDKIT_PROJECT.md 14.39).",
     "alsoUrls": []
   },
-  "_updates": "Signed release downloads (FIELDKIT_PROJECT.md 14.4). Off by default. This relay NEVER signs anything and holds no key: `node build.js --release` signs on the SSD, you upload the resulting release/ folder into data/updates/, and the client checks the signature against a public key built into the client itself. So a relay that is taken over completely can withhold an update or serve a stale one, but cannot forge one. Vault token only — a messaging session is not enough, and OUTPOST cannot fetch updates yet.",
+  "_updates": "Signed releases (FIELDKIT_PROJECT.md 14.4, 14.43). This relay NEVER signs anything and holds no key: `node build.js --release` signs on the SSD, and the client checks the signature against a public key built into the client itself, so a relay that is taken over can withhold an update or serve a stale one but cannot forge one. With githubRepo set, the relay fetches the latest GitHub release every mirrorEveryMin minutes, keeps each file only if its hash matches the signed record in the release notes, and serves the copy: the fallback for networks that block GitHub, and how a page gets the bytes to check. A release/ folder uploaded into data/updates/ still works; the newer of the two is served. Public: the builds are public anyway, and OUTPOST needs them.",
   "updates": {
-    "enabled": false
+    "enabled": true,
+    "githubRepo": "Sup095/Outlaw-Fieldkit",
+    "mirrorEveryMin": 360
   },
 
   "rateLimit": {

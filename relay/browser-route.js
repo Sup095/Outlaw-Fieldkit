@@ -91,7 +91,7 @@ function linkFor(kind, key, id) {
 }
 
 function init(opts) {
-  cfg = Object.assign({ enabled: false, searchUrl: "https://www.bing.com/search?q=" },
+  cfg = Object.assign({ enabled: false, searchUrl: "https://lite.duckduckgo.com/lite/?kp=1&q=" },
     opts.config || {});
   log = opts.log || (() => {});
   engine = new Engine({ config: cfg, log, filter: opts.filter });
@@ -645,7 +645,7 @@ async function serve(req, sock, head, who, tier, opts) {
 }
 
 function searchUrlFor(text) {
-  return String(cfg.searchUrl || "https://www.bing.com/search?q=") +
+  return String(cfg.searchUrl || "https://lite.duckduckgo.com/lite/?kp=1&q=") +
     encodeURIComponent(String(text || "").trim());
 }
 

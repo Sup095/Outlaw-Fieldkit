@@ -71,6 +71,7 @@ const { Guard } = require("./guard");
 const { Meter } = require("./proc-usage");
 const { Pulse } = require("./pulse");
 const { OggOpus } = require("./ogg-opus");
+const { AdBlock } = require("./adblock");
 
 const DEFAULTS = {
   enabled: false,
@@ -95,8 +96,37 @@ const DEFAULTS = {
   keepSignInsHours: 12,         /* members' cookies across a park or an idle end; memory only; 0 = never */
   sound: true,                  /* sound, when the image has PulseAudio: a Chromium per session, each on its own sink */
   soundKbps: 48,                /* Opus, per session that someone is listening to */
-  pulse: ""                     /* path to pulseaudio; "" means search */
+  pulse: "",                    /* path to pulseaudio; "" means search */
+  adblock: true,                /* ads and trackers refused by name (adblock.js) */
+  adblockAllow: [],             /* hosts the ad blocker must never refuse */
+  /* Where each Chromium keeps its profile, cache and shared memory.
+     NOT /tmp: in the relay's container that is a 100 MB tmpfs, two
+     idle Chromiums took 78 MB of it, and a game filled the rest.
+     "" means $FK_BROWSER_TMP (the image sets it to the server's own
+     disk), else the system temp folder. */
+  profileRoot: "",
+  diskCacheMB: 64,              /* per Chromium; thrown away with the session */
+  rendererLimit: 6,             /* renderer processes per Chromium; tabs share past this */
+  sessionMemMB: 1800,           /* one session past this is ended, with a reason, before it can take the others down */
+  memHighPct: 90,               /* the container this full: the largest session is ended */
+  freezeAfterSec: 120           /* nobody watching this long: its pages are frozen until someone is */
 };
+/* The container's memory: { used, max } in bytes, or null outside a
+   limited container. "Used" leaves out file cache the kernel can drop. */
+function containerMemory() {
+  const rd = (f) => { try { return fs.readFileSync(f, "utf8").trim(); } catch (e) { return null; } };
+  let max = rd("/sys/fs/cgroup/memory.max"), cur = rd("/sys/fs/cgroup/memory.current"), stat = rd("/sys/fs/cgroup/memory.stat");
+  let inactive = "inactive_file";
+  if (max === null) {
+    max = rd("/sys/fs/cgroup/memory/memory.limit_in_bytes"); cur = rd("/sys/fs/cgroup/memory/memory.usage_in_bytes");
+    stat = rd("/sys/fs/cgroup/memory/memory.stat"); inactive = "total_inactive_file";
+  }
+  const m = Number(max), c = Number(cur);
+  if (!m || !c || !isFinite(m) || m > 1e15) return null;
+  const im = stat && new RegExp("^" + inactive + " (\\d+)", "m").exec(stat);
+  return { used: Math.max(0, c - (im ? Number(im[1]) : 0)), max: m };
+}
+
 /* Opus packets this small are silence. Not sent: a quiet page then
    costs nothing, and the panel's player starts afresh when sound
    comes back. */
@@ -186,6 +216,8 @@ class Engine {
 
     this.lastUsed = Date.now();
     this._sweep = setInterval(() => this.evictIdle(), 60000);
+    this._guard = setInterval(() => { this._watchdog().catch(() => {}); }, 5000);
+    if (this._guard.unref) this._guard.unref();
     if (this._sweep.unref) this._sweep.unref();
   }
 
@@ -211,7 +243,10 @@ class Engine {
     }
     this.chromiumPath = found.path;
 
-    this.guard = new Guard({ log: this.log, dnsFilter: this.cfg.dnsFilter, filter: this.filter });
+    this.ads = new AdBlock({ enabled: this.cfg.adblock !== false, allow: this.cfg.adblockAllow });
+    this.log("INFO", "browser: ad blocker " + (this.ads.on ? "on — " + this.ads.source : "off (browser.adblock is false)"));
+    this.guard = new Guard({ log: this.log, dnsFilter: this.cfg.dnsFilter, filter: this.filter, ads: this.ads, ports: "browser" });
+    this._sweepProfiles();
     this.guardPort = await this.guard.listen();
 
     this.soundOn = false;
@@ -247,7 +282,9 @@ class Engine {
      sound; one per session, on its own sink, when there is. */
   async _launch(withSink) {
     const port = await freePort();
-    const profile = fs.mkdtempSync(path.join(os.tmpdir(), "fk-browser-"));
+    const root = this._profileRoot();
+    const profile = fs.mkdtempSync(path.join(root, "fk-browser-"));
+    fs.mkdirSync(path.join(profile, "tmp"), { recursive: true });
     let sink = null;
     if (withSink) {
       try { sink = await this.pulse.sink(); }
@@ -291,7 +328,23 @@ class Engine {
       "--password-store=basic",
       "--use-mock-keychain",
 
-      "--window-size=1280,800"
+      "--window-size=1280,800",
+
+      /* Lean (FIELDKIT_PROJECT.md §14.42). Each of these was a cost per
+         session for something nobody here uses. Site isolation is the
+         big one: it gives every cross-site frame its own process, which
+         on an ad-heavy page meant dozens. Sessions are already apart,
+         a Chromium each (with sound) or a browser context each, and
+         the guard stands between all of them and anything private. */
+      "--disable-features=Translate,OptimizationHints,MediaRouter,AutofillServerCommunication,InterestFeedContentSuggestions," +
+        "CertificateTransparencyComponentUpdater,IsolateOrigins,site-per-process,BackForwardCache,PrivacySandboxSettings4",
+      "--disable-site-isolation-trials",
+      "--renderer-process-limit=" + Math.max(1, this.cfg.rendererLimit | 0 || 6),
+      "--disable-extensions",
+      "--disable-component-update",
+      "--disable-default-apps",
+      "--disk-cache-dir=" + path.join(profile, "cache"),
+      "--disk-cache-size=" + Math.max(1, this.cfg.diskCacheMB | 0 || 64) * 1048576
     ];
     /* Its own sink, or no sound at all. */
     if (!sink) args.push("--mute-audio");
@@ -322,7 +375,9 @@ class Engine {
     const env = Object.assign({}, process.env, {
       HOME: profile,
       XDG_CONFIG_HOME: path.join(profile, "config"),
-      XDG_CACHE_HOME: path.join(profile, "cache")
+      XDG_CACHE_HOME: path.join(profile, "cache"),
+      /* Shared memory (--disable-dev-shm-usage) and anything else temporary: on the profile's disk too. */
+      TMPDIR: path.join(profile, "tmp")
     }, sink ? Object.assign(this.pulse.env(), { PULSE_SINK: sink.name }) : {});
     const proc = spawn(this.chromiumPath, args, { stdio: ["ignore", "pipe", "pipe"], env: env });
     const host = { proc: proc, cdp: null, profile: profile, sink: sink, shared: !withSink, meter: new Meter() };
@@ -377,6 +432,29 @@ class Engine {
     await cdp.send("Browser.setDownloadBehavior", { behavior: "deny" }).catch(() => {});
     this.version = cdp.info.Browser || this.version;
     return host;
+  }
+
+  _profileRoot() {
+    const want = this.cfg.profileRoot || process.env.FK_BROWSER_TMP || "";
+    if (want) {
+      try { fs.mkdirSync(want, { recursive: true }); fs.accessSync(want, fs.constants.W_OK); return want; }
+      catch (e) { if (!this._rootWarned) { this._rootWarned = true; this.log("WARN", "browser: cannot use " + want + " for profiles (" + e.message + "); using " + os.tmpdir()); } }
+    }
+    return os.tmpdir();
+  }
+
+  /* Profiles left by a Chromium that died with the process (a crash,
+     a kill): nothing else would ever delete them. */
+  _sweepProfiles() {
+    const root = this._profileRoot();
+    const live = new Set([...this.hosts].map((h) => h.profile));
+    let names = [];
+    try { names = fs.readdirSync(root); } catch (e) { return; }
+    for (const n of names) {
+      const p = path.join(root, n);
+      if (!/^fk-browser-[A-Za-z0-9]{6}$/.test(n) || live.has(p)) continue;
+      try { if (Date.now() - fs.statSync(p).mtimeMs > 60000) fs.rmSync(p, { recursive: true, force: true }); } catch (e) {}
+    }
   }
 
   /* A Chromium stopped. On purpose (dropped first): nothing to do. The
@@ -453,6 +531,7 @@ class Engine {
 
   stop() {
     clearInterval(this._sweep);
+    clearInterval(this._guard);
     this._teardown();
   }
 
@@ -687,6 +766,7 @@ class Engine {
     s.casting = false;
     this._show(s, tab);
     s.lastSeen = Date.now();
+    await this._life(s);
     await tab.page.send("Page.bringToFront").catch(() => {});
     if (s.zoom !== 1) this._applyZoom(s);
     if (this._watching(s)) await this._startCast(s);
@@ -936,6 +1016,7 @@ class Engine {
     this._pushHistory(s);
     if (s.dropTimer) { clearTimeout(s.dropTimer); s.dropTimer = null; }
     this._audioCheck(s);
+    await this._life(s);
   }
 
   async detach(s, viewer) {
@@ -1041,6 +1122,52 @@ class Engine {
   _watching(s) {
     for (const v of s.viewers) if (!v.paused) return true;
     return false;
+  }
+
+  /* FREEZING (RUNNER_PLAN.md §17, phase 10). A page nobody can see is
+     frozen: its scripts, timers and animations stop, so it costs no
+     CPU, and it carries on where it was when it is shown again. That
+     is every tab but the one on screen, and that one too once nobody
+     has had the panel open for freezeAfterSec, unless someone is
+     listening to its sound. Like a phone does with background tabs. */
+  async _life(s) {
+    const now = Date.now();
+    const seen = s.viewers.size > 0 || now - (s.lastSeen || now) < this.cfg.freezeAfterSec * 1000 || !!s.audio;
+    for (const tab of s.tabs || []) {
+      const want = tab === s.active && seen ? "active" : "frozen";
+      if (tab.life === want || !tab.page) continue;
+      tab.life = want;
+      await tab.page.send("Page.setWebLifecycleState", { state: want }).catch(() => { tab.life = null; });
+    }
+  }
+
+  /* MEMORY. One page (a big WebGL game, a leak) must not take the
+     browser down for everybody: the container has a hard limit, and
+     at it the kernel kills Chromium, or the relay. So a session
+     past sessionMemMB is ended, and when the container is nearly
+     full the largest one is, each with a sentence saying why. */
+  async _watchdog() {
+    if (!this.sessions.size) return;
+    let big = null;
+    for (const s of [...this.sessions.values()]) {
+      this._life(s).catch(() => {});
+      if (!s.host || s.host.shared || !s.host.proc || !s.host.proc.pid) continue;
+      if (!s.host.watch) s.host.watch = new Meter();
+      const r = s.host.watch.read(s.host.proc.pid);
+      if (!r) continue;
+      s.memMb = r.memMb;
+      if (r.memMb > this.cfg.sessionMemMB) {
+        this.log("WARN", "browser: " + s.who + "'s session used " + r.memMb + " MB, over the " + this.cfg.sessionMemMB + " MB a session may; ended");
+        await this.destroy(s.key, "this page needed " + r.memMb + " MB of memory, more than a session may use (" + this.cfg.sessionMemMB + " MB). Open the browser again to start fresh.").catch(() => {});
+        continue;
+      }
+      if (!big || r.memMb > big.memMb) big = s;
+    }
+    const box = containerMemory();
+    if (big && box && box.used / box.max * 100 > this.cfg.memHighPct) {
+      this.log("WARN", "browser: the container is " + Math.round(box.used / box.max * 100) + "% full; ending the largest session (" + big.who + ", " + big.memMb + " MB)");
+      await this.destroy(big.key, "the browser ran out of memory for everyone, and this session was using the most (" + big.memMb + " MB). Open the browser again to start fresh.").catch(() => {});
+    }
   }
 
   /* The current picture again, for a viewer whose decoder lost its place. */

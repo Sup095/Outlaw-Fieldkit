@@ -43,6 +43,7 @@ wall is that a person answers them, not that the relay slips past them.
 |---|---|
 | **Memory** | ~150 MB for Chromium plus 80–150 MB per active session. Six sessions fit in 4 GB alongside the rest of the relay. |
 | **Sound** | With PulseAudio in the image (it is, from 2026-10-27) each session gets its own Chromium and its own silent sound card; what plays is sent as Opus while the panel's SOUND is on, and silence is not sent. About 350 MB per session (PSS, measured), plus a spare kept started. `"sound": false` goes back to one shared, muted Chromium. |
+| **Kept small** | Ads blocked, at most 6 renderer processes per Chromium, a 64 MB cache, tabs frozen when nobody can see them, profiles on the server's disk rather than `/tmp`. A session over 1800 MB is ended with a sentence, and the largest is ended when the container is 90% full, so one page cannot crash the others (FIELDKIT_PROJECT.md §14.42). A game on CrazyGames: about 1.2 GB. |
 | **It is a picture** | FIND and zoom act on the real page; text is selected and copied through the page, and copy and paste work both ways. |
 | **Downloads** | Saved to your device or encrypted into VAULT FILES; a page's "choose file" opens your own picker. |
 
@@ -219,6 +220,21 @@ Chromium's tunnel error.
 
 `browse.blockHosts` and the downloaded blocklist apply here too — one
 list for both browsers.
+
+**Ads and trackers** are refused by name before a connection is made
+(`adblock.js`): a built-in list of the big ad networks, plus the
+StevenBlack hosts list (about 76,000 names) fetched when the image is
+built. A name is refused with everything under it, quietly. On a game
+site this was the difference between a crash and a game: each ad frame
+was its own Chromium process. `browser.adblock: false` turns it off;
+`browser.adblockAllow: ["name"]` lets one name through.
+
+**Search** goes to DuckDuckGo Lite with strict safe search
+(`browser.searchUrl`): small pages with no scripts.
+
+**Ports.** The browser may use any port from 1024 up, where game
+servers are (CrazyGames' multiplayer uses 19093). Mail and other low
+ports, and every private address, stay refused.
 
 ---
 

@@ -100,7 +100,9 @@ const DEFAULTS = {
      against a public key that shipped inside the client, so a
      compromised relay can withhold an update but cannot forge one. */
   updates: {
-    enabled: false
+    enabled: false,
+    githubRepo: "",         // owner/name: mirror its latest signed release (14.43)
+    mirrorEveryMin: 360
   },
   httpProxy: "",              // e.g. http://127.0.0.1:1055 for Tailscale userspace mode
   /* Whose X-Forwarded-For do we believe? Default: nobody. When the
@@ -1102,7 +1104,7 @@ const ROUTES = [
   "GET  /browser/status", "POST /browser/ticket", "POST /browser/clear", "GET  /browser/helper-key",
   "GET  /runner/status", "POST /runner/ticket", "GET  /runner/pubkey",
   "WS   /browser/stream",
-  "GET  /updates/latest", "GET  /updates/file"
+  "GET  /updates/latest", "GET  /updates/file", "GET  /updates/status"
 ];
 
 async function route(req, res, url) {
@@ -1203,11 +1205,10 @@ async function route(req, res, url) {
     if (await runner.route(req, res, url, { send, readBody, clientIp })) return;
   }
 
-  /* Updates (14.4). Vault token only — a signed build is for the
-     people who own this, and a messaging session is not that. The
-     relay is deliberately not part of the trust chain here: it
-     serves what was uploaded and the client verifies the signature
-     itself, so this needs no key and is given none. */
+  /* Updates (14.4, 14.43). Public: the builds are public on GitHub,
+     and OUTPOST has no vault token. The relay is deliberately not
+     part of the trust chain: it serves what it mirrored or was
+     uploaded, and the client verifies the signature itself. */
   if (seg[0] === "updates") {
     if (!hit("update:" + clientIp(req), config.rateLimit.updateMax)) {
       return send(res, 429, { error: "slow down", detail: "too many update requests" });

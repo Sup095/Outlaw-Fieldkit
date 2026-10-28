@@ -31,11 +31,34 @@
   "use strict";
 
   var ctx, ui, el, nodes = {};
-  var state = { phase: "idle", release: null, error: null, verified: null };
+  var state = { phase: "idle", release: null, error: null, verified: null,
+    source: null, assets: null, relayVersion: null, sideNote: null, checkedFile: null };
+
+  /* Where releases are published (§14.43). The signed record rides in
+     the release notes; GitHub is asked first, the relay second. */
+  var DEFAULT_REPO = "Sup095/Outlaw-Fieldkit";
 
   function relayBase() {
     var u = String(ctx.settings.get("relayUrl") || "").trim();
     return u ? u.replace(/\/+$/, "") : "";
+  }
+
+  function repo() {
+    var r = String(ctx.settings.get("updateRepo") || DEFAULT_REPO).trim();
+    return /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(r) ? r : DEFAULT_REPO;
+  }
+
+  /* The signed record inside a GitHub release's notes, written there
+     by `node build.js --release`. Kept identical to parseReleaseBody()
+     in relay/updates.js; tests/updates.test.js runs both. */
+  var BODY_RE = /<!--\s*FIELDKIT-RELEASE\s*([\s\S]*?)\s*FIELDKIT-RELEASE\s*-->/;
+  function parseReleaseBody(body) {
+    var m = BODY_RE.exec(String(body || ""));
+    if (!m) return null;
+    try {
+      var rel = JSON.parse(m[1]);
+      return rel && typeof rel === "object" && Array.isArray(rel.files) ? rel : null;
+    } catch (e) { return null; }
   }
 
   /* ---- the signature ---------------------------------------------
@@ -104,16 +127,69 @@
     return true;
   }
 
-  /* ---- talking to the relay --------------------------------------- */
-  async function fetchRelease() {
-    var relay = FieldKit.service("transportRelay");
-    if (!relay) throw new Error("the relay transport is not registered in this build");
-    return relay.updateLatest();
+  /* ---- asking ------------------------------------------------------ */
+  async function getJson(url, ms, headers) {
+    var ac = typeof AbortController === "function" ? new AbortController() : null;
+    var t = setTimeout(function () { if (ac) ac.abort(); }, ms || 15000);
+    try {
+      var r = await fetch(url, { cache: "no-store", headers: headers || {}, signal: ac ? ac.signal : undefined });
+      var text = await r.text();
+      var data = null;
+      try { data = JSON.parse(text); } catch (e) { /* not json */ }
+      if (!r.ok) {
+        var err = new Error((data && (data.error || data.message)) || ("answered " + r.status));
+        err.status = r.status;
+        throw err;
+      }
+      return data;
+    } catch (e) {
+      if (e && e.name === "AbortError") throw new Error("no answer in time");
+      if (e instanceof TypeError) throw new Error("could not be reached from this network");
+      throw e;
+    } finally { clearTimeout(t); }
   }
 
+  /* GitHub: the latest release, its signed record, and its files.
+     GitHub's own sha256 for each file must agree with the signed one:
+     a mismatch means GitHub is holding something other than what was
+     signed, and nothing from there is offered. */
+  async function fromGithub() {
+    var gh = await getJson("https://api.github.com/repos/" + repo() + "/releases/latest", 15000,
+      { "Accept": "application/vnd.github+json" });
+    var rel = parseReleaseBody(gh && gh.body);
+    if (!rel) throw new Error("the latest release (" + ((gh && gh.tag_name) || "?") + ") carries no signed record");
+    await verifyRelease(rel);
+    var assets = {};
+    rel.files.forEach(function (f) {
+      var a = (gh.assets || []).filter(function (x) { return x.name === f.name; })[0];
+      if (!a) throw new Error(f.name + " is signed but not attached to the release");
+      if (a.digest && a.digest !== "sha256:" + f.sha256) {
+        throw new Error("GitHub's " + f.name + " is not the file that was signed. Nothing from GitHub is offered.");
+      }
+      assets[f.name] = a.browser_download_url;
+    });
+    return { rel: rel, assets: assets };
+  }
+
+  async function fromRelay() {
+    if (!relayBase()) throw new Error("no relay address is set");
+    var rel = await getJson(relayBase() + "/updates/latest", 15000);
+    await verifyRelease(rel);
+    return { rel: rel };
+  }
+
+  /* The bytes, through the relay: GitHub's downloads cannot be read by
+     a page (no CORS headers), the relay's copy can, so this is the path
+     where the file is hashed here before it is offered. */
   async function fetchFile(entry) {
-    var relay = FieldKit.service("transportRelay");
-    var bytes = await relay.updateFile(entry.name);
+    if (!relayBase()) throw new Error("no relay address is set, so the file cannot be fetched and checked here");
+    var res = await fetch(relayBase() + "/updates/file?name=" + encodeURIComponent(entry.name), { cache: "no-store" });
+    if (!res.ok) {
+      var data = null;
+      try { data = JSON.parse(await res.text()); } catch (e) { /* not json */ }
+      throw new Error("the relay: " + ((data && data.error) || ("answered " + res.status)));
+    }
+    var bytes = await res.arrayBuffer();
 
     /* Hashed here, against a number that was inside the signature.
        The relay also checks this and its check does not count — it
@@ -151,15 +227,28 @@
   }
 
   async function check() {
-    state = { phase: "checking", release: null, error: null, verified: null };
+    state = { phase: "checking", release: null, error: null, verified: null,
+      source: null, assets: null, relayVersion: null, sideNote: null, checkedFile: null };
     render();
+    var why = [];
     try {
-      if (!relayBase()) throw new Error("no relay is configured — set one in SETTINGS first");
-      var rel = await fetchRelease();
-      await verifyRelease(rel);
-      state.release = rel;
+      var got = null;
+      try { got = await fromGithub(); state.source = "GITHUB"; }
+      catch (e) { why.push("GitHub: " + e.message); }
+      /* The relay is asked either way: as the fallback, and to know
+         whether its copy has caught up (it is the only path where
+         the file is checked here before saving). */
+      var viaRelay = null;
+      try { viaRelay = await fromRelay(); }
+      catch (e) { if (!got) why.push("the relay: " + e.message); }
+      if (!got && viaRelay) { got = viaRelay; state.source = "RELAY"; }
+      if (!got) throw new Error(why.join("; ") + ".");
+      if (viaRelay) state.relayVersion = viaRelay.rel.version;
+      state.release = got.rel;
+      state.assets = got.assets || null;
       state.verified = true;
       state.phase = "checked";
+      if (why.length) state.sideNote = why.join("; ") + " — used the relay instead.";
     } catch (e) {
       state.error = e.message;
       state.phase = "error";
@@ -175,14 +264,19 @@
   async function download(entry) {
     setBusy(true);
     try {
+      if (state.relayVersion !== state.release.version) {
+        throw new Error("the relay is not serving " + state.release.version + " yet" +
+          (state.relayVersion ? " (it has " + state.relayVersion + ")" : "") +
+          ". Use FROM GITHUB, then CHECK A DOWNLOADED FILE.");
+      }
       var bytes = await fetchFile(entry);
       /* Only now. Everything above this line can fail, and every
          failure above this line means nothing reaches the disk. */
       var handed = ui.download(bytes, entry.name, "text/html");
       if (!handed) {
         throw new Error("this machine refused the download. The file was fetched and " +
-          "verified, but nothing here can save it — try from a machine that allows " +
-          "downloads, or copy the build off the SSD directly.");
+          "verified, but nothing here can save it — try FROM GITHUB, or copy the build " +
+          "off the SSD directly.");
       }
       /* "Offered", not "saved". ui.download cannot tell whether the
          browser actually wrote anything, and claiming it did is how
@@ -196,6 +290,43 @@
       ui.toast("NOT SAVED — " + e.message, "fail");
       note(e.message, true);
     } finally { setBusy(false); }
+  }
+
+  /* GitHub's link, opened as a normal download. The page cannot read
+     those bytes, so the check comes after: CHECK A DOWNLOADED FILE. */
+  function fromGithubLink(entry) {
+    var url = state.assets && state.assets[entry.name];
+    if (!url) return;
+    var a = el("a", { href: url, target: "_blank", rel: "noopener" });
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    note("Downloading " + entry.name + " from GitHub. When it is done, press CHECK A DOWNLOADED FILE " +
+      "and pick it: it is hashed here and compared with the signed release.");
+  }
+
+  /* Any file, hashed here and looked up in the signed list. */
+  function pickAndCheck() {
+    var input = el("input", { type: "file", accept: ".html,text/html" });
+    input.style.display = "none";
+    input.addEventListener("change", async function () {
+      var file = input.files && input.files[0];
+      input.remove();
+      if (!file) return;
+      try {
+        var digest = hex(await window.crypto.subtle.digest("SHA-256", await file.arrayBuffer()));
+        var hit = state.release.files.filter(function (f) { return f.sha256 === digest; })[0];
+        state.checkedFile = hit
+          ? { ok: true, text: file.name + " IS the signed " + hit.name + " of " + state.release.version +
+              ". Copy it over the one on the drive (as " + hit.name + ")." }
+          : { ok: false, text: file.name + " does NOT match any file in the signed release. Do not use it." };
+      } catch (e) {
+        state.checkedFile = { ok: false, text: "could not read " + file.name + ": " + e.message };
+      }
+      render();
+    });
+    document.body.appendChild(input);
+    input.click();
   }
 
   /* ---- UI ----------------------------------------------------------- */
@@ -219,13 +350,14 @@
     nodes.root.appendChild(el("div", { class: "up-head" }, [
       el("div", { class: "up-h", text: "UPDATE" }),
       el("div", { class: "up-p", text:
-        "Your relay serves builds that were signed on the SSD. This checks the signature " +
-        "against a key built into this copy of FieldKit — the relay is not asked whether " +
-        "the release is genuine, because the relay is the part being checked." })
+        "Releases are published on GitHub and copied by your relay, signed on the SSD. " +
+        "This checks the signature against a key built into this copy of FieldKit — " +
+        "neither GitHub nor the relay is asked whether a release is genuine." })
     ]));
 
     nodes.root.appendChild(ui.readout([
       { label: "RUNNING", value: currentVersion(), level: "dim" },
+      { label: "ASKS", value: "GITHUB " + repo() + (relayBase() ? ", THEN THE RELAY" : ""), level: "dim" },
       { label: "TRUSTED KEY", value: keyDef ? keyDef.fingerprint : "NONE — cannot verify",
         level: keyDef ? "dim" : "fail" }
     ]));
@@ -233,7 +365,7 @@
     if (keyDef) {
       nodes.root.appendChild(el("div", { class: "up-fp", text:
         "Compare that fingerprint against the one printed when the key was made. " +
-        "It is the one check that does not go through the relay." }));
+        "It is the one check that does not go through GitHub or the relay." }));
     }
 
     nodes.actions = el("div", { class: "up-actions" }, [
@@ -257,6 +389,11 @@
 
       nodes.root.appendChild(ui.readout([
         { label: "SIGNATURE", value: "VERIFIED", level: "pass" },
+        { label: "FROM", value: state.source === "GITHUB" ? "GITHUB (FILES MATCH GITHUB'S HASHES)" : "THE RELAY", level: "dim" },
+        { label: "RELAY COPY", value: !relayBase() ? "NO RELAY SET"
+            : state.relayVersion === rel.version ? "UP TO DATE — FILES CAN BE CHECKED HERE"
+            : state.relayVersion ? "STILL ON " + state.relayVersion : "NOT AVAILABLE",
+          level: state.relayVersion === rel.version ? "pass" : "warn" },
         { label: "SIGNED BY", value: rel.keyFingerprint || "—", level: "dim" },
         { label: "OFFERED", value: rel.version, level: "dim" },
         { label: "PUBLISHED", value: String(rel.publishedAt || "").slice(0, 16), level: "dim" },
@@ -284,20 +421,30 @@
       }
 
       var list = el("div", { class: "up-files" });
+      var mine = FieldKit.service("boot") && FieldKit.service("boot").OUTPOST ? "OUTPOST" : "FIELDKIT";
       rel.files.forEach(function (f) {
-        list.appendChild(el("div", { class: "up-file" }, [
-          el("span", { class: "up-file-n", text: f.name }),
+        var relayOk = state.relayVersion === rel.version;
+        list.appendChild(el("div", { class: "up-file" + (f.build === mine ? " mine" : "") }, [
+          el("span", { class: "up-file-n", text: f.name + (f.build === mine ? "  ← THIS BUILD" : "") }),
           el("span", { class: "up-file-s", text: Math.round(f.size / 1024) + " KB" }),
-          el("span", { class: "up-file-h", text: f.sha256.slice(0, 16) + "…" }),
-          ui.button("DOWNLOAD", function () { download(f); })
-        ]));
+          el("span", { class: "up-file-h", text: f.sha256.slice(0, 12) + "…" }),
+          relayOk ? ui.button("DOWNLOAD (CHECKED)", function () { download(f); }, { primary: f.build === mine }) : null,
+          state.assets && state.assets[f.name] ? ui.button("FROM GITHUB", function () { fromGithubLink(f); }) : null
+        ].filter(Boolean)));
       });
       nodes.root.appendChild(list);
-
+      nodes.root.appendChild(el("div", { class: "up-actions" }, [
+        ui.button("CHECK A DOWNLOADED FILE", pickAndCheck)
+      ]));
+      if (state.checkedFile) {
+        nodes.root.appendChild(el("div", { class: state.checkedFile.ok ? "up-okbox" : "up-bad", text: state.checkedFile.text }));
+      }
+      if (state.sideNote) nodes.root.appendChild(el("div", { class: "up-fp", text: state.sideNote }));
       nodes.root.appendChild(el("div", { class: "up-p", text:
-        "Each file is hashed again after it downloads and checked against the hash inside " +
-        "the signature. FieldKit cannot write to the drive it booted from — nothing can — " +
-        "so the last step is you copying the file across." }));
+        "DOWNLOAD (CHECKED) fetches the file through your relay and hashes it here before " +
+        "saving. FROM GITHUB downloads it directly; then CHECK A DOWNLOADED FILE hashes it " +
+        "against the signature. FieldKit cannot write to the drive it booted from, so the " +
+        "last step is you copying the file across." }));
     }
 
     nodes.root.appendChild(nodes.note);
@@ -398,15 +545,17 @@
     keywords: "update upgrade version install new",
     width: 660,
     height: 560,
-    guestSafe: false,
+    /* Nothing private is involved: the builds are public. */
+    guestSafe: true,
     selfcheck: selfcheck,
-
     async mount(host, context) {
       ctx = context; ui = ctx.ui; el = ui.el;
       injectCSS();
       nodes.root = el("div", { class: "up-root" });
       host.appendChild(nodes.root);
       render();
+      /* Asked straight away: opening UPDATE is asking. */
+      if (state.phase === "idle" && typeof fetch === "function") check();
     },
 
     unmount() { nodes = {}; }
@@ -435,7 +584,10 @@
       "  padding:6px 8px;font-size:10px}",
       ".up-file-n{flex:1;color:var(--fg)}",
       ".up-file-s{color:var(--fg-dim)}",
-      ".up-file-h{color:var(--fg-dimmer)}"
+      ".up-file-h{color:var(--fg-dimmer)}",
+      ".up-file.mine{border-color:var(--accent)}",
+      ".up-okbox{border:1px solid var(--pass);padding:10px;font-size:10px;color:var(--pass);line-height:1.6}",
+      ".up-root{overflow:auto;height:100%}"
     ].join("\n");
     document.head.appendChild(s);
   }

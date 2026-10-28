@@ -83,10 +83,14 @@ RUN find /opt/fieldkit/relay -name '*.js' -exec sed -i 's/\r$//' {} + \
  && cd /opt/fieldkit/relay \
  && node fetch-cloudflared.js \
  && node fetch-tailscale.js \
+ && node fetch-adblock.js \
  && chmod 0755 cloudflared-bin/* tailscale-bin/* \
  && rm -f config.json config.local.json release-key.json \
  && chown -R root:root /opt/fieldkit && chmod -R a+rX /opt/fieldkit
 ENV FK_CONFIG=/home/container/config.json
+# Browser profiles, caches and shared memory: on the server's own disk,
+# not the 100 MB /tmp (relay/browser-engine.js, profileRoot).
+ENV FK_BROWSER_TMP=/home/container/.browser-tmp
 
 USER container
 ENV USER=container HOME=/home/container

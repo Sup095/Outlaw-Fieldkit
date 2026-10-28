@@ -211,9 +211,9 @@
         ]),
         ui.panel("THIS BUILD", [
           el("div", { class: "so-about", text:
-            "OUTPOST carries no vault. There is no passphrase to set, no relay to " +
-            "point at, and nothing on this drive that can read anyone's private notes — " +
-            "those files are not part of this build at all." }),
+            "OUTPOST carries no vault. There is no passphrase to set, and nothing on " +
+            "this drive that can read anyone's private notes — those files are not part " +
+            "of this build at all. The relay address is in RELAY LINK; updates are in UPDATE." }),
           el("div", { class: "so-about dim", text:
             "Anything you save here stays on this machine, unencrypted, and is readable " +
             "by anyone who uses it. Do not keep secrets in OUTPOST." })

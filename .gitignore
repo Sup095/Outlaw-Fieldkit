@@ -79,3 +79,4 @@ tools/publish-private.json
 
 # Local editor and preview settings
 .claude/
+relay/adblock/

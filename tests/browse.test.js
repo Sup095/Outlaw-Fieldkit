@@ -900,7 +900,7 @@ browse.init({ config: { enabled: true }, log: () => {} });
     browse.init({ config: { enabled: true }, log: () => {} });
     const dflt = P.baseHeaders && require("../relay/browse");
     ok("the default search engine is among the candidates",
-      list.some((e) => e.url === "https://www.bing.com/search?q="),
+      list.some((e) => e.url === "https://lite.duckduckgo.com/lite/?kp=1&q="),
       list.map((e) => e.url).join(", "));
     void dflt;
   }

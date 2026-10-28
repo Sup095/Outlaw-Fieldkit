@@ -568,7 +568,10 @@ function release(notes) {
   fs.rmSync(RELEASE_DIR, { recursive: true, force: true });
   fs.mkdirSync(RELEASE_DIR, { recursive: true });
 
-  const files = BUILDS.map((b) => {
+  /* PREFLIGHT goes with them: it is the third file in every release
+     (README, "Three files"), and signing it means the updater can
+     check it like the other two. */
+  const files = BUILDS.concat([{ out: "PREFLIGHT.html", label: "PREFLIGHT" }]).map((b) => {
     const buf = fs.readFileSync(path.join(ROOT, b.out));
     fs.writeFileSync(path.join(RELEASE_DIR, b.out), buf);
     return {
@@ -582,7 +585,7 @@ function release(notes) {
   const rel = {
     version: appVersion(),
     publishedAt: new Date().toISOString(),
-    notes: String(notes || "").slice(0, 500),
+    notes: String(notes || "").slice(0, 500).replace(/-->/g, "->"),
     algorithm: key.algorithm,
     keyFingerprint: key.fingerprint,
     files: files
@@ -621,6 +624,12 @@ function release(notes) {
       "  tools/make-release-key.js, or restore the matching key file.");
   }
 
+  /* The GitHub release's notes. The signed record rides inside an
+     HTML comment, which GitHub keeps but does not show: the updater
+     and the relay's mirror read it from the API (relay/updates.js,
+     modules/updater.js, parseReleaseBody). */
+  fs.writeFileSync(path.join(RELEASE_DIR, "BODY.md"), releaseBody(rel), "utf8");
+
   console.log("");
   console.log("RELEASE  v" + rel.version + "  signed and self-verified");
   files.forEach((f) => {
@@ -628,11 +637,32 @@ function release(notes) {
   });
   console.log("  key fingerprint  " + rel.keyFingerprint);
   console.log("");
-  console.log("Upload the contents of release/ to the relay's data/updates/ folder:");
-  console.log("  " + RELEASE_DIR);
+  console.log("Publish on GitHub (the relay mirrors it from there):");
+  console.log("  gh release create v" + rel.version + " " + files.map((f) => "release/" + f.name).join(" ") +
+    " --notes-file release/BODY.md");
+  console.log("Or upload the contents of release/ to the relay's data/updates/ folder.");
   console.log("");
   console.log("The private key stays here. Do not upload release-key.json.");
   return rel;
+}
+
+function releaseBody(rel) {
+  return [
+    "## FieldKit " + rel.version,
+    "",
+    rel.notes || "",
+    "",
+    "Three files: **PREFLIGHT.html** (open first: checks this machine and the relay), " +
+      "**FIELDKIT-STANDALONE.html** (the full console) and **OUTPOST-STANDALONE.html** (no vault). " +
+      "See the README.",
+    "",
+    "Signed with key `" + rel.keyFingerprint + "`. UPDATE inside FieldKit checks the signature and each file's hash.",
+    "",
+    "<!-- FIELDKIT-RELEASE",
+    JSON.stringify(rel, null, 1),
+    "FIELDKIT-RELEASE -->",
+    ""
+  ].join("\n");
 }
 
 /* Only when run as a command. The test suite imports this file for
@@ -655,4 +685,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { signingPayload, appVersion, mergeConfig, PAYLOAD, payloadList };
+module.exports = { signingPayload, releaseBody, appVersion, mergeConfig, PAYLOAD, payloadList };
