@@ -72,6 +72,7 @@
   var CHUNK = 256 * 1024;   // one upload frame
   var HASH_SLICE = 1024 * 1024;
   var RETRY_MS = 20000;
+  var DIAL_MS = 6000;       // an address that has not opened by then is skipped
   /* The run server closes a session whose ticket is not renewed
      within 20 minutes. That is how a ban made in MESSAGES reaches a
      session that is already open. */
@@ -313,7 +314,19 @@
       }
       sock.binaryType = "arraybuffer";
       mine.sock = sock;
-      sock.onopen = function () { mine.opened = true; goodUrl = urls[i]; sock.send(JSON.stringify({ t: "hello" })); };
+      /* A network that drops packets instead of refusing them leaves a
+         socket hanging for as long as the browser cares to wait. So an
+         address that has not opened in DIAL_MS is given up on, and the
+         next one tried. */
+      var gaveUp = false;
+      var hang = setTimeout(function () {
+        if (mine.opened || conn !== mine || i + 1 >= urls.length) return;
+        gaveUp = true;
+        sock.onclose = null;
+        try { sock.close(); } catch (x) { /* already gone */ }
+        dial(i + 1);
+      }, DIAL_MS);
+      sock.onopen = function () { clearTimeout(hang); mine.opened = true; goodUrl = urls[i]; sock.send(JSON.stringify({ t: "hello" })); };
       sock.onmessage = function (e) {
         if (conn !== mine) return;
         if (typeof e.data !== "string") return onFrame(e.data);
@@ -322,7 +335,8 @@
         onMessage(mine, m);
       };
       sock.onclose = function () {
-        if (conn !== mine) return;
+        clearTimeout(hang);
+        if (conn !== mine || gaveUp) return;
         if (!mine.opened && i + 1 < urls.length) return dial(i + 1);
         closed();
       };

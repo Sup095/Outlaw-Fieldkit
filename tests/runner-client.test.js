@@ -43,7 +43,17 @@ global.window.fetch = async (url) => {
   throw new Error("the panel fetched something unexpected: " + url);
 };
 const dialed = [];
-global.window.WebSocket = class extends WebSocket { constructor(u) { dialed.push(String(u)); super(u); } };
+/* The relay's address HANGS: it neither opens nor refuses, as on a
+   network that drops packets (and as relay.test did on GitHub's
+   machines). The panel must give up on it and try the next. */
+const hung = [];
+global.window.WebSocket = class extends WebSocket {
+  constructor(u) {
+    dialed.push(String(u));
+    if (/relay\.test/.test(String(u))) { const s = { closed: false, send() {}, close() { s.closed = true; } }; hung.push(s); return s; }
+    super(u);
+  }
+};
 global.window.confirm = () => true;
 global.window.FileReader = class {
   readAsArrayBuffer(blob) {
@@ -130,9 +140,12 @@ const remount = () => { def.unmount(); host = fakeElement("div"); def.mount(host
   {
     signedIn = true; tier = "guest";
     remount();
-    await until(() => byClass("rn-drop").length === 1);
+    const t0 = Date.now();
+    await until(() => byClass("rn-drop").length === 1, 30000);
     ok("the drop area appears once connected, through the run server's second address: the first answers nothing (FIELDKIT_PROJECT.md §14.39)",
       byClass("rn-drop").length === 1);
+    ok("an address that hangs is given up on after a few seconds, and closed",
+      hung.length >= 1 && hung[0].closed && Date.now() - t0 < 15000, (Date.now() - t0) + " ms");
     ok("the relay's own address was tried first (RUNNER through the relay)", dialed[0] && dialed[0].indexOf("ws://relay.test/runner/attach?t=") === 0 &&
       dialed[1].indexOf("ws://127.0.0.1:1/attach") === 0, dialed.slice(0, 3).join(" "));
     ok("the guest is told plainly that nothing is kept",
