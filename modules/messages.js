@@ -59,7 +59,7 @@
   async function api(method, p, body, opts) {
     opts = opts || {};
     var base = relayBase();
-    if (!base) throw new Error("no relay is configured — set one in SETTINGS first");
+    if (!base) throw new Error("no relay is configured — add one in RELAY LINK first");
 
     var headers = {};
     if (body !== undefined) headers["Content-Type"] = "application/json";

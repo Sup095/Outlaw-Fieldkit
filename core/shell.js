@@ -893,8 +893,29 @@
 
      The capture is taken on the HANDLE, not on the window, so a
      drag that starts on the title bar cannot be stolen by a child
-     that happens to be under the pointer later. */
-  function onDrag(handle, onStart, onMove) {
+     that happens to be under the pointer later.
+
+     WHY WINDOWS FELT STUCK ON THE CHROMEBOOKS (2026-10-29). Three
+     things, none of them a broken handler:
+     - every move set left/top, which re-lays-out and repaints the
+       whole window, its big shadow and the translucent desktop under
+       it. On a slow Chromebook with RUNNER's or BROWSER's video
+       canvas inside, that took longer than a frame, so the window
+       trailed the pointer and seemed not to want to move. A move is
+       now a transform (moved by the compositor, no layout), turned
+       into left/top once, on release; while a drag is on, the body
+       has fk-dragging, which drops the shadow and stops pages and
+       canvases from taking the pointer;
+     - the title bar had no touch-action, so on a touchscreen the
+       browser took the finger for a scroll and cancelled the drag
+       after a few pixels;
+     - a window as big as the screen could not go left or up at all
+       (it was kept fully on screen). It may now hang off any side
+       but the top, as long as KEEP_VISIBLE pixels of its bar stay
+       reachable. */
+  var KEEP_VISIBLE = 120;
+
+  function onDrag(handle, onStart, onMove, onEnd) {
     handle.addEventListener("pointerdown", function (e) {
       if (e.button !== 0) return;                     // left button only
       if (e.target.classList && e.target.classList.contains("fk-win-btn")) return;
@@ -902,6 +923,7 @@
       var ctx = onStart(e);
       if (ctx === false) return;
       try { handle.setPointerCapture(e.pointerId); } catch (err) { /* older engine */ }
+      if (document.body) document.body.classList.add("fk-dragging");
 
       function move(ev) { onMove(ev, ctx); }
       function up(ev) {
@@ -909,6 +931,8 @@
         handle.removeEventListener("pointerup", up);
         handle.removeEventListener("pointercancel", up);
         try { handle.releasePointerCapture(ev.pointerId); } catch (err) { /* already gone */ }
+        if (document.body) document.body.classList.remove("fk-dragging");
+        if (onEnd) onEnd(ev, ctx);
       }
       handle.addEventListener("pointermove", move);
       handle.addEventListener("pointerup", up);
@@ -917,19 +941,30 @@
   }
 
   function makeDraggable(rec, handle) {
+    function place(ev, c) {
+      var w = rec.node.offsetWidth || 0;
+      var minX = Math.min(0, KEEP_VISIBLE - w);
+      c.nx = Math.max(minX, Math.min(c.ox + ev.clientX - c.sx, winLayer.clientWidth - KEEP_VISIBLE));
+      c.ny = Math.max(0, Math.min(c.oy + ev.clientY - c.sy, winLayer.clientHeight - 30));
+    }
     onDrag(handle, function (e) {
       focus(rec.id);
       /* A maximised window is not draggable — there is nowhere to
          drag it to, and letting it move would leave it maximised and
          half off the screen. */
       if (rec.node.classList.contains("maximized")) return false;
+      rec.node.classList.add("moving");
       return { sx: e.clientX, sy: e.clientY,
-        ox: rec.node.offsetLeft, oy: rec.node.offsetTop };
+        ox: rec.node.offsetLeft, oy: rec.node.offsetTop, nx: null, ny: null };
     }, function (ev, c) {
-      var nx = Math.max(0, Math.min(c.ox + ev.clientX - c.sx, winLayer.clientWidth - 80));
-      var ny = Math.max(0, Math.min(c.oy + ev.clientY - c.sy, winLayer.clientHeight - 30));
-      rec.node.style.left = nx + "px";
-      rec.node.style.top = ny + "px";
+      place(ev, c);
+      rec.node.style.transform = "translate(" + (c.nx - c.ox) + "px," + (c.ny - c.oy) + "px)";
+    }, function (ev, c) {
+      rec.node.classList.remove("moving");
+      rec.node.style.transform = "";
+      if (c.nx === null) return;                      // a click, not a drag
+      rec.node.style.left = c.nx + "px";
+      rec.node.style.top = c.ny + "px";
     });
   }
 

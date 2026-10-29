@@ -82,6 +82,15 @@ function all(node) {
 const text = () => all(host).map((n) => n.textContent || "").join(" | ");
 const button = (label) => all(host).find((n) => n.tagName === "BUTTON" && n.textContent === label) || null;
 const byClass = (c) => all(host).filter((n) => String(n.className || "").split(/\s+/).includes(c));
+/* Each row's arguments and DELETE are under its ⋯; this opens them all. */
+const openRows = () => {
+  for (let i = 0; i < 50; i++) {
+    const shut = byClass("rn-more").find((n) => !String(n.className).split(/\s+/).includes("open"));
+    if (!shut) return;
+    fire(shut, "click");
+  }
+};
+const del = () => { openRows(); fire(button("DELETE"), "click"); };
 async function until(fn, ms) {
   const stop = Date.now() + (ms || 8000);
   while (Date.now() < stop) { if (fn()) return true; await new Promise((r) => setTimeout(r, 25)); }
@@ -168,7 +177,11 @@ const remount = () => { def.unmount(); host = fakeElement("div"); def.mount(host
     ok("a file over the limit, and one it cannot run, never leave the panel",
       byClass("rn-file").length === 1 && fs.readdirSync(path.join(TMP, "store", "tmp")).length === 0);
 
+    ok("a row shows RUN and keeps its arguments under ⋯", !!button("RUN") && byClass("rn-args").length === 0 &&
+      byClass("rn-more").length === 1);
+    openRows();
     const args = byClass("rn-args")[0];
+    ok("⋯ opens the arguments field", !!args);
     args.value = "a b";
     fire(button("RUN"), "click");
     await until(() => /ran with a\+b/.test(text()));
@@ -196,7 +209,7 @@ const remount = () => { def.unmount(); host = fakeElement("div"); def.mount(host
     remount();
     await until(() => byClass("rn-file").length === 1);
     ok("and they are, across closing and reopening the panel", /keep\.js/.test(text()));
-    fire(button("DELETE"), "click");
+    del();
     await until(() => byClass("rn-file").length === 0);
     ok("DELETE removes it", byClass("rn-file").length === 0 && /NO FILES YET/.test(text()));
 
@@ -212,7 +225,7 @@ const remount = () => { def.unmount(); host = fakeElement("div"); def.mount(host
     ok("a running program's row says what it is using", /0\.50 core · 30 MB of 2048 MB/.test(text()), text().slice(0, 300));
     await until(() => /slow done/.test(text()) && app._internals.jobs.size === 0, 5000);
     app._internals.driver.fakeStats = null;
-    fire(button("DELETE"), "click");
+    del();
     await until(() => byClass("rn-file").length === 0);
 
     /* A program that is a folder, zipped. */
@@ -237,7 +250,7 @@ const remount = () => { def.unmount(); host = fakeElement("div"); def.mount(host
     fire(button("CANCEL"), "click");
     await until(() => byClass("rn-zip").length === 0);
     ok("CANCEL puts the question away", byClass("rn-zip").length === 0);
-    fire(button("DELETE"), "click");
+    del();
     await until(() => byClass("rn-file").length === 0);
 
     const one = makeZip([{ name: "tool/go.js", data: "console.log('only one')" }, { name: "tool/x.dat", data: "1" }]);
@@ -257,6 +270,7 @@ const remount = () => { def.unmount(); host = fakeElement("div"); def.mount(host
     await until(() => toasts.length > 0);
     ui.toast = realToast;
     ok("one with nothing runnable says so", /NOTHING IN NOTES\.ZIP/.test(toasts.join(" ")), toasts.join(" "));
+    openRows();
     for (const b of all(host).filter((n) => n.tagName === "BUTTON" && n.textContent === "DELETE")) fire(b, "click");
     await until(() => byClass("rn-file").length === 0);
 

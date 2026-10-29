@@ -23,7 +23,7 @@ const ROOT = path.join(__dirname, "..");
 
 /* The design logs: full of the specifics of one person's machines and
    network. Source comments cite their sections; the README says so. */
-const EXCLUDE = new Set(["FIELDKIT_PROJECT.md", "RUNNER_PLAN.md"]);
+const EXCLUDE = new Set(["FIELDKIT_PROJECT.md", "RUNNER_PLAN.md", "SIMPLIFY_PLAN.md"]);
 
 /* Personal words (a user name, an email) are kept in
    tools/publish-private.json, which is gitignored, so that this file

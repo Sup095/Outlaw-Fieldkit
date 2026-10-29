@@ -67,6 +67,10 @@
   var players = {};         // job id -> the player for a job with a screen
   var zipPick = null;       // { id, list, screen, args } while asking which file in a zip to run
   var cardEdit = null;      // the library file whose card an admin is editing
+  var filesOpen = null;     // FILES shown (true), folded (false), or null: folded while a window is running
+  var rowOpen = {};         // file id -> its ⋯ options (arguments, DELETE) are showing
+  var rowArgs = {};         // file id -> the arguments typed under ⋯, kept while it is closed
+  var tierOpen = false;     // the account line is shown in full
 
   var SCROLL_MAX = 200000;  // characters kept on screen
   var CHUNK = 256 * 1024;   // one upload frame
@@ -228,7 +232,7 @@
   /* ---- the relay: status, and a ticket --------------------------- */
   async function checkStatus() {
     var base = relayBase();
-    if (!base) return { enabled: false, online: false, why: "no relay is configured. Set one in SETTINGS first." };
+    if (!base) return { enabled: false, online: false, why: "no relay is configured. Add one in RELAY LINK first." };
     try {
       var ac = new AbortController();
       var timer = setTimeout(function () { ac.abort(); }, 9000);
@@ -859,6 +863,23 @@
     renderReady(guard);
   }
 
+  /* A row's ⋯: the arguments field and the rarer buttons, out of the
+     way until asked for. What was typed is kept while it is closed. */
+  function rowOpts(f, extra) {
+    var shown = !!rowOpen[f.id];
+    var toggle = el("button", { class: "rn-more" + (shown ? " open" : ""), type: "button", text: "⋯",
+      title: shown ? "hide the options" : "arguments" + (extra.filter(Boolean).length ? " and more" : ""),
+      onclick: function () { rowOpen[f.id] = !shown; render(); } });
+    var args = null, row = null;
+    if (shown) {
+      args = el("input", { class: "rn-args", type: "text", placeholder: "arguments (optional)", value: rowArgs[f.id] || "" });
+      args.addEventListener("input", function () { rowArgs[f.id] = args.value; });
+      args.addEventListener("keydown", function (e) { if (e.key === "Enter") run(f, args.value); });
+      row = el("div", { class: "rn-opts" }, [args].concat(extra.filter(Boolean)));
+    }
+    return { toggle: toggle, row: row, args: function () { return args ? args.value : (rowArgs[f.id] || ""); } };
+  }
+
   function renderReady(guard) {
     var c = conn;
     var picker = el("input", { type: "file", class: "rn-picker" });
@@ -868,7 +889,7 @@
     });
 
     var drop = el("div", { class: "rn-drop", tabindex: "0",
-      text: "DROP A FILE HERE, OR CLICK TO CHOOSE ONE" });
+      text: "UPLOAD: DROP A FILE HERE, OR CLICK TO CHOOSE ONE" });
     drop.addEventListener("click", function () { picker.click(); });
     drop.addEventListener("dragover", function (e) { e.preventDefault(); drop.className = "rn-drop over"; });
     drop.addEventListener("dragleave", function () { drop.className = "rn-drop"; });
@@ -896,21 +917,20 @@
     var files = el("div", { class: "rn-files" });
     if (!c.files.length) files.appendChild(el("div", { class: "rn-none", text: "NO FILES YET" }));
     c.files.forEach(function (f) {
-      var args = el("input", { class: "rn-args", type: "text", placeholder: "arguments (optional)" });
-      args.addEventListener("keydown", function (e) { if (e.key === "Enter") run(f, args.value); });
+      var o = rowOpts(f, [ui.button("DELETE", function () {
+        if (window.confirm("Delete " + f.name + " from the run server?")) say({ t: "rm", file: f.id });
+      }, { danger: true })]);
       files.appendChild(el("div", { class: "rn-file" }, [
         el("span", { class: "rn-name", text: f.name, title: f.name }),
         el("span", { class: "rn-size", text: fmtBytes(f.size) }),
         f.expiringSoon ? el("span", { class: "rn-exp", title: "files nobody runs for " + (c.ttlDays || 30) +
           " days are deleted; running it resets the clock",
-          text: "deleted in " + daysUntil(f.expiresAt) + " unless run" }) : null,
-        args,
-        ui.button("RUN", function () { run(f, args.value); }, { primary: true }),
-        c.screens ? ui.button("RUN IN WINDOW", function () { run(f, args.value, true); }) : null,
-        ui.button("DELETE", function () {
-          if (window.confirm("Delete " + f.name + " from the run server?")) say({ t: "rm", file: f.id });
-        }, { danger: true })
+          text: "deleted in " + daysUntil(f.expiresAt) }) : null,
+        ui.button("RUN", function () { run(f, o.args()); }, { primary: true }),
+        c.screens ? ui.button("WINDOW", function () { run(f, o.args(), true); }) : null,
+        o.toggle
       ]));
+      if (o.row) files.appendChild(o.row);
       var q = pickRow(f);
       if (q) files.appendChild(q);
     });
@@ -923,9 +943,14 @@
       c.library.forEach(function (f) {
         /* An admin's card says what it is and how PLAY starts it. */
         var card = f.card || null;
-        var a2 = el("input", { class: "rn-args", type: "text", placeholder: "arguments (optional)" });
-        a2.addEventListener("keydown", function (e) { if (e.key === "Enter") run(f, a2.value); });
         var canPlay = card && (!card.window || c.screens);
+        /* A title with a card has one button, PLAY or START; RUN and
+           WINDOW with other arguments are under its ⋯. Without a card
+           they are the row's own buttons, as for your files. */
+        var o = rowOpts(f, canPlay ? [
+          ui.button("RUN", function () { run(f, o.args()); }),
+          c.screens ? ui.button("WINDOW", function () { run(f, o.args(), true); }) : null
+        ] : []);
         lib.appendChild(el("div", { class: "rn-file" + (card ? " rn-card" : "") }, [
           el("span", { class: "rn-name", text: (card && card.title) || f.name, title: f.name }),
           f.playing ? el("span", { class: "rn-playing", text: f.playing + " PLAYING" }) : null,
@@ -933,11 +958,13 @@
           canPlay ? ui.button(card.window ? "PLAY" : "START", function () {
             run(f, card.args || "", !!card.window, card.entry || undefined);
           }, { primary: true }) : null,
-          card && card.window && !c.screens ? el("span", { class: "rn-dim", text: "opens a window: members only" }) : null,
-          a2, ui.button("RUN", function () { run(f, a2.value); }, { primary: !canPlay }),
-          c.screens ? ui.button("RUN IN WINDOW", function () { run(f, a2.value, true); }) : null
+          card && card.window && !c.screens ? el("span", { class: "rn-dim", text: "window: members only" }) : null,
+          canPlay ? null : ui.button("RUN", function () { run(f, o.args()); }, { primary: true }),
+          !canPlay && c.screens ? ui.button("WINDOW", function () { run(f, o.args(), true); }) : null,
+          o.toggle
         ]));
         if (card && card.about) lib.appendChild(el("div", { class: "rn-about", text: card.about }));
+        if (o.row) lib.appendChild(o.row);
         var q = pickRow(f);
         if (q) lib.appendChild(q);
       });
@@ -984,12 +1011,27 @@
       input.value = "";
     });
 
-    nodes.root.appendChild(el("div", { class: "rn-wrap" }, [
+    /* What is running comes first and gets the room: on a Chromebook
+       a game's picture used to start below the upload box, every file
+       and the library. FILES folds itself away while a window is
+       running; once somebody opens or folds it, it stays that way. */
+    var open = filesOpen === null ? !screens.length : filesOpen;
+    var count = c.files.length + (c.library || []).length;
+    var filesHead = el("button", { class: "rn-sect" + (open ? " open" : ""), type: "button",
+      text: (open ? "▾ FILES" : "▸ FILES") + (count ? " (" + count + ")" : "") +
+        (open ? "" : ": upload, your files, the library" + (c.save ? ", /save" : "")),
+      onclick: function () { filesOpen = !open; render(); } });
+    function tierClass() { return "rn-tier" + (c.tier === "guest" ? " guest" : "") + (tierOpen ? " open" : ""); }
+    var tier = el("div", { class: tierClass(), text: tierLine(c), title: "click to read all of it",
+      onclick: function () { tierOpen = !tierOpen; tier.className = tierClass(); } });
+
+    nodes.root.appendChild(el("div", { class: "rn-wrap" + (screens.length ? " has-screen" : "") }, [
       el("div", { class: "rn-top" }, [
-        el("div", { class: "rn-tier" + (c.tier === "guest" ? " guest" : ""), text: tierLine(c) }),
+        tier,
         c.tier === "admin" ? ui.button("ADMIN", function () { adminView = true; render(); }) : null
       ])
-    ].concat(notes, [drop, picker, nodes.busy, nodes.line, files, lib, saved, jobs], screens, [nodes.term,
+    ].concat(notes, [nodes.line], screens, [jobs, nodes.busy, filesHead],
+      open ? [drop, picker, files, lib, saved] : [picker], [nodes.term,
       el("div", { class: "rn-inrow" }, [input,
         ui.button("CLEAR", function () { scroll = []; scrollChars = 0; if (nodes.term) ui.clear(nodes.term); })])
     ])));
@@ -1512,18 +1554,33 @@
       ".rn-notice-h{font-size:13px;letter-spacing:.16em;color:var(--accent);margin-bottom:10px}",
       ".rn-notice-p{font-size:11px;line-height:1.6;color:var(--fg-dim);margin-bottom:14px}",
       ".rn-actions{display:flex;gap:6px;justify-content:center;flex-wrap:wrap}",
-      ".rn-tier{font-size:10px;line-height:1.5;color:var(--fg-dim);border-left:2px solid var(--accent);padding:2px 8px}",
+      ".rn-tier{font-size:10px;line-height:1.5;color:var(--fg-dim);border-left:2px solid var(--accent);padding:2px 8px;",
+      "  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;min-width:0}",
+      ".rn-tier.open{white-space:normal}",
       ".rn-tier.guest{border-left-color:var(--warn);color:var(--warn)}",
-      ".rn-drop{border:1px dashed var(--line);padding:14px;text-align:center;font-size:11px;",
+      ".rn-drop{border:1px dashed var(--line);padding:7px;text-align:center;font-size:10px;",
       "  letter-spacing:.12em;color:var(--fg-dim);cursor:pointer}",
       ".rn-drop.over,.rn-drop:hover{border-color:var(--accent);color:var(--accent)}",
       ".rn-picker{display:none}",
-      ".rn-busy{font-size:10px;color:var(--accent);min-height:12px}",
+      ".rn-busy{font-size:10px;color:var(--accent)}.rn-busy:empty{display:none}",
       ".rn-files{max-height:150px;overflow:auto;border:1px solid var(--line)}",
-      ".rn-file{display:flex;gap:6px;align-items:center;padding:4px 6px;border-bottom:1px solid var(--line)}",
+      ".rn-file{display:flex;gap:4px;align-items:center;padding:2px 6px;border-bottom:1px solid var(--line)}",
+      ".rn-file .fk-btn,.rn-opts .fk-btn{padding:3px 8px;font-size:10px}",
+      ".rn-more{background:none;border:1px solid var(--line2);color:var(--fg-dim);font:inherit;font-size:12px;",
+      "  line-height:1;padding:2px 7px;cursor:pointer}.rn-more:hover,.rn-more.open{border-color:var(--accent);color:var(--accent)}",
+      ".rn-opts{display:flex;gap:4px;align-items:center;padding:3px 6px 4px 18px;border-bottom:1px solid var(--line)}",
+      ".rn-opts .rn-args{flex:1;min-width:0}",
+      ".rn-sect{background:none;border:none;border-bottom:1px solid var(--line);color:var(--accent);font:inherit;",
+      "  font-size:10px;letter-spacing:.12em;text-align:left;padding:3px 2px;cursor:pointer;white-space:nowrap;",
+      "  overflow:hidden;text-overflow:ellipsis}.rn-sect:not(.open){color:var(--fg-dim)}.rn-sect:hover{color:var(--accent)}",
       ".rn-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px}",
-      ".rn-size{font-size:10px;color:var(--fg-dimmer);width:64px;text-align:right}",
+      ".rn-size{font-size:10px;color:var(--fg-dimmer);width:56px;text-align:right}",
       ".rn-args{width:150px}",
+      /* A window running: the picture takes what the window has, the
+         output shrinks to a few lines. */
+      ".rn-wrap.has-screen>.rn-scr{flex:1 1 0;min-height:180px}",
+      ".rn-wrap.has-screen .rn-screen{flex:1;min-height:0;width:100%;height:100%;max-height:none;object-fit:contain}",
+      ".rn-wrap.has-screen>.rn-term{flex:0 0 auto;min-height:0;max-height:64px}",
       ".rn-none{padding:10px;font-size:10px;color:var(--fg-dimmer);text-align:center}",
       ".rn-jobs{display:flex;gap:10px;flex-wrap:wrap;font-size:10px;color:var(--accent)}",
       ".rn-term{flex:1;min-height:80px;margin:0;overflow:auto;background:#000;color:var(--fg);",

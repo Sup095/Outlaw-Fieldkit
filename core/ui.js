@@ -396,7 +396,14 @@ button,input,textarea,select{font:inherit;color:inherit}
 .fk-win.focused{border-color:var(--accent-dim);
   box-shadow:0 0 0 1px rgba(var(--accent-glow),.18),0 18px 48px rgba(0,0,0,.75)}
 .fk-win-bar{display:flex;align-items:center;gap:8px;padding:6px 8px;cursor:move;
-  background:var(--panel2);border-bottom:1px solid var(--line);user-select:none}
+  background:var(--panel2);border-bottom:1px solid var(--line);user-select:none;touch-action:none}
+/* While a window moves it is a transform, with no blurred shadow to
+   repaint, and nothing inside any window takes the pointer: that is
+   what made dragging trail the pointer on the Chromebooks (shell.js). */
+.fk-win.moving{will-change:transform;box-shadow:0 0 0 1px var(--accent-dim)}
+body.fk-dragging{user-select:none;cursor:move}
+body.fk-dragging .fk-win-body iframe,body.fk-dragging .fk-win-body canvas,
+body.fk-dragging .fk-win-body video{pointer-events:none}
 .fk-win.focused .fk-win-bar{background:linear-gradient(180deg,#1c231e,#151a17)}
 .fk-win-glyph{color:var(--accent)}
 .fk-win-title{flex:1;font-size:11px;letter-spacing:.18em;color:var(--fg-dim);

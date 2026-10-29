@@ -389,6 +389,61 @@ const named = (sel, text) =>
     shell.close("win-lab");
   }
 
+  section("moving a window: a transform while it moves, left/top when it lands");
+  {
+    const rec = shell.open("win-lab");
+    const node = rec.node, bar = rec.bar;
+    const layer = node.parentNode;
+    layer.clientWidth = 1000; layer.clientHeight = 600;
+    node.offsetWidth = 900; node.offsetHeight = 500;
+    node.offsetLeft = 100; node.offsetTop = 60;
+    node.style.left = "100px"; node.style.top = "60px";
+    const ev = (type, x, y) => ({ type, clientX: x, clientY: y, pointerId: 3, button: 0,
+      target: bar, preventDefault() {}, stopPropagation() {} });
+
+    bar.dispatchEvent(ev("pointerdown", 300, 70));
+    ok("a drag marks the page, so pages and canvases stop taking the pointer",
+      document.body.classList.contains("fk-dragging"));
+    bar.dispatchEvent(ev("pointermove", 350, 120));
+    ok("while it moves it is a transform, not a re-layout",
+      node.style.transform === "translate(50px,50px)" && node.style.left === "100px",
+      node.style.transform + " / " + node.style.left);
+    bar.dispatchEvent(ev("pointerup", 350, 120));
+    ok("when it lands the move becomes left/top and the transform goes",
+      node.style.left === "150px" && node.style.top === "110px" && node.style.transform === "",
+      node.style.left + "," + node.style.top + " " + node.style.transform);
+    ok("and the page is unmarked", !document.body.classList.contains("fk-dragging"));
+
+    /* The Chromebook case: a window nearly as wide as the screen. It
+       used to be kept fully on screen, so it could not go left at
+       all. Now it can, as long as part of its bar stays reachable. */
+    node.offsetLeft = 150; node.offsetTop = 110;
+    bar.dispatchEvent(ev("pointerdown", 300, 120));
+    bar.dispatchEvent(ev("pointermove", -900, 120));
+    bar.dispatchEvent(ev("pointerup", -900, 120));
+    ok("a big window can be pushed off the left, keeping 120 px of its bar",
+      node.style.left === "-780px", node.style.left);
+
+    node.offsetLeft = -780;
+    bar.dispatchEvent(ev("pointerdown", 0, 120));
+    bar.dispatchEvent(ev("pointermove", 5000, -400));
+    bar.dispatchEvent(ev("pointerup", 5000, -400));
+    ok("but never above the top, nor past the right edge",
+      node.style.left === "880px" && node.style.top === "0px",
+      node.style.left + "," + node.style.top);
+
+    node.offsetLeft = 880; node.offsetTop = 0;
+    bar.dispatchEvent(ev("pointerdown", 900, 10));
+    bar.dispatchEvent(ev("pointerup", 900, 10));
+    ok("a click on the bar without a move leaves it where it was",
+      node.style.left === "880px" && node.style.transform === "");
+
+    const css = require("fs").readFileSync(require("path").join(__dirname, "..", "core", "ui.js"), "utf8");
+    ok("the title bar keeps a finger's drag from becoming a scroll",
+      /\.fk-win-bar\{[^}]*touch-action:none/.test(css));
+    shell.close("win-lab");
+  }
+
   section("maximise, and the size it puts back");
   {
     const rec = shell.open("win-lab");

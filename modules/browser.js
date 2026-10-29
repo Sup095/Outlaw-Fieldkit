@@ -179,7 +179,7 @@
 
   async function getTicket(force) {
     if (!force && ticket && (Date.now() - ticketAt) < TICKET_FRESH_MS) return ticket;
-    if (!relayBase()) throw new Error("no relay is configured — set one in SETTINGS first");
+    if (!relayBase()) throw new Error("no relay is configured — add one in RELAY LINK first");
 
     var sources = ticketSources();
     if (!sources.length) {
@@ -1026,18 +1026,14 @@
     adminBits = [usageBtn];
     showAdmin();
 
-    var bar = el("div", { class: "br-toolbar" }, [
-      back, fwd, reload, addr, star,
-      btn("GO", "open that address", go),
-      btn("PLACES", "bookmarks and history, kept encrypted in your vault", placesOpen),
-      btn("+TAB", "a new tab (what is in the address bar, or a blank page)", function () {
-        var v = addr.value.trim();
-        cmd({ t: "tab-new", url: v && v !== (live && live.url) ? v : "" });
-      }),
+    /* The rarer buttons live under ⋯, so the page gets the room on a
+       Chromebook's short screen. Ctrl F, Ctrl + and Ctrl − still work
+       without opening it. */
+    var moreBar = el("div", { class: "br-morebar" }, [
       btn("−", "zoom out (Ctrl −)", function () { zoomStep(-1); }),
       zoomBtn,
       btn("+", "zoom in (Ctrl +)", function () { zoomStep(1); }),
-      btn("FIND", "find on this page (Ctrl F)", findOpen),
+      btn("FIND", "find on this page (Ctrl F)", function () { moreClose(); findOpen(); }),
       btn("COOKIES", "forget the cookies this session has collected", function () {
         if (ctx.confirm ? ctx.confirm("Forget all cookies for your browsing session?") : true) {
           cmd({ t: "clear", what: "cookies" });
@@ -1046,13 +1042,30 @@
       btn("WIPE", "end the session and throw away everything in it", function () {
         cmd({ t: "clear", what: "all" });
       }),
-      soundBtn,
       usageBtn
+    ]);
+    moreBar.style.display = "none";
+    function moreClose() { moreBar.style.display = "none"; moreBtn.classList.remove("on"); }
+    var moreBtn = btn("⋯", "zoom, find, cookies, wipe", function () {
+      if (moreBar.style.display === "none") { moreBar.style.display = ""; moreBtn.classList.add("on"); }
+      else moreClose();
+    });
+
+    var bar = el("div", { class: "br-toolbar" }, [
+      back, fwd, reload, addr, star,
+      btn("GO", "open that address", go),
+      btn("PLACES", "bookmarks and history, kept encrypted in your vault", placesOpen),
+      btn("+TAB", "a new tab (what is in the address bar, or a blank page)", function () {
+        var v = addr.value.trim();
+        cmd({ t: "tab-new", url: v && v !== (live && live.url) ? v : "" });
+      }),
+      soundBtn,
+      moreBtn
     ]);
 
     var wrap = el("div", { class: "br-canvas-wrap" }, [canvas]);
     host.appendChild(el("div", { class: "br-wrap" }, [
-      tabStrip, bar, findBar, placesBar, usageBar, suggest, notes, wrap, stat, buildNote(status)
+      tabStrip, bar, moreBar, findBar, placesBar, usageBar, suggest, notes, wrap, stat, buildNote(status)
     ]));
 
     /* ---- the stream ---- */
@@ -1748,8 +1761,8 @@
      DOES: every site shares an origin, so do not sign in; and the
      relay sees everything, so this is not anonymity. */
   var NOTE_SHORT =
-    "Every site here shares one origin — do not sign in to anything you would " +
-    "mind another site reading. Not anonymity: your relay sees every address.";
+    "Do not sign in to anything private: all sites here share one origin. " +
+    "Not anonymity: your relay sees every address.";
 
   function buildNote() {
     nodes.noteBody = el("div", { class: "br-note-body", text: NOTE_FULL });
@@ -1952,8 +1965,9 @@
     var s = document.createElement("style");
     s.id = "br-style";
     s.textContent = [
-      ".br-wrap{display:flex;flex-direction:column;height:100%;gap:6px}",
+      ".br-wrap{display:flex;flex-direction:column;height:100%;gap:4px}",
       ".br-toolbar{display:flex;gap:6px;align-items:center}",
+      ".br-morebar{display:flex;gap:6px;align-items:center;justify-content:flex-end;flex-wrap:wrap}",
       ".br-lbl{font-size:9px;letter-spacing:.22em;color:var(--fg-dimmer)}",
       ".br-navgroup{display:flex;gap:3px;flex:1}",
       ".br-nav{width:26px;height:22px;font:inherit;font-size:12px;line-height:1;padding:0;",
@@ -1982,9 +1996,12 @@
       ".br-status.warn{color:var(--warn)}",
       ".br-status.ok{color:var(--pass)}",
       ".br-note{font-size:10px;color:var(--fg-dimmer);line-height:1.5;",
-      "  border-top:1px solid var(--line);padding-top:6px;flex:0 0 auto}",
+      "  border-top:1px solid var(--line);padding-top:3px;flex:0 0 auto}",
       ".br-note-line{display:flex;gap:8px;align-items:baseline}",
-      ".br-note-short{flex:1;min-width:0}",
+      /* One line, so the warning costs the page one line; the whole
+         of it is under WHAT THIS CANNOT DO. */
+      ".br-note-short{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
+      ".br-note.open .br-note-short{white-space:normal}",
       ".br-note-toggle{flex:0 0 auto;font:inherit;font-size:9px;letter-spacing:.12em;",
       "  background:none;border:0;color:var(--fg-dim);cursor:pointer;padding:0}",
       ".br-note-toggle:hover{color:var(--accent)}",
