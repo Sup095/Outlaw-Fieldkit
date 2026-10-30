@@ -24,6 +24,7 @@ says plainly that it is not.
 > - `https://tool.outlawfieldkit.com`
 > - `https://save.outlawfieldkit.com`
 > - `https://learn.outlawfieldkit.com`
+> - `https://edu.outlawfieldkit.com`
 >
 > (`run.outlawfieldkit.com` is RUNNER's own server, not a relay address;
 > RUNNER finds it by itself.) If the whole domain is ever blocked, a new one
