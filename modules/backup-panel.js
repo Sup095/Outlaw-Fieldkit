@@ -458,7 +458,9 @@
   }
 
   FieldKit.register("backup-panel", {
-    group: "FILES",
+    group: "SYSTEM",
+    /* A fold of SETTINGS. */
+    inside: "settings-panel",
     about: "Take an encrypted backup of everything, or restore one",
     keywords: "backup restore export import archive snapshot",
     guestSafe: false,

@@ -15,7 +15,7 @@
     theme: "amber",
     crt: false,
     sound: false,
-    ambient: false,
+    askServerModel: "",      // which of the relay's small models ASK uses
     perfMode: "auto",        // auto | on | off
     wallpaper: null,
     bootFlavor: true,

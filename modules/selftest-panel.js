@@ -16,6 +16,16 @@
      "the vault holding them is not open" look identical on screen
      and mean completely different things. */
   var historyError = null;
+  var servers = null;      // the SERVERS fold (bastion-status), full build only
+
+  /* What this copy is: the one figure kept from BUILD MANIFEST. */
+  function sizeLine() {
+    var html = document.documentElement && document.documentElement.outerHTML;
+    var files = (window.FK_BOOT_MANIFEST || []).length;
+    var apps = Object.keys(FieldKit.modules()).length;
+    return "FIELDKIT " + ctx.version + " · " + apps + " APPS" +
+      (html && html.length > 200000 ? " · " + Math.round(html.length / 1024) + " KB" : files ? " · " + files + " FILES" : "");
+  }
 
   /* Never throws. This is called from three places, one of which is
      immediately after a report has been drawn — and a throw there
@@ -642,8 +652,8 @@
 
   FieldKit.register("selftest-panel", {
     group: "SYSTEM",
-    about: "Test that every part of FieldKit works",
-    keywords: "diagnostics test selftest check health",
+    about: "Is everything working? Checks this copy, the relay and the servers",
+    keywords: "diagnostics test selftest check health status bastion servers size version",
     guestSafe: true,
     selfcheck: selfcheck,
     title: "DIAGNOSTICS",
@@ -656,6 +666,7 @@
       ctx = context; ui = ctx.ui; el = ui.el;
       injectCSS();
 
+      servers = ui.moduleFold("bastion-status", ctx, { label: "SERVERS" });
       nodes.report = el("div", { class: "st-report" });
       nodes.raw = el("div");
       nodes.health = el("div");
@@ -679,32 +690,23 @@
         el("div", { class: "st-actions" }, [
           nodes.runExercise, nodes.runFull, nodes.runQuick
         ]),
-        el("p", { class: "st-blurb", text:
-          "FULL SYSTEM EXERCISE mounts every module, sends a real message to the AI, and puts " +
-          "everything back afterwards. It is the one to run when you want to know what actually " +
-          "works on this machine." }),
+        el("p", { class: "st-blurb", text: sizeLine() + ". FULL SYSTEM EXERCISE tries everything for real and puts it back." }),
         ui.panel("RESULT", [nodes.report]),
-        el("div", { class: "st-actions" }, [
-          nodes.copyBtn, nodes.failBtn, nodes.rawBtn
-        ]),
-        el("div", { class: "st-actions" }, [
-          nodes.saveBtn, ui.button("REFRESH HISTORY", loadHistory)
-        ]),
-        el("p", { class: "st-blurb", text:
-          "If COPY does nothing, the clipboard is blocked by policy — SHOW RAW TEXT puts the " +
-          "report on screen ready to select, and that route cannot be blocked. A blocked " +
-          "download is silent, so SAVE .TXT can only tell you it tried." }),
-        nodes.raw,
         ui.panel("HEALTH", [
-          el("p", { class: "st-blurb", text:
-            "The things that go wrong quietly: a clock that disagrees with the relay, storage " +
-            "filling up, work that never uploaded. None of these throw, so nothing else would " +
-            "mention them." }),
           nodes.health,
           el("div", { class: "st-actions" }, [nodes.healthBtn])
         ]),
-        ui.panel("RELIABILITY", [nodes.reliability]),
-        ui.panel("HISTORY", [nodes.history])
+        servers,
+        ui.fold("COPY OR SAVE THE REPORT", [
+          el("div", { class: "st-actions" }, [nodes.copyBtn, nodes.failBtn, nodes.rawBtn, nodes.saveBtn]),
+          el("p", { class: "st-blurb", text:
+            "If COPY does nothing the clipboard is blocked: SHOW RAW TEXT puts the report on screen to select." }),
+          nodes.raw
+        ]),
+        ui.fold("HISTORY AND RELIABILITY", [
+          nodes.reliability, nodes.history,
+          el("div", { class: "st-actions" }, [ui.button("REFRESH HISTORY", loadHistory)])
+        ])
       ]));
 
       nodes.report.appendChild(el("div", { class: "st-none",
@@ -714,6 +716,8 @@
     },
 
     unmount() { alive.end();
+      if (servers) servers.unmount();
+      servers = null;
       nodes = {}; history = []; running = false; lastReport = null; historyError = null;
     }
   });

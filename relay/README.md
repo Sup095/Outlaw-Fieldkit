@@ -98,7 +98,7 @@ Two consequences, both deliberate:
   of unlabelled ciphertext. There is a test that asserts exactly this.
 - **Lose the manifest and the file is gone**, though every byte is still here.
   Manifests are records, so they ride along in vault backups; blobs do not. FieldKit's
-  VAULT FILES panel has VERIFY (are all my chunks present?) and FIND ORPHANED CHUNKS
+  FILES panel has VERIFY (are all my chunks present?) and FIND ORPHANED CHUNKS
   (are there chunks no file points at?) for the two halves of that gap.
 
 **Not tailnet-only.** Unlike actions, this is data sync — reaching your own files

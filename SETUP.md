@@ -414,14 +414,13 @@ interchangeable. The split is simple:
 
 Godot scenes and Blender files belong in Git with LFS. They change
 constantly, you will want to see what changed and go back, and neither
-of those is something the vault does. **PROJECT** → **GIT CONSOLE**
-walks through setting that up, including LFS from day one, which is
+of those is something the vault does. Set LFS up from day one: it is
 much easier than adding it after you have committed a 400 MB `.blend`.
 
 The vault is for the things you would not push to a repo: design
 documents you are not ready to share, credentials, the decision log,
 and any large file you want on both machines without putting it in
-version control. **PROJECT** → **VAULT FILES** handles those — it
+version control. **FILES** handles those — it
 splits a file into chunks, encrypts each one separately, and uploads
 them. The relay stores bytes and learns nothing.
 

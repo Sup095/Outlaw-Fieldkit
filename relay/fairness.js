@@ -77,6 +77,8 @@ function readCgroup() {
   return out;
 }
 
+const SHARED_MS = 15000;
+
 class Fairness {
   constructor(opts) {
     opts = opts || {};
@@ -181,7 +183,34 @@ class Fairness {
     return this.line.slice().sort((a, b) => (RANK[a.tier] - RANK[b.tier]) || (a.n - b.n));
   }
 
-  someoneAhead(tier) { return this.line.some((e) => RANK[e.tier] <= RANK[tier]); }
+  someoneAhead(tier) {
+    return this.line.some((e) => RANK[e.tier] <= RANK[tier]) || this.shared() && this.peer().line.hold.includes(tier);
+  }
+
+  /* Is Bastion 2 keeping the one line (SIMPLIFY_PLAN.md §2)? Yes while
+     its answers are fresh. If it stops answering, this relay moves its
+     own line along as it always did, and nobody is stranded. */
+  shared() {
+    const p = this.peer();
+    return !!(p && p.line && Array.isArray(p.line.hold) && this.now() - p.at < SHARED_MS);
+  }
+
+  /* The report's share of this: who is waiting, and who could start. */
+  report(canStart) {
+    return { line: this.ordered().slice(0, 40).map((e) => ({ id: e.n, t: e.tier, h: e.tier === "guest" ? undefined : e.who })),
+      free: { guest: canStart("guest"), member: canStart("member") } };
+  }
+
+  /* Bastion 2's answer: places, and who goes. Returns who to let in. */
+  answer(a) {
+    const byId = new Map(this.line.map((e) => [String(e.n), e]));
+    for (const id of Object.keys(a.places || {})) if (byId.has(id)) byId.get(id).far = a.places[id];
+    for (const id of a.drop || []) {
+      const e = byId.get(String(id));
+      if (e) { e.dropped = true; this.leave(e); e.go(); }
+    }
+    return (a.go || []).map((id) => byId.get(String(id))).filter((e) => e && this.line.includes(e));
+  }
 
   join(who, tier) {
     if (this.line.length >= LINE_MAX) throw new Error("the line for the browser is full — try again later");
@@ -197,6 +226,7 @@ class Fairness {
   }
 
   place(e) {
+    if (e.far && this.shared()) return e.far;
     const o = this.ordered(), i = o.indexOf(e);
     return { place: i + 1, ahead: i, of: o.length };
   }

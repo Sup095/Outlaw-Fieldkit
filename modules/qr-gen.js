@@ -368,7 +368,7 @@
     keywords: "qr code wifi link phone scan",
     guestSafe: true,
     selfcheck: selfcheck,
-    title: "QR FORGE",
+    title: "QR CODE",
     icon: "▚",
     width: 860,
     height: 600,

@@ -24,7 +24,6 @@ says plainly that it is not.
 > - `https://tool.outlawfieldkit.com`
 > - `https://save.outlawfieldkit.com`
 > - `https://learn.outlawfieldkit.com`
-> - `https://edu.outlawfieldkit.com`
 >
 > (`run.outlawfieldkit.com` is RUNNER's own server, not a relay address;
 > RUNNER finds it by itself.) If the whole domain is ever blocked, a new one
@@ -39,8 +38,7 @@ says plainly that it is not.
 - [Using it](#using-it)
 - [How it fits together](#how-it-fits-together)
 - [Security model](#security-model)
-- [Running your own relay](#running-your-own-relay)
-- [Running your own run server (RUNNER)](#running-your-own-run-server-runner)
+- [Running your own server](#running-your-own-server)
 - [Building from source](#building-from-source)
 - [Repository layout](#repository-layout)
 - [Reporting bugs and security issues](#reporting-bugs-and-security-issues)
@@ -93,8 +91,10 @@ so there is nothing on that drive that could open a vault.
 
 **The desktop.** A search bar across the top: type anywhere and press Enter
 to open the first match. *Your apps* fills with what you use most, and *all
-apps* is grouped as ONLINE, FILES, PROJECT, SERVERS, TOOLS and SYSTEM. Ctrl+K
-searches apps and records. Themes, a CRT mode, and a lock screen.
+apps* is grouped as ONLINE, FILES, TOOLS and SYSTEM. If anything needs you, it
+says so under the search bar. Ctrl+K searches apps and records. Themes, a CRT
+mode, and a lock screen. The whole thing is 21 apps, and the manual has a page
+for each.
 
 **MESSAGES.** End-to-end encrypted chat with the people on your relay. New
 accounts wait for a moderator's approval. Tiers: guest, member, admin.
@@ -103,7 +103,7 @@ accounts wait for a moderator's approval. Tiers: guest, member, admin.
 H.264 video and decoded in hardware with WebCodecs, falling back to pictures
 when video is not available. It has:
 - tabs, back/forward, find, zoom, and copy and paste both ways;
-- downloads, saved to this device or encrypted into VAULT FILES;
+- downloads, saved to this device or encrypted into FILES;
 - a page's "choose file" opening your own file picker;
 - touch: drag to scroll, tap, pinch to zoom;
 - bookmarks and history kept encrypted in your vault;
@@ -126,14 +126,19 @@ with your keyboard and mouse sent back.
   it, and a PLAY button), punishments, a bin, power readings and a
   fair-access line.
 
-**The vault (FIELDKIT only).** Notes, a scratchpad, snippets, a task board,
-decisions, a changelog, an incident log, a playtest log, encrypted file
-storage and save codes. They sync through the relay as ciphertext.
+**ASK.** Questions answered by the best thing it can reach, and every reply
+says which: a model on your own PC, the server's small models (members only),
+a tiny model installed into this browser with one button (everyone, WebGPU),
+or built-in rules when there is none of those.
 
-**Tools.** QR codes, a code diff, game maths, a terminal with CritterScript (a
-tiny language built in), link diagnostics, topology and mesh planners, an AI
-chat (relay models, or a model run locally in the browser with WebGPU), and a
-self-test.
+**The vault (FIELDKIT only).** NOTES (notes, snippets, configs, decisions and
+incidents, every version kept), encrypted FILES and a TASK BOARD. They sync
+through the relay as ciphertext.
+
+**Tools.** QR CODE, GAME MATH, and TOPOLOGY, a picture of your network that
+fills itself in from the relay and marks what is up. Admins also get a terminal
+with CritterScript (a tiny language built in). DIAGNOSTICS and RELAY LINK, with
+LINK DOCTOR inside, find what is wrong.
 
 ---
 
@@ -238,7 +243,29 @@ relay data, recovery keys and the release key are all in `.gitignore`.
 
 ---
 
-## Running your own relay
+## Running your own server
+
+This is everything, in the order to do it. You need one machine for the relay.
+Everything after the relay is optional, and each step works without the next.
+
+| Step | What you get | How |
+|---|---|---|
+| 1. Build | your own copy, with your relay's address in it | `node build.js` ([building](#building-from-source)) |
+| 2. Relay | MESSAGES, sync, FILES, UPDATE, the engine for browser models | [`SETUP.md`](SETUP.md) parts 1 and 2 |
+| 3. Tunnel | an https address with no port opened | [`SETUP.md`](SETUP.md) part 3 |
+| 4. Streamed browser | BROWSER | the Docker image, [`relay/BROWSER.md`](relay/BROWSER.md) |
+| 5. Run server | RUNNER, on a second Linux machine | `runnerd/setup.sh`, [below](#running-your-own-run-server-runner) |
+| 6. Small AI models | ASK for your members | `sh runnerd/tiny-ai.sh`, [below](#small-ai-models) |
+| 7. A big AI model | ASK with your own PC | LM Studio and `aiTargets`, [`MODELS.md`](MODELS.md) |
+| 8. Accounts | who may use what | `messaging` in the config: `moderators`, `requireApproval` |
+| 9. Your own updates | signed releases to your users | [`SETUP.md`](SETUP.md) part 6 |
+
+Your settings go in `relay/config.local.json`, which never leaves your machine.
+`node build.js` merges it over `relay/config.example.json`, which explains every
+setting, and writes `relay/config.json` to upload. Check it all afterwards with
+`PREFLIGHT.html`, then DIAGNOSTICS.
+
+### The relay
 
 The relay is plain Node.js (22 or newer) with **no npm dependencies**. For the
 streamed browser it needs Chromium and ffmpeg, which the Docker image in
@@ -262,7 +289,25 @@ node relay/server.js
 - [`relay/LARGE-FILES.md`](relay/LARGE-FILES.md): large files.
 - [`MODELS.md`](MODELS.md): AI models, on the relay or in the browser.
 
-## Running your own run server (RUNNER)
+### Small AI models
+
+On the run server, in the folder `setup.sh` uses:
+
+```bash
+sh tiny-ai.sh
+```
+
+It fetches two small models (about 700 MB, each checked against a pinned hash),
+starts them where only the tailnet can reach them, and prints the `tinyAi` lines
+for your relay's config. Put those in and restart the relay. They need about
+1.5 GB of memory between them and no graphics card, and RUNNER takes priority
+over them. `sh tiny-ai.sh stop` stops them.
+
+Only members and admins can use them, one question at a time each. Everyone
+else gets the models that run in their own browser, which cost you nothing: the
+relay only hands the page the engine, and the model comes from Hugging Face.
+
+### Running your own run server (RUNNER)
 
 A Linux machine with Docker. `runnerd/setup.sh` sets it up and updates it,
 and is safe to run again:

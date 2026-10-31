@@ -1,23 +1,31 @@
 /* ============================================================
-   FieldKit :: scratchpad
+   FieldKit :: scratchpad (shown as NOTES)
    Markdown notes with full version history — every save writes a
    new version record rather than overwriting.
 
    This is Phase 1's proving module: it exercises encrypted writes,
    many-record reads, search, and the offline queue harder than
    anything else in the toolkit.
+
+   Since the scaleback (SIMPLIFY_PLAN.md) a note has a tag, and the
+   snippet library, config vault, decision log and incident log are
+   tags here rather than apps. Their old records are copied into notes
+   the first time this opens (migrate) and left where they are, so a
+   backup still holds them. The module id stays "scratchpad": it is
+   what people's usage counts and links know it by.
    ============================================================ */
 (function (FieldKit) {
   "use strict";
 
   var TYPE = "note";
   var TYPE_VER = "note-version";
+  var TAGS = ["note", "snippet", "config", "decision", "incident"];
 
   var ctx = null;
   var ui = null;
   var el = null;
 
-  var state = { noteId: null, dirty: false, notes: [], filter: "" };
+  var state = { noteId: null, dirty: false, notes: [], filter: "", tag: "" };
   var nodes = {};
   var autosaveTimer = null;
 
@@ -100,6 +108,53 @@
     return host;
   }
 
+  /* ---- what the old apps left behind --------------------------- */
+  function line(label, v) { return v ? "**" + label + ":** " + v + "\n" : ""; }
+  function fence(body, lang) { return "```" + (lang || "") + "\n" + (body || "") + "\n```\n"; }
+  function tagLine(t) { return t && t.length ? "\n" + line("Tags", t.join(", ")) : ""; }
+
+  var OLD = [
+    { type: "snippet", tag: "snippet", body: function (d) {
+      return fence(d.body, d.lang) + (d.note ? "\n" + d.note + "\n" : "") + tagLine(d.tags);
+    } },
+    { type: "config", tag: "config", body: function (d) {
+      return line("System", d.system) + line("Kind", d.kind) + line("Path", d.path) +
+        line("Verified on", d.verifiedOn) + (d.dangerous ? "**Dangerous:** yes\n" : "") +
+        "\n" + fence(d.body) + (d.why ? "\n" + d.why + "\n" : "");
+    } },
+    { type: "decision", tag: "decision", body: function (d) {
+      return line("Chose", d.chose) + line("Rejected", d.rejected) + line("Why", d.why) +
+        line("Revisit if", d.revisitIf) + line("Status", d.status) +
+        line("Supersedes", d.supersedesTitle) + tagLine(d.tags);
+    } },
+    { type: "incident", tag: "incident", body: function (d) {
+      return line("When", d.at) + line("System", d.system) + line("Severity", d.severity) +
+        line("Resolved", d.resolved ? "yes" : "no") + "\n" + (d.detail || "") + "\n" + tagLine(d.tags);
+    } }
+  ];
+
+  /* Copies each old record into a tagged note once. The note's id
+     comes from the record's, so two machines doing this at the same
+     moment land on the same note, and `from` says it is done even if
+     the note has since been renamed or changed. */
+  async function migrate() {
+    var guest = FieldKit.service("guest");
+    if ((guest && guest.active()) || !ctx.store.canReadHistory()) return 0;
+    var done = {}, moved = 0;
+    state.notes.forEach(function (n) { if (n.data.from) done[n.data.from] = true; });
+    for (var i = 0; i < OLD.length; i++) {
+      var rows = await ctx.store.list(OLD[i].type);
+      for (var j = 0; j < rows.length; j++) {
+        var r = rows[j];
+        if (done[r.id]) continue;
+        await ctx.store.put(TYPE, { title: r.data.title || "UNTITLED", body: OLD[i].body(r.data),
+          tag: OLD[i].tag, from: r.id }, { id: "note-" + r.id });
+        moved++;
+      }
+    }
+    return moved;
+  }
+
   /* ---- data --------------------------------------------------- */
   async function loadNotes() {
     state.notes = await ctx.store.list(TYPE);
@@ -110,14 +165,16 @@
     return state.notes.find(function (n) { return n.id === state.noteId; }) || null;
   }
 
+  function tagOf(n) { return (n.data && n.data.tag) || "note"; }
+
   /* The close path. Takes everything by value and writes only to the
      store — no state, no nodes, no toast, because by the time this
      resolves the module is gone and both are somebody else's now. */
-  function saveDetached(title, body, noteId) {
+  function saveDetached(title, body, noteId, tag, from) {
     var store = ctx.store;
     Promise.resolve()
       .then(function () {
-        return store.put(TYPE, { title: title, body: body },
+        return store.put(TYPE, { title: title, body: body, tag: tag, from: from },
           noteId ? { id: noteId } : undefined);
       })
       .then(function (meta) {
@@ -134,13 +191,16 @@
     opts = opts || {};
     var title = nodes.title.value.trim() || "UNTITLED";
     var body = nodes.editor.value;
+    var tag = nodes.tag.value;
     var existing = currentNote();
 
-    if (existing && !opts.force && existing.data.body === body && existing.data.title === title) {
+    if (existing && !opts.force && existing.data.body === body && existing.data.title === title &&
+        tagOf(existing) === tag) {
       return existing;
     }
 
-    var meta = await ctx.store.put(TYPE, { title: title, body: body }, { id: state.noteId || undefined });
+    var meta = await ctx.store.put(TYPE, { title: title, body: body, tag: tag, from: existing ? existing.data.from : undefined },
+      { id: state.noteId || undefined });
     state.noteId = meta.id;
 
     /* Version history: append-only, never overwritten. */
@@ -160,6 +220,7 @@
     state.noteId = null;
     nodes.title.value = "";
     nodes.editor.value = "";
+    nodes.tag.value = state.tag || "note";
     state.dirty = false;
     updateDirty();
     renderList();
@@ -174,10 +235,19 @@
     state.noteId = id;
     nodes.title.value = n.data.title || "";
     nodes.editor.value = n.data.body || "";
+    nodes.tag.value = tagOf(n);
     state.dirty = false;
     updateDirty();
     renderList();
     renderPreview();
+  }
+
+  /* The note's first code block if it has one, which is the part of a
+     snippet or a config anyone wants; otherwise all of it. */
+  function copyNote() {
+    var text = nodes.editor.value;
+    var m = /```[^\n]*\n([\s\S]*?)\n?```/.exec(text);
+    ui.copy(m ? m[1] : text, { title: "NOTE" });
   }
 
   async function deleteNote() {
@@ -223,6 +293,7 @@
     ui.clear(nodes.list);
     var f = state.filter.toLowerCase();
     var shown = state.notes.filter(function (n) {
+      if (state.tag && tagOf(n) !== state.tag) return false;
       if (!f) return true;
       return ((n.data.title || "") + " " + (n.data.body || "")).toLowerCase().indexOf(f) >= 0;
     });
@@ -241,7 +312,7 @@
       }, [
         el("span", { class: "sp-item-title", text: n.data.title || "UNTITLED" }),
         el("span", { class: "sp-item-prev", text: preview || "—" }),
-        el("span", { class: "sp-item-date", text:
+        el("span", { class: "sp-item-date", text: (tagOf(n) === "note" ? "" : tagOf(n).toUpperCase() + " · ") +
           new Date(n.meta.updatedAt).toLocaleDateString() + " " +
           new Date(n.meta.updatedAt).toLocaleTimeString().slice(0, 5) })
       ]));
@@ -297,6 +368,12 @@
         await loadNotes();
         return "saved, read back, " + versions.length + " version snapshot(s), cleaned up";
       } },
+      { name: "OLD LISTS BECOME NOTES", critical: false, run: async function () {
+        var d = { title: "t", body: "x=1", lang: "js", tags: ["a"], note: "why" };
+        var body = OLD[0].body(d);
+        if (body.indexOf("```js") !== 0 || body.indexOf("why") < 0) throw new Error("a snippet did not convert");
+        return "converted";
+      } },
       { name: "MARKDOWN PREVIEW", critical: false, run: async function () {
         nodes.editor.value = "# Heading\n\nSome **bold** text and `code`.\n\n- one\n- two";
         renderPreview();
@@ -320,11 +397,11 @@
 
   FieldKit.register("scratchpad", {
     group: "FILES",
-    about: "Quick notes in Markdown, with every version kept",
-    keywords: "notes text write markdown jot draft memo",
+    about: "Notes, snippets, configs, decisions and incidents, every version kept",
+    keywords: "notes text write markdown jot draft memo scratchpad snippet code config decision incident log",
     guestSafe: true,
     selfcheck: selfcheck,
-    title: "SCRATCHPAD",
+    title: "NOTES",
     icon: "▤",
     width: 860,
     height: 540,
@@ -339,6 +416,13 @@
       nodes.search = el("input", { class: "fk-input sp-search", placeholder: "SEARCH NOTES",
         oninput: function (e) { state.filter = e.target.value; renderList(); } });
       nodes.list = el("div", { class: "sp-list" });
+      nodes.filter = el("select", { class: "fk-input sp-search", title: "show one tag",
+        onchange: function (e) { state.tag = e.target.value; renderList(); } },
+        [el("option", { value: "", text: "ALL" })].concat(TAGS.map(function (t) {
+          return el("option", { value: t, text: t.toUpperCase() + "S" });
+        })));
+      nodes.tag = el("select", { class: "fk-input sp-tag", title: "this note's tag", onchange: markDirty },
+        TAGS.map(function (t) { return el("option", { value: t, text: t.toUpperCase() }); }));
       nodes.title = el("input", { class: "fk-input sp-title", placeholder: "NOTE TITLE",
         oninput: markDirty });
       nodes.editor = el("textarea", { class: "fk-input sp-editor", spellcheck: "false",
@@ -354,14 +438,16 @@
       host.appendChild(el("div", { class: "sp-wrap" }, [
         el("div", { class: "sp-side" }, [
           nodes.search,
+          nodes.filter,
           el("div", { class: "sp-side-actions" }, [ui.button("NEW", newNote, { primary: true })]),
           nodes.list
         ]),
         el("div", { class: "sp-main" }, [
           offlineWarning,
           el("div", { class: "sp-bar" }, [
-            nodes.title, nodes.dirty,
+            nodes.title, nodes.tag, nodes.dirty,
             ui.button("SAVE", function () { saveNote({ force: true }); }, { primary: true }),
+            ui.button("COPY", copyNote),
             ui.button("HISTORY", showHistory),
             ui.button("DELETE", deleteNote, { danger: true })
           ]),
@@ -377,6 +463,9 @@
       });
 
       await loadNotes();
+      try {
+        if (await migrate()) await loadNotes();
+      } catch (e) { ctx.warn("could not bring the old lists into NOTES: " + e.message); }
       renderPreview();
     },
 
@@ -391,10 +480,12 @@
            opened, quietly retargeting it. Everything needed is
            captured here, and the detached save touches nothing but
            the store. */
-        saveDetached(nodes.title.value.trim() || "UNTITLED", nodes.editor.value, state.noteId);
+        var open = currentNote();
+        saveDetached(nodes.title.value.trim() || "UNTITLED", nodes.editor.value, state.noteId,
+          nodes.tag.value, open ? open.data.from : undefined);
       }
       nodes = {};
-      state = { noteId: null, dirty: false, notes: [], filter: "" };
+      state = { noteId: null, dirty: false, notes: [], filter: "", tag: "" };
     },
 
     searchIndex() {
@@ -429,7 +520,8 @@
 .sp-empty{padding:14px;text-align:center;color:var(--fg-dimmer);font-size:10px;letter-spacing:.2em}
 .sp-main{flex:1;display:flex;flex-direction:column;gap:8px;min-width:0;min-height:0}
 .sp-bar{display:flex;gap:6px;align-items:center;flex:none}
-.sp-title{flex:1;padding:6px 9px;letter-spacing:.1em}
+.sp-title{flex:1;padding:6px 9px;letter-spacing:.1em;min-width:0}
+.sp-tag{flex:none;width:96px;padding:6px 4px;font-size:10px}
 .sp-dirty{font-size:10px;letter-spacing:.16em;color:transparent;min-width:60px}
 .sp-dirty.on{color:var(--warn)}
 .sp-split{flex:1;display:flex;gap:8px;min-height:0}

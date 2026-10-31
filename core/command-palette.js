@@ -19,7 +19,10 @@
   /* ---- index -------------------------------------------------- */
   function moduleCommands() {
     var mods = FieldKit.modules();
-    return Object.keys(mods).map(function (id) {
+    var shell = FieldKit.service("shell");
+    return Object.keys(mods).filter(function (id) {
+      return !shell || !shell.adminOK || shell.adminOK(mods[id]);
+    }).map(function (id) {
       return {
         kind: "module", id: id, title: mods[id].title, icon: mods[id].icon,
         /* What it does, and the words people look for it by (§21). */
@@ -165,8 +168,6 @@
     var it = items[selected];
     if (!it) return;
     hide();
-    var ach = FieldKit.service("achievements");
-    if (ach) ach.notePaletteUse();
     /* Several commands are async — SYNC NOW, the self-test — and a
        sync try/catch cannot see a rejected promise. A failing sync
        used to vanish silently: the palette closed, nothing was said,

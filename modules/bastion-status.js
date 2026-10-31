@@ -336,7 +336,7 @@
        own selfchecks, its own lifecycle and its own id, and open()
        still reaches it. `inside` only tells the launcher not to
        draw a second icon for something already on screen. */
-    inside: "bastion",
+    inside: "selftest-panel",
     guestSafe: false,
     selfcheck: selfcheck,
     title: "BASTION STATUS",

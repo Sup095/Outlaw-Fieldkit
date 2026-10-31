@@ -27,7 +27,8 @@
        only the shelves under it, so a module registering mid-search
        never takes the text being typed with it. */
     shelves = el("div", { class: "fk-shelves" });
-    iconLayer = el("div", { id: "fk-icons" }, [buildSearch(), shelves]);
+    attn = el("div", { class: "fk-attn" });
+    iconLayer = el("div", { id: "fk-icons" }, [buildSearch(), attn, shelves]);
     winLayer = el("div", { id: "fk-windows" });
     taskList = el("div", { id: "fk-tasks" });
     tray = el("div", { id: "fk-tray" });
@@ -44,6 +45,8 @@
 
     FieldKit.on("module:registered", refreshIcons);
     FieldKit.on("module:failed", refreshIcons);
+    FieldKit.on("messages:session", refreshIcons);
+    FieldKit.on("health:checked", drawAttention);
     window.addEventListener("keydown", onKey);
     desktop.addEventListener("mousedown", function (e) {
       var inWin = false;
@@ -51,6 +54,33 @@
       keysToWindow = inWin;
     }, true);
     return desktop;
+  }
+
+  /* ---- what needs attention ------------------------------------
+     What was left of HOME once the desktop itself shows your apps: the
+     things that go wrong quietly (core/health.js), each with a ✕. Only
+     what is actually wrong; a row that is always there gets ignored. */
+  var attn, dismissed = {};
+  function drawAttention(report) {
+    if (!attn) return;
+    ui.clear(attn);
+    ((report && report.problems) || []).forEach(function (f) {
+      if (dismissed[f.id]) return;
+      var row = el("div", { class: "fk-attn-row" + (f.level === "fail" ? " fail" : "") }, [
+        el("span", { class: "fk-attn-t", text: f.text, title: f.detail || "" }),
+        el("button", { class: "fk-attn-x", type: "button", text: "✕", title: "dismiss until next time",
+          onclick: function () { dismissed[f.id] = true; if (row.parentNode) row.parentNode.removeChild(row); } })
+      ]);
+      attn.appendChild(row);
+    });
+  }
+
+  /* Apps marked adminOnly exist only for an admin on the relay: to
+     everyone else there is no tile, no search hit and no window. */
+  function adminOK(m) {
+    if (!m || !m.adminOnly) return true;
+    var msg = FieldKit.service("messages");
+    return !!(msg && msg.tier && msg.tier() === "admin");
   }
 
   /* ---- tray --------------------------------------------------- */
@@ -292,7 +322,7 @@
     var u = readUsage(), now = Date.now();
     var usable = function (id) {
       var m = mods[id];
-      return !!m && !m.inside && (!guest || guest.allowed(m));
+      return !!m && !m.inside && adminOK(m) && (!guest || guest.allowed(m));
     };
     var ids = Object.keys(u).filter(usable).sort(function (a, b) {
       return usageScore(u[b], now) - usageScore(u[a], now) || a.localeCompare(b);
@@ -379,7 +409,7 @@
     var mods = FieldKit.modules(), u = readUsage(), now = Date.now();
     var out = [];
     Object.keys(mods).forEach(function (id) {
-      if (mods[id].inside) return;
+      if (mods[id].inside || !adminOK(mods[id])) return;
       var s = matchScore(mods[id], q, words);
       if (s > 0) out.push({ id: id, m: mods[id], s: s, use: usageScore(u[id], now) });
     });
@@ -503,15 +533,13 @@
      RUNNER in SERVER), and the row above them is the apps you use
      most, so nothing used daily is more than one click away.
      ---------------------------------------------------------------- */
-  var GROUP_ORDER = ["ONLINE", "FILES", "PROJECT", "SERVERS", "TOOLS", "SYSTEM"];
+  var GROUP_ORDER = ["ONLINE", "FILES", "TOOLS", "SYSTEM"];
   /* Inside a folder, the everyday ones first; that is also which four
      glyphs its card shows. Anything not listed follows, by name. */
-  var APP_ORDER = ["browser", "messages", "runner", "ai-chat", "ai-local",
-    "vault-files", "scratchpad", "snippet-library", "backup-panel", "asset-library", "savecode", "config-vault",
-    "task-board", "playtest-log", "git-console", "decisions", "changelog", "incident-log", "code-diff", "guestbook",
-    "bastion", "relay-config", "link-doctor", "topology", "mesh-planner",
-    "terminal", "dev-tools", "critter-ref", "game-math", "qr-gen", "security-mockup",
-    "settings-panel", "settings-outpost", "updater", "help", "home", "selftest-panel", "achievements", "build-manifest"];
+  var APP_ORDER = ["browser", "messages", "runner", "ai-chat",
+    "vault-files", "scratchpad", "task-board", "topology", "relay-config", "relay-link",
+    "game-math", "qr-gen", "terminal", "critter-ref",
+    "settings-panel", "settings-outpost", "updater", "help", "selftest-panel"];
   var DEAD_FOLDER = "DID NOT LOAD";
   var FOLDER_PREVIEW = 4;      // glyphs shown on the folder tile
   var openFolder = null;       // name of the folder panel on screen
@@ -623,7 +651,7 @@
          reaches it by id, so the terminal and the palette can still
          put one on screen on its own. The only thing `inside`
          changes is whether it gets a tile. */
-      if (mods[id].inside) return;
+      if (mods[id].inside || !adminOK(mods[id])) return;
       var g = (mods[id].group || "TOOLS").toUpperCase();
       (grouped[g] = grouped[g] || []).push(id);
     });
@@ -738,6 +766,7 @@
       ui.toast("SEALED :: " + mod.title, "warn");
       return null;
     }
+    if (!adminOK(mod)) { ui.toast("ADMINS ONLY :: " + mod.title, "warn"); return null; }
 
     noteUsed(id);
 
@@ -751,8 +780,17 @@
 
     var w = Math.min(mod.width || 620, window.innerWidth - 60);
     var h = Math.min(mod.height || 420, window.innerHeight - 100);
+    /* The stagger gives way to the screen: on a Chromebook the last
+       steps of it put a window's bottom row under the taskbar, which
+       is where ASK's input and every app's buttons are. */
+    var room = { width: winLayer.clientWidth, height: winLayer.clientHeight };
     var x = 130 + (cascade % 6) * 26;
     var y = 40 + (cascade % 6) * 24;
+    if (room.height) {
+      h = Math.min(mod.height || 420, room.height - 8);
+      x = Math.max(0, Math.min(x, room.width - w));
+      y = Math.max(0, Math.min(y, room.height - h));
+    }
     cascade++;
 
     var body = el("div", { class: "fk-win-body" });
@@ -1106,6 +1144,7 @@
   FieldKit.provide("shell", {
     build: build,
     open: open,
+    adminOK: adminOK,
     close: close,
     focus: focus,
     minimize: minimize,

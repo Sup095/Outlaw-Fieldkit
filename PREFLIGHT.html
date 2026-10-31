@@ -196,7 +196,7 @@ var driveChecked = false, relayChecked = false, ranAuto = false;
 var manifestInfo = null;
 /* The FieldKit version this page was written for; a test keeps it
    equal to core/kernel.js, so it is updated with every release. */
-var FOR_VERSION = "0.3.1";
+var FOR_VERSION = "0.4.0";
 /* Next to the drive's files (FIELDKIT.html, core/...), or next to the
    downloaded single-file builds. Decided by whether core/kernel.js loads. */
 var layout = "unknown";
@@ -943,6 +943,15 @@ async function checkServices(G, base) {
         : (r.v.why || "the run server is offline") + " — everything else still works");
   } else {
     rec(G, "RUNNER", "INFO", r.v ? "switched off on this relay" : "this relay does not offer it");
+  }
+  var t = await guard(10000, async function () {
+    var res = await fetch(base + "/ai/tiny", { cache: "no-store", mode: "cors" });
+    return res.status === 200 ? JSON.parse(await res.text()) : null;
+  });
+  if (t.v && t.v.enabled) {
+    rec(G, "server AI models", "PASS", t.v.models.length + " for members; everyone can install one in their own browser");
+  } else {
+    rec(G, "server AI models", "INFO", t.v ? "none on this relay" : "this relay does not offer them");
   }
   var w = await guard(9000, function () {
     return new Promise(function (resolve, reject) {

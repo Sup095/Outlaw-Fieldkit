@@ -490,7 +490,7 @@
   }
 
   FieldKit.register("task-board", {
-    group: "PROJECT",
+    group: "FILES",
     about: "A to-do board for the two of you",
     keywords: "tasks todo kanban board work plan",
     guestSafe: false,

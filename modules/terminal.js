@@ -1019,6 +1019,7 @@
   }
 
   FieldKit.register("terminal", {
+    adminOnly: true,
     group: "TOOLS",
     about: "Type commands to drive FieldKit, and run CritterScript",
     keywords: "terminal command line shell console prompt",

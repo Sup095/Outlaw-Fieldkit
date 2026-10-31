@@ -389,6 +389,22 @@ button,input,textarea,select{font:inherit;color:inherit}
 .fk-folder-head .t{font-size:12px;letter-spacing:.24em;color:var(--accent)}
 .fk-folder-head .c{font-size:8px;letter-spacing:.16em;color:var(--fg-dimmer);flex:1}
 
+/* ---- folds ---- */
+.fk-fold{border:1px solid var(--line);margin-bottom:6px}
+.fk-fold-head{display:block;width:100%;background:none;border:0;color:var(--fg-dim);font:inherit;font-size:10px;
+  letter-spacing:.14em;text-align:left;padding:6px 8px;cursor:pointer}
+.fk-fold-head:hover{color:var(--accent)}
+.fk-fold-body{padding:8px;border-top:1px solid var(--line)}
+.fk-fold-note{font-size:10px;color:var(--fg-dimmer)}
+
+/* The desktop's short list of what needs attention (was HOME). */
+.fk-attn{display:flex;flex-direction:column;gap:4px}
+.fk-attn-row{display:flex;gap:8px;align-items:center;font-size:11px;padding:5px 9px;
+  border:1px solid var(--warn);color:var(--warn);background:rgba(12,15,13,.8)}
+.fk-attn-row.fail{border-color:var(--fail);color:var(--fail)}
+.fk-attn-t{flex:1;min-width:0}
+.fk-attn-x{background:none;border:0;color:inherit;font:inherit;cursor:pointer;padding:0 3px}
+
 /* ---- windows ---- */
 .fk-win{position:absolute;min-width:280px;min-height:150px;display:flex;flex-direction:column;
   background:var(--panel);border:1px solid var(--line2);
@@ -542,6 +558,53 @@ body.crt #fk-desktop{animation:fk-flicker 5s infinite}
   injectCSS();
   applyTheme(currentTheme);
 
+  /* A section that stays out of the way until asked for: the small
+     screens this runs on have no room for everything at once. */
+  function fold(label, body, opts) {
+    opts = opts || {};
+    var open = !!opts.open, once = false;
+    var inner = el("div", { class: "fk-fold-body", style: { display: open ? "" : "none" } }, body || []);
+    var head = el("button", { class: "fk-fold-head", type: "button", title: opts.title || null, onclick: toggle });
+    function draw() { head.textContent = (open ? "▾ " : "▸ ") + (opts.icon ? opts.icon + " " : "") + label; }
+    function toggle() {
+      open = !open;
+      inner.style.display = open ? "" : "none";
+      draw();
+      if (open && !once && opts.onOpen) { once = true; opts.onOpen(inner); }
+    }
+    draw();
+    var node = el("div", { class: "fk-fold" }, [head, inner]);
+    if (open && opts.onOpen) { once = true; opts.onOpen(inner); }
+    return node;
+  }
+
+  /* Another module as a fold of this one, mounted the first time it is
+     opened: LINK DOCTOR in RELAY LINK, BACKUP in SETTINGS, the servers
+     in DIAGNOSTICS. Such a module declares `inside`, which keeps it off
+     the desktop. One that fails gets a sentence, not a dead window, and
+     the host calls .unmount() on its way out. */
+  function moduleFold(id, ctx, opts) {
+    opts = opts || {};
+    var mod = FieldKit.module(id);
+    if (!mod) return null;
+    var mounted = false;
+    var node = fold(opts.label || mod.title, [], { icon: opts.icon || mod.icon, title: mod.about, open: opts.open, onOpen: function (host) {
+      var guest = FieldKit.service("guest");
+      if (guest && !guest.allowed(mod)) { host.appendChild(el("div", { class: "fk-fold-note", text: "Not available in a guest session." })); return; }
+      mounted = true;
+      Promise.resolve().then(function () { return mod.mount(host, ctx); }).catch(function (e) {
+        mounted = false;
+        host.appendChild(el("div", { class: "fk-fold-note", text: mod.title + " failed to open: " + e.message }));
+      });
+    } });
+    node.unmount = function () {
+      if (!mounted || typeof mod.unmount !== "function") return;
+      mounted = false;
+      try { mod.unmount(); } catch (e) { FieldKit.log("error", "ui", "unmount threw for " + id + ": " + e.message); }
+    };
+    return node;
+  }
+
   FieldKit.provide("ui", {
     THEMES: THEMES,
     applyTheme: applyTheme,
@@ -551,6 +614,8 @@ body.crt #fk-desktop{animation:fk-flicker 5s infinite}
     button: button,
     field: field,
     panel: panel,
+    fold: fold,
+    moduleFold: moduleFold,
     readout: readout,
     statusDot: statusDot,
     toast: toast,

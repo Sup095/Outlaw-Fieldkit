@@ -107,7 +107,7 @@ function init(opts) {
 const REPORT_AUDIENCE = "fieldkit-load";
 function signReport(r, now) {
   const body = b64u(JSON.stringify({ v: 1, aud: REPORT_AUDIENCE, up: Math.max(0, Math.round(r.up || 0)),
-    cpu: r.cpu, mem: r.mem, wait: r.wait | 0,
+    cpu: r.cpu, mem: r.mem, wait: r.wait | 0, line: r.line, free: r.free,
     exp: (now || Date.now()) + 30000, n: crypto.randomBytes(12).toString("hex") }));
   return body + "." + b64u(crypto.sign(null, Buffer.from(body), keys.privateKey));
 }
@@ -116,12 +116,16 @@ function remember(body) {
   const l = body && body.load;
   if (!l || typeof l !== "object") return;
   peer = { upKbps: Math.max(0, Number(l.upKbps) || 0), settings: l.settings && typeof l.settings === "object" ? l.settings : null,
-    waiting: Math.max(0, l.waiting | 0), at: Date.now() };
+    waiting: Math.max(0, l.waiting | 0), line: l.line && typeof l.line === "object" ? l.line : null, at: Date.now() };
+  if (onAnswer && peer.line) onAnswer(peer.line);
 }
+
+let onAnswer = null;      /* takes Bastion 2's word on the browser's line */
 
 /* Every 5 s while the browser is in use or anyone waits, every 30 s
    otherwise. `mine` gives { up, cpu, mem, wait, busy }. */
-function startReports(mine) {
+function startReports(mine, answer) {
+  onAnswer = answer || null;
   if (reportTimer) clearInterval(reportTimer);
   reportTimer = setInterval(async () => {
     if (!cfg.enabled || !probeBase() || !keys) return;

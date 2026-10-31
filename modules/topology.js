@@ -1,11 +1,11 @@
 /* ============================================================
    FieldKit :: topology
-   A picture of the network, drawn by hand and kept current (§4).
+   A picture of the network that keeps itself up to date.
 
-   Not auto-discovered, on purpose. Discovery tells you what is
-   talking to what right now; a diagram tells you what is supposed
-   to be talking to what, which is the thing you need at 2am when
-   it has stopped. The gap between the two is the bug.
+   Opening it asks the relay what it can see (relay/topology.js),
+   adds anything missing to the picture, and marks each part up or
+   down. Your own drawing stays: nothing moves or is removed, so what
+   is supposed to be there still shows when it has stopped.
 
    Draggable SVG nodes, edges typed by how the traffic actually
    travels (tailnet / lan / wan / internet), saved encrypted, and
@@ -75,6 +75,8 @@
   var refocusId = null;
 
   var W = 840, H = 420;
+  var live = {}, liveTimer = null;     // id -> { up, note } from the relay
+  var LIVE_MS = 60000;
 
   /* ---- model ------------------------------------------------------ */
   function normalise(d, id) {
@@ -230,6 +232,62 @@
     return { x: c.x + dx * s, y: c.y + dy * s };
   }
 
+  /* ---- live from the relay ---------------------------------------- */
+  /* A free spot down the right-hand side, then the next column in. */
+  function freeSpot(kind) {
+    var k = KINDS[kind];
+    for (var x = W - k.w - 10; x > 0; x -= k.w + 14) {
+      for (var y = 10; y + k.h < H; y += k.h + 12) {
+        var hit = current.nodes.some(function (o) {
+          var ok = KINDS[o.kind];
+          return x < o.x + ok.w + 8 && o.x < x + k.w + 8 && y < o.y + ok.h + 8 && o.y < y + k.h + 8;
+        });
+        if (!hit) return { x: x, y: y };
+      }
+    }
+    return { x: 10, y: 10 };
+  }
+
+  /* Puts what the relay reported into the picture. Adds, never moves
+     or removes: a part that has vanished from the report is exactly
+     the one you want to go on seeing. Returns how many were added. */
+  function merge(parts) {
+    var added = 0;
+    live = {};
+    parts.forEach(function (p) {
+      if (!nodeById(p.id)) {
+        var spot = freeSpot(p.kind);
+        current.nodes.push({ id: p.id, label: p.label, kind: KINDS[p.kind] ? p.kind : "service", x: spot.x, y: spot.y });
+        added++;
+        if (p.link && nodeById(p.link)) current.edges.push({ from: p.link, to: p.id, kind: "tailnet", label: "" });
+      }
+      live[p.id] = { up: !!p.up, note: p.note || "" };
+    });
+    return added;
+  }
+
+  async function pullLive() {
+    var base = String(ctx.settings.get("relayUrl") || "").replace(/\/+$/, "");
+    if (!base) { setLive("Add a relay in RELAY LINK and this fills itself in."); return; }
+    var mine = current;
+    try {
+      var res = await fetch(base + "/topology", { cache: "no-store", signal: AbortSignal.timeout(8000) });
+      if (!res.ok) throw new Error(res.status === 404 ? "this relay is too old to report" : "the relay answered " + res.status);
+      var r = await res.json();
+      if (!nodes.svg || mine !== current) return;
+      var added = merge(r.parts || []);
+      var down = Object.keys(live).filter(function (id) { return !live[id].up; }).length;
+      setLive(Object.keys(live).length + " PARTS LIVE FROM THE RELAY" + (down ? ", " + down + " DOWN" : ", ALL UP"));
+      draw();
+      if (added) save();
+    } catch (e) {
+      live = {};
+      if (nodes.svg) { setLive("No live report: " + e.message); draw(); }
+    }
+  }
+
+  function setLive(text) { if (nodes.live) nodes.live.textContent = text; }
+
   function draw() {
     if (!nodes.svg) return;
     while (nodes.svg.firstChild) nodes.svg.removeChild(nodes.svg.firstChild);
@@ -269,6 +327,15 @@
 
       g.appendChild(svgEl("rect", { x: n.x, y: n.y, width: k.w, height: k.h,
         rx: n.kind === "cloud" ? 14 : 2 }));
+
+      if (live[n.id]) {
+        var dot = svgEl("circle", { cx: n.x + k.w - 8, cy: n.y + 8, r: 4,
+          class: live[n.id].up ? "tp-up" : "tp-down" });
+        var tip = svgEl("title");
+        tip.textContent = (live[n.id].up ? "UP" : "DOWN") + (live[n.id].note ? ": " + live[n.id].note : "");
+        dot.appendChild(tip);
+        g.appendChild(dot);
+      }
 
       var label = svgEl("text", { x: n.x + k.w / 2, y: n.y + k.h / 2 + 1,
         "text-anchor": "middle", class: "tp-label" });
@@ -575,6 +642,24 @@
         return d.nodes.length + " nodes, " + d.edges.length + " edges, none floating";
       } },
 
+      { name: "THE RELAY ADDS PARTS, AND MOVES NOTHING", critical: true, run: async function () {
+        var was = current, wasLive = live;
+        try {
+          current = normalise({ name: "t", nodes: [{ id: "relay", label: "MINE", kind: "host", x: 300, y: 200 }], edges: [] }, null);
+          var added = merge([
+            { id: "relay", label: "RELAY", kind: "service", up: true },
+            { id: "runner", label: "RUNNER", kind: "host", link: "relay", up: false, note: "offline" }
+          ]);
+          var mine = nodeById("relay");
+          if (added !== 1 || current.nodes.length !== 2) throw new Error("added " + added);
+          if (mine.label !== "MINE" || mine.x !== 300 || mine.y !== 200) throw new Error("it changed a box you drew");
+          if (current.edges.length !== 1 || current.edges[0].to !== "runner") throw new Error("the new part is not linked");
+          if (live.runner.up || !live.relay.up) throw new Error("up and down are wrong");
+          if (merge([{ id: "runner", label: "RUNNER", kind: "host", link: "relay", up: true }]) !== 0) throw new Error("added it twice");
+          return "added 1, moved 0";
+        } finally { current = was; live = wasLive; }
+      } },
+
       { name: "DANGLING EDGES ARE DROPPED, NOT DRAWN", critical: true, run: async function () {
         var d = normalise({
           name: "t",
@@ -820,9 +905,9 @@
   }
 
   FieldKit.register("topology", {
-    group: "SERVERS",
-    about: "A drawing of how your network fits together",
-    keywords: "network diagram map topology",
+    group: "TOOLS",
+    about: "A live picture of your network: what is there and whether it is up",
+    keywords: "network diagram map topology status up down live",
     guestSafe: false,
     selfcheck: selfcheck,
     title: "TOPOLOGY",
@@ -842,6 +927,7 @@
         current = diagrams.filter(function (d) { return d.id === nodes.diagramSel.value; })[0] || current;
         selected = null;
         draw();
+        pullLive();
       });
 
       nodes.svg.addEventListener("pointermove", onMove);
@@ -865,6 +951,7 @@
           })
         ]),
 
+        (nodes.live = el("div", { class: "tp-live" })),
         el("div", { class: "tp-canvaswrap" }, [nodes.svg]),
 
         el("div", { class: "tp-actions" }, [
@@ -897,16 +984,18 @@
         ui.panel("SELECTED", [nodes.inspector]),
 
         el("p", { class: "tp-note", text:
-          "Drawn by hand on purpose. Discovery tells you what is talking right now; a diagram " +
-          "tells you what is supposed to be, which is what you need when it has stopped — and " +
-          "the gap between the two is usually the bug. Drag a node, or Tab to it and use the " +
-          "arrow keys." })
+          "Fills itself in from the relay each time it opens, and marks each part up or down. " +
+          "Your own boxes stay. Drag a box to move it, or Tab to it and use the arrow keys." })
       ]));
 
       await load();
+      pullLive();
+      liveTimer = setInterval(pullLive, LIVE_MS);
     },
 
-    unmount() { nodes = {}; current = null; selected = null; drag = null; diagrams = []; }
+    unmount() {
+      clearInterval(liveTimer); liveTimer = null; live = {};
+      nodes = {}; current = null; selected = null; drag = null; diagrams = []; }
   });
 
   function injectCSS() {
@@ -917,6 +1006,9 @@
 .tp-wrap{height:100%;overflow:auto}
 .tp-toprow{display:flex;gap:6px;align-items:flex-end;margin-bottom:8px}
 .tp-selfield{flex:1;margin:0}
+.tp-live{font-size:9px;letter-spacing:.14em;color:var(--fg-dimmer);margin-bottom:4px;min-height:12px}
+.tp-up{fill:var(--pass)}
+.tp-down{fill:var(--fail)}
 .tp-canvaswrap{border:1px solid var(--line2);background:var(--bg2);overflow:hidden}
 .tp-canvas{display:block;width:100%;height:auto;touch-action:none}
 .tp-edge{stroke:var(--line2);stroke-width:1.5}

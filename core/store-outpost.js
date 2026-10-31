@@ -7,7 +7,7 @@
    `core/crypto.js` and both transports are not in its manifest at
    all, so there is no vault code on the machine to reach.
 
-   But the modules it *does* carry — GUESTBOOK, QR FORGE,
+   But the modules it *does* carry — GUESTBOOK, QR CODE,
    DIAGNOSTICS — all write through `ctx.store`, so something has to
    answer that. This is that something: the same surface, backed by
    plain IndexedDB, holding only what this build produces.
@@ -22,8 +22,8 @@
    module wants to keep a secret, it needs its own answer, not this.
 
    Anyone with the machine can read what OUTPOST wrote. Everything
-   OUTPOST writes is a guestbook signature, a QR payload, or a
-   self-test result, and none of that was ever private.
+   OUTPOST writes is a QR payload or a self-test result, and none of
+   that was ever private.
    ============================================================ */
 (function (FieldKit) {
   "use strict";

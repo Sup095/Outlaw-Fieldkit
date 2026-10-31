@@ -9,7 +9,7 @@
 (function (FieldKit) {
   "use strict";
 
-  var ctx, ui, el, nodes = {};
+  var ctx, ui, el, nodes = {}, doctor = null;
 
   /* The relay classifies an unreachable AI target rather than
      reporting every failure as DOWN. These are its verdicts in the
@@ -219,7 +219,7 @@
   }
 
   FieldKit.register("relay-config", {
-    group: "SERVERS",
+    group: "SYSTEM",
     about: "Connect this drive to your relay and check the link",
     keywords: "relay url connect link setup provision server",
     selfcheck: selfcheck,
@@ -266,6 +266,7 @@
           ]),
           nodes.status
         ]),
+        (doctor = ui.moduleFold("link-doctor", ctx)),
         ui.panel("CONNECTION HOPS", [nodes.hops]),
         ui.panel("CURRENT SESSION", [
           ui.readout([
@@ -285,7 +286,11 @@
         s.get("relayUrl") ? "dim" : "warn");
     },
 
-    unmount() { nodes = {}; }
+    unmount() {
+      if (doctor) doctor.unmount();
+      doctor = null;
+      nodes = {};
+    }
   });
 
   function injectCSS() {

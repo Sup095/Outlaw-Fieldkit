@@ -79,7 +79,8 @@ const MIN = 60000;
     const c1 = a.join({ who: "g:3", handle: "guest-3", tier: "guest", kind: "console", req: { name: "d" } });
     const order = a.ordered("screen").map((e) => e.handle).join(",");
     ok("a member who came last waits ahead of both guests", order === "mia,guest-1,guest-2", order);
-    ok("a separate line per kind", a.ordered("console").length === 1 && a.place(c1, 1).place === 1);
+    ok("one line for every kind: a console program's place counts the windows ahead of it",
+      a.ordered("console").length === 1 && a.place(c1, 1).place === 4 && a.place(c1, 1).of === 4, JSON.stringify(a.place(c1, 1)));
     const p = a.place(g2, 1);
     ok("a place says how many are ahead and a guess at the wait", p.place === 3 && p.ahead === 2 && p.etaSec === 1800);
     a.ended("screen", 4 * MIN); a.ended("screen", 6 * MIN);
@@ -124,6 +125,74 @@ const MIN = 60000;
     online.clear(); a.pump(ctx); clock += 121000;
     r = a.pump(ctx);
     ok("away for more than two minutes: gone", r.lapsed.some((x) => x.e === m && /2 minutes/.test(x.why)));
+  }
+
+  section("one line for RUNNER and the browser (SIMPLIFY_PLAN.md §2)");
+  {
+    const b = new Access({ settingsFile: path.join(TMP, "one.json"), now: () => clock, read: () => proc, sent: () => sent });
+    const load = (cpu, mem, up) => { b.meter.cpu = cpu; b.meter.mem = mem; b.meter.upKbps = up; };
+    const names = (r) => r.offer.concat(r.browser).map((e) => e.handle).join(",");
+    let browserRoom = [];
+    const ctx = { countsOk: () => true, online: () => true, running: () => [], browserShort: () => browserRoom };
+    const gw = b.join({ who: "g:w", handle: "gw", tier: "guest", kind: "screen", req: { name: "game" } });
+    clock += 1000;
+    const gc = b.join({ who: "g:c", handle: "gc", tier: "guest", kind: "console", req: { name: "tool" } });
+    clock += 1000;
+    const gb = b.join({ who: "g:b", handle: "gb", tier: "guest", kind: "browser", req: {} });
+    clock += 1000;
+    const mb = b.join({ who: "u:mb", handle: "mb", tier: "member", kind: "browser", req: {} });
+    ok("the browser waits in the same line, members ahead of guests of any kind",
+      b.ordered().map((e) => e.handle).join(",") === "mb,gw,gc,gb", b.ordered().map((e) => e.handle).join(","));
+    ok("and a place counts everyone ahead, of either kind", b.place(gb, 1).place === 4 && b.place(mb, 1).place === 1);
+
+    /* Bastion 2 is too busy for a guest's window (50 + 15 over 60). */
+    load(50, 30, 0);
+    let r = b.pump(ctx);
+    ok("the member's browser session is offered first", names(r) === "mb", names(r));
+    ok("a console program that would fit does not pass the window ahead of it: both need Bastion 2's processor",
+      !gc.offered);
+    b.leave(mb.id);
+
+    r = b.pump(ctx);
+    ok("a browser session, which needs only the upload and a free browser, passes a window waiting for Bastion 2",
+      names(r) === "gb", names(r));
+    b.leave(gb.id);
+
+    /* Now the upload is what is short. */
+    load(20, 30, 0);
+    b.set({ uploadMbps: 1 });
+    const gb2 = b.join({ who: "g:b2", handle: "gb2", tier: "guest", kind: "browser", req: {} });
+    r = b.pump(ctx);
+    ok("a window short of upload: the console program behind it, which needs none, goes", names(r) === "gc", names(r));
+    ok("and the browser session behind it, which needs the upload too, does not", b.line.includes(gb2));
+
+    b.set({ uploadMbps: 20 });
+    r = b.pump(ctx);
+    ok("upload back, but the console program's turn holds Bastion 2: the window waits, the browser session goes",
+      names(r) === "gb2" && !gw.offered, names(r));
+    b.leave(gc.id); b.leave(gb2.id);
+    r = b.pump(ctx);
+    ok("both started: the window is offered", names(r) === "gw", names(r));
+    const gb3 = b.join({ who: "g:b3", handle: "gb3", tier: "guest", kind: "browser", req: {} });
+    r = b.pump(ctx);
+    ok("and while its turn holds the upload, a browser session waits", !r.browser.length);
+    b.leave(gw.id);
+    browserRoom = ["host"];
+    r = b.pump(ctx);
+    ok("every browser in use: nothing to offer", !r.browser.length);
+    browserRoom = [];
+    r = b.pump(ctx);
+    ok("one comes free: it is offered", names(r) === "gb3", names(r));
+    b.line.length = 0;
+
+    const c = new Access({ settingsFile: path.join(TMP, "one2.json"), now: () => clock, read: () => proc, sent: () => sent });
+    c.join({ who: "g:x", handle: "gx", tier: "guest", kind: "browser", req: {} });
+    ok("with nobody to ask about browsers, browser entries simply wait",
+      !c.pump({ countsOk: () => true, online: () => true, running: () => [] }).browser.length);
+    ok("a newcomer's console program is not behind someone waiting only for a browser", !c.someoneAhead("guest", "console", "g:y"));
+    c.join({ who: "g:z", handle: "gz", tier: "guest", kind: "screen", req: {} });
+    ok("but is behind someone waiting for a window, and so is a newcomer's browser session",
+      c.someoneAhead("guest", "console", "g:y") && c.someoneAhead("guest", "browser", "g:y"));
   }
 
   section("keeping it moving");

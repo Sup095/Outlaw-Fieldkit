@@ -166,6 +166,12 @@
     "_alsoUrls": "Other https addresses the run server also answers on (more hostnames on its tunnel), in case one is blocked where a panel is. The panel tries publicUrl, then these, in turn, and remembers the one that worked (FIELDKIT_PROJECT.md 14.39).",
     "alsoUrls": []
   },
+  "_tinyAi": "Small AI models for members (relay/tiny-ai.js). Run them with runnerd/tiny-ai.sh on the second machine, which prints the lines to put here. Each model is an OpenAI-compatible server the relay can reach; visitors only ever talk to the relay, which requires a member or admin account, allows one question at a time per person and maxBusy at a time overall. The in-browser engine at /ai/engine.js is served whether or not this is on.",
+  "tinyAi": {
+    "enabled": false,
+    "maxBusy": 2,
+    "models": []
+  },
   "_updates": "Signed releases (FIELDKIT_PROJECT.md 14.4, 14.43). This relay NEVER signs anything and holds no key: `node build.js --release` signs on the SSD, and the client checks the signature against a public key built into the client itself, so a relay that is taken over can withhold an update or serve a stale one but cannot forge one. With githubRepo set, the relay fetches the latest GitHub release every mirrorEveryMin minutes, keeps each file only if its hash matches the signed record in the release notes, and serves the copy: the fallback for networks that block GitHub, and how a page gets the bytes to check. A release/ folder uploaded into data/updates/ still works; the newer of the two is served. Public: the builds are public anyway, and OUTPOST needs them.",
   "updates": {
     "enabled": true,

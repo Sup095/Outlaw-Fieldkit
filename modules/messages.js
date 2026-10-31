@@ -128,6 +128,7 @@
     session = { handle: out.handle, token: out.token, moderator: !!out.moderator,
       root: !!out.root, tier: out.tier || "member" };
     ctx.settings.set("msgHandle", out.handle);
+    FieldKit.emit("messages:session", {});
     return session;
   }
 
@@ -145,6 +146,7 @@
     session = { handle: out.handle, token: out.token, moderator: !!out.moderator,
       root: !!out.root, tier: out.tier || "member", pubKey: out.pubKey };
     ctx.settings.set("msgHandle", out.handle);
+    FieldKit.emit("messages:session", {});
     return session;
   }
 
@@ -152,6 +154,7 @@
     stopPolling = true;
     if (session) { api("POST", "/msg/logout").catch(function () { /* best effort */ }); }
     session = null;
+    FieldKit.emit("messages:session", {});
     identity = null;
     convKeys = {};
     conversations = [];
@@ -1017,6 +1020,9 @@
     /* guest, member or admin. RUNNER reads this to decide what to
        offer; the relay decides what is actually allowed. */
     tier: function () { return session ? session.tier : null; },
+    /* The server's small models (relay/tiny-ai.js). */
+    tinyModels: function () { return api("GET", "/ai/tiny"); },
+    tinyChat: function (model, messages) { return api("POST", "/ai/tiny/chat", { model: model, messages: messages }); },
     browseTicket: async function () {
       if (!session) throw new Error("not signed in to MESSAGES");
       return api("POST", "/browse/ticket");

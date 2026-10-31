@@ -154,7 +154,6 @@
       return t.trim().toLowerCase();
     }).filter(Boolean);
     var note = nodes.note.value;
-    var projectId = nodes.project.value || null;
 
     var okCount = 0, failed = [];
     for (var i = 0; i < pending.length; i++) {
@@ -163,7 +162,7 @@
       try {
         /* eslint-disable no-loop-func */
         await files.upload(f, {
-          tags: tags, note: note, projectId: projectId,
+          tags: tags, note: note,
           onProgress: function (done, total, phase) {
             setProgress(label + " — " + phase + " " + done + "/" + total, done / Math.max(1, total));
           }
@@ -515,7 +514,7 @@
     keywords: "files upload download storage blobs large encrypted drive",
     guestSafe: false,
     selfcheck: selfcheck,
-    title: "VAULT FILES",
+    title: "FILES",
     icon: "▤",
     width: 940,
     height: 640,
@@ -558,18 +557,6 @@
 
       nodes.tags = el("input", { class: "fk-input", placeholder: "comma, separated, tags" });
       nodes.note = el("input", { class: "fk-input", placeholder: "what this is, and why it is here" });
-      nodes.project = el("select", { class: "fk-input" });
-      nodes.project.appendChild(el("option", { value: "", text: "— no project —" }));
-      try {
-        var projects = FieldKit.service("projects");
-        if (projects) {
-          var all = await projects.list();
-          all.forEach(function (p) {
-            nodes.project.appendChild(el("option", { value: p.id, text: p.data.name }));
-          });
-        }
-      } catch (e) { ctx.warn("could not list projects: " + e.message); }
-
       nodes.search = el("input", { class: "fk-input", placeholder: "SEARCH STORED FILES",
         oninput: function (e) { filter = e.target.value; renderList(); } });
 

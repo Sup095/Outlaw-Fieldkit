@@ -48,7 +48,7 @@
     "relayUrl",        // where the vault lives. Not a credential by itself.
     "relayUrls",       // spare addresses for the same relay (core/relay-choice.js)
     "displayName",     // who you are on a shared vault
-    "theme", "crt", "ambient", "sound", "wallpaper", "bootFlavor",
+    "theme", "crt", "sound", "wallpaper", "bootFlavor",
     "perfMode",
     "pullSeconds", "autoLockMinutes",
     "backupReminderDays", "autoSnapshotMinutes", "autoSnapshotKeep",

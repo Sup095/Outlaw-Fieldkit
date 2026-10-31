@@ -746,6 +746,7 @@
   }
 
   FieldKit.register("critter-ref", {
+    adminOnly: true,
     group: "TOOLS",
     about: "The CritterScript language: reference and examples",
     keywords: "critterscript scripting language reference docs",

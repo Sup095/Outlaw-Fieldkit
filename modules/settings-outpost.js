@@ -24,7 +24,7 @@
      drive carrying both should not forget your theme depending on
      which file you opened. Writing a relay URL from here would mean
      the limited build could reconfigure the real one. */
-  var OWNED = ["theme", "crt", "sound", "ambient", "perfMode", "wallpaper",
+  var OWNED = ["theme", "crt", "sound", "perfMode", "wallpaper",
     "bootFlavor", "displayName"];
 
   function set(key, value) {
@@ -82,7 +82,7 @@
         apply();
         Array.prototype.forEach.call(wrap.children, function (c) { c.classList.remove("sel"); });
         sw.classList.add("sel");
-        /* No need to tell achievements — ui.applyTheme() emits
+        /* ui.applyTheme() emits
            "ui:theme" and the engine is already listening for it. */
       });
       wrap.appendChild(sw);
@@ -196,7 +196,6 @@
         ]),
         ui.panel("DISPLAY", [
           toggle("crt", "CRT OVERLAY", "scanlines and a little glow"),
-          toggle("ambient", "AMBIENT EFFECTS", "background motion; costs frames"),
           row("PERFORMANCE", "how hard to work this machine", perf)
         ]),
         ui.panel("BEHAVIOUR", [

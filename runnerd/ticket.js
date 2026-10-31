@@ -88,7 +88,7 @@ const REPORT_LIFE_MS = 60 * 1000;
 function verifyReport(publicKey, text, now) {
   now = now || Date.now();
   const parts = String(text || "").split(".");
-  if (parts.length !== 2 || !parts[0] || !parts[1] || text.length > 1024) return { ok: false };
+  if (parts.length !== 2 || !parts[0] || !parts[1] || text.length > 8192) return { ok: false };
   let good = false;
   try { good = crypto.verify(null, Buffer.from(parts[0]), publicKey, Buffer.from(parts[1], "base64url")); }
   catch (e) { good = false; }

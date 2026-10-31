@@ -1,6 +1,6 @@
 /* ============================================================
    FieldKit :: settings-panel
-   Theme, wallpaper, ambient toggles, performance.
+   Theme, wallpaper, performance.
 
    Wallpaper presets are CSS gradients rather than image files, so
    the drive carries no art it doesn't need and they retint with
@@ -11,7 +11,7 @@
 (function (FieldKit) {
   "use strict";
 
-  var ctx, ui, el, nodes = {};
+  var ctx, ui, el, nodes = {}, backup = null;
   /* Set at every mount. Async work started by one mount must not
      write into the panel belonging to the next one — see
      FieldKit.mountGuard in core/kernel.js. */
@@ -405,7 +405,7 @@
       }
 
       host.appendChild(el("div", { class: "sp-wrap" }, [
-        ui.panel("THIS DRIVE REMEMBERS", [
+        ui.fold("THIS DRIVE REMEMBERS", [
           el("p", { class: "sp-note", text:
             "Preferences live in this browser profile, not on the drive — so a machine you " +
             "have never used before starts blank, relay URL and all. SAVE TO DRIVE writes " +
@@ -429,7 +429,7 @@
           ]),
           el("div", { class: "sp-note", id: "sp-drive-status" })
         ]),
-        ui.panel("PORTABLE SETTINGS FILE", [
+        ui.fold("PORTABLE SETTINGS FILE", [
           el("p", { class: "sp-note", text:
             "The older, manual route: an export you carry yourself. Still here because it " +
             "works on a machine where nothing may write to the drive at all." }),
@@ -454,7 +454,7 @@
           ]),
           settingsFileInput
         ]),
-        ui.panel("SHARED VAULT", [
+        ui.fold("SHARED VAULT", [
           el("p", { class: "sp-note", text:
             "A vault is tied to a password, not to a device or a drive. Anyone with the master " +
             "password — or the recovery key — sees the same data from their own machine. " +
@@ -472,7 +472,7 @@
             "save the same record, the newer write wins and you are told rather than left to " +
             "notice later." })
         ]),
-        ui.panel("MASTER PASSWORD", [
+        ui.fold("MASTER PASSWORD", [
           nodes.pwNotice,
           pw1, pw2,
           ui.button("CHANGE PASSWORD", changePassword, { primary: true }),
@@ -506,7 +506,6 @@
           toggle("CRT SCANLINES", "crt", "overlay + subtle flicker", function (on) {
             document.body.classList.toggle("crt", on);
           }),
-          toggle("AMBIENT PARTICLES", "ambient", "canvas-2D — the Chromebook has no WebGL"),
           toggle("SOUND", "sound", "terminal beeps, off by default"),
           toggle("BOOT FLAVOUR TEXT", "bootFlavor", "random line on each launch")
         ]),
@@ -516,9 +515,9 @@
           ]),
           nodes.perfInfo,
           el("p", { class: "sp-note", text:
-            "MINIMAL skips boot animation timing and disables ambient effects. AUTO decides from cores, memory, and the reduced-motion preference." })
+            "MINIMAL skips boot animation timing. AUTO decides from cores, memory, and the reduced-motion preference." })
         ]),
-        ui.panel("SCREEN LOCK", [
+        ui.fold("SCREEN LOCK", [
           nodes.lockState,
           el("label", { class: "fk-field", style: { marginTop: "10px" } }, [
             el("span", { class: "fk-field-label", text: "PIN" }), pinIn
@@ -557,7 +556,8 @@
             "keyboard. After " + (lock ? lock.MAX_ATTEMPTS : 5) + " wrong tries the session is " +
             "destroyed and the master password is required again." })
         ]),
-        ui.panel("DANGER", [
+        (backup = ui.moduleFold("backup-panel", ctx)),
+        ui.fold("DANGER", [
           el("div", { class: "sp-actions" }, [
             ui.button("RESET ALL SETTINGS", function () {
               if (!confirm("Reset every preference to defaults? Your vault and notes are untouched.")) return;
@@ -579,7 +579,12 @@
       await renderLock();
     },
 
-    unmount() { alive.end(); nodes = {}; }
+    unmount() {
+      alive.end();
+      if (backup) backup.unmount();
+      backup = null;
+      nodes = {};
+    }
   });
 
   function injectCSS() {

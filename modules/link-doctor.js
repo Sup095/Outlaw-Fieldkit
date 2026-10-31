@@ -626,10 +626,12 @@
   }
 
   FieldKit.register("link-doctor", {
-    group: "SERVERS",
+    group: "SYSTEM",
+    /* A fold of RELAY LINK in both builds. */
+    inside: "relay-link",
     about: "Find out why the relay cannot be reached",
     keywords: "network troubleshoot connection failed fetch dns",
-    guestSafe: false,
+    guestSafe: true,
     selfcheck: selfcheck,
     title: "LINK DOCTOR",
     icon: "⚕",

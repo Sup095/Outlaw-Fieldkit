@@ -22,10 +22,13 @@
 
    THE LINE. Anything that does not fit waits instead of being
    refused: members ahead of every guest, first come first served
-   inside a tier, one line per kind so waiting for a window does not
-   hold up a console program. When there is room for the first in
-   line they are offered it and have 60 seconds to press START; the
-   room is held for them meanwhile. A member who loses the connection
+   inside a tier. Since 2026-10-29 it is ONE line for every kind,
+   console programs, windows and the relay's browser sessions
+   (SIMPLIFY_PLAN.md §2), and a place counts everyone ahead. Nobody
+   passes someone ahead of them for room that person is waiting for;
+   someone who needs other room can (NEEDS below). When there is room
+   for someone they are offered it and have 60 seconds to press START;
+   the room is held for them meanwhile. A member who loses the connection
    keeps their place for two minutes. A guest's place goes with their
    files, the moment the connection does.
 
@@ -43,7 +46,13 @@ const fs = require("fs");
 const jf = require("../relay/jsonfile");
 const crypto = require("crypto");
 
-const KINDS = ["console", "screen"];
+const KINDS = ["console", "screen", "browser"];
+/* What each kind needs: Bastion 2's processor and memory ("b2"), the
+   house upload ("up"). A browser session also needs a host, the relay
+   or a helper on Bastion 2, which whoever runs browsers says (ctx.browserShort). */
+const NEEDS = { console: ["b2"], screen: ["b2", "up"], browser: ["up"] };
+const needsOf = (kind) => NEEDS[kind] || NEEDS.console;
+const overlap = (a, b) => a === b || needsOf(a).some((r) => needsOf(b).includes(r));
 const RANK = { admin: 0, member: 1, guest: 2 };
 const LINE_MAX = 60, GUEST_LINE_MAX = 20;
 const DEFAULTS = {
@@ -91,6 +100,8 @@ function readProc() {
 
 class Access {
   constructor(opts) {
+    this.browserGo = [];                     /* relay entries whose turn it is */
+    this.dropped = new Set();                /* relay entries an admin took out */
     this.settingsFile = opts.settingsFile;
     this.now = opts.now || Date.now;
     this.read = opts.read || readProc;
@@ -211,17 +222,33 @@ class Access {
     return "the server is busy";
   }
 
+  /* What this person is short of right now, as NEEDS names, or
+     "slot:<kind>" when the machine-wide counts are full. Nothing means
+     they fit. The same sums as fits(). */
+  short(e, ctx) {
+    if (e.tier === "admin") return [];
+    if (e.kind === "browser") return ctx.browserShort ? ctx.browserShort(e) || [] : ["host"];
+    if (!ctx.countsOk(e.kind, e.tier)) return ["slot:" + e.kind];
+    const s = this.settings(), t = s[e.tier] || s.guest, cost = s.costs[e.kind] || s.costs.console;
+    const out = [];
+    if (this.meter.cpu + cost.cpu > t.load || this.meter.mem > t.load) out.push("b2");
+    if (this.upPct(cost.kbps) > t.upload) out.push("up");
+    return out;
+  }
+
   /* ---- the line ---- */
-  /* In order: moved up by an admin, then tier, then when they joined. */
+  /* In order: moved up by an admin, then tier, then when they joined.
+     With a kind, only that kind's entries (the line is still one). */
   ordered(kind) {
     return this.line.filter((e) => !kind || e.kind === kind)
       .sort((a, b) => (prio(a) - prio(b)) || (a.at - b.at) || (a.n - b.n));
   }
 
-  /* Is anyone of this tier or better already waiting for this kind?
-     If so a newcomer goes behind them rather than past them. */
+  /* Is anyone of this tier or better already waiting for room this
+     kind needs too? If so a newcomer goes behind them rather than
+     past them. */
   someoneAhead(tier, kind, who) {
-    return this.line.some((e) => e.kind === kind && e.who !== who && prio(e) <= RANK[tier]);
+    return this.line.some((e) => overlap(e.kind, kind) && e.who !== who && prio(e) <= RANK[tier]);
   }
 
   mine(who) { return this.line.filter((e) => e.who === who); }
@@ -240,6 +267,40 @@ class Access {
     return e;
   }
 
+  /* The relay's browser line, from its report (SIMPLIFY_PLAN.md §2).
+     Those people are held by the relay, not here: this keeps a place
+     for each, which the relay's next report confirms or withdraws. */
+  syncBrowser(list) {
+    const here = new Set(), kept = new Set();
+    for (const r of list) {
+      const who = "relay:" + r.id;
+      if (this.dropped.has(who)) { kept.add(who); continue; }
+      here.add(who);
+      try { this.join({ who: who, handle: r.h || "a guest", tier: r.t, kind: "browser", req: {}, owner: null }); }
+      catch (e) { /* the line is full: they wait on the relay until it is not */ }
+    }
+    for (const e of this.line.slice()) if (e.kind === "browser" && !here.has(e.who)) this.leave(e.id);
+    this.dropped = kept;
+  }
+
+  /* What the relay needs back: who goes now, who an admin took out,
+     and everyone's place. Each `go` is said once. */
+  browserAnswer(runningOf) {
+    const go = this.browserGo;
+    this.browserGo = [];
+    const places = {};
+    for (const e of this.line) {
+      if (e.kind !== "browser") continue;
+      const p = this.place(e, runningOf ? runningOf("browser") : 1);
+      places[e.who.slice(6)] = { place: p.place, ahead: p.ahead, of: p.of, etaSec: p.etaSec };
+    }
+    return { go: go, drop: Array.from(this.dropped, (w) => w.slice(6)), places: places };
+  }
+
+  /* Tiers that may not start a browser straight away, because someone
+     of that tier or better is waiting for room a browser needs too. */
+  browserHold() { return Object.keys(RANK).filter((t) => t !== "admin" && this.someoneAhead(t, "browser", null)); }
+
   leave(id) {
     const i = this.line.findIndex((e) => e.id === id);
     if (i < 0) return null;
@@ -257,9 +318,10 @@ class Access {
     return e;
   }
 
-  /* The place, how many are ahead, and a guess at the wait. */
+  /* The place in the one line, how many are ahead, and a guess at
+     the wait. */
   place(e, runningOfKind) {
-    const ord = this.ordered(e.kind);
+    const ord = this.ordered();
     const i = ord.indexOf(e);
     const avg = this.avgMs(e.kind);
     const slots = Math.max(1, runningOfKind || 1);
@@ -290,8 +352,9 @@ class Access {
        running()              [{ id, kind, tier, startedAt, lastInput, warned }]  */
   pump(ctx) {
     const now = this.now(), s = this.settings();
-    const out = { offer: [], lapsed: [], warn: [], end: [], quiet: [] };
+    const out = { offer: [], browser: [], lapsed: [], warn: [], end: [], quiet: [] };
     for (const e of this.line.slice()) {
+      if (e.kind === "browser") continue;    /* syncBrowser keeps these */
       if (e.offered && now - e.offered > s.turnSec * 1000) {
         this.leave(e.id); out.lapsed.push({ e: e, why: "your turn passed: START was not pressed within " + s.turnSec + " seconds" });
       } else if (!ctx.online(e.who)) {
@@ -302,15 +365,35 @@ class Access {
         }
       } else e.gone = null;
     }
+    /* The one line, in order. Someone offered a turn holds everything
+       they need until they START or it lapses (the meter does not see
+       a run that has not started). Anyone else waits for what they are
+       short of, or for what someone's turn holds, and holds it in turn:
+       nobody behind them gets that room first, while someone behind who
+       needs other room can still go. One offer per room per pass. */
+    const needsPlus = (e) => needsOf(e.kind).concat(["slot:" + e.kind]);
+    const held = new Set();
+    for (const e of this.line) if (e.offered) needsPlus(e).forEach((r) => held.add(r));
+    for (const e of this.ordered()) {
+      if (e.offered) continue;
+      const needs = needsPlus(e);
+      const want = this.short(e, ctx).concat(needs.filter((r) => held.has(r)));
+      if (want.length) { want.forEach((r) => held.add(r)); continue; }
+      needs.forEach((r) => held.add(r));
+      /* The relay's turn is automatic: the panel is open and connects
+         by itself, so there is no START to wait for. */
+      if (e.kind === "browser") {
+        this.leave(e.id);
+        this.browserGo.push(e.who.slice(6));
+        out.browser.push(e);
+        continue;
+      }
+      e.offered = now;
+      out.offer.push(e);
+    }
     for (const kind of KINDS) {
       const ord = this.ordered(kind);
       if (!ord.length) continue;
-      const head = ord[0];
-      /* One offer at a time per kind: the room is held for it. */
-      if (!head.offered && this.fits(head.tier, kind, ctx.countsOk(kind, head.tier))) {
-        head.offered = now;
-        out.offer.push(head);
-      }
       /* People are waiting for this kind: hold others' runs to their
          share. Admins' are never touched. */
       const w = s.whenWaiting;
@@ -348,4 +431,4 @@ class Access {
   }
 }
 
-module.exports = { Access, DEFAULTS, RANK, KINDS, STEPS, IDLE_CPU, readProc };
+module.exports = { Access, DEFAULTS, RANK, KINDS, NEEDS, STEPS, IDLE_CPU, readProc };

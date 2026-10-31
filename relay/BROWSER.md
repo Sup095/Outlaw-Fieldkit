@@ -45,7 +45,7 @@ wall is that a person answers them, not that the relay slips past them.
 | **Sound** | With PulseAudio in the image (it is, from 2026-10-27) each session gets its own Chromium and its own silent sound card; what plays is sent as Opus while the panel's SOUND is on, and silence is not sent. About 350 MB per session (PSS, measured), plus a spare kept started. `"sound": false` goes back to one shared, muted Chromium. |
 | **Kept small** | Ads blocked, at most 6 renderer processes per Chromium, a 64 MB cache, tabs frozen when nobody can see them, profiles on the server's disk rather than `/tmp`. A session over 1800 MB is ended with a sentence, and the largest is ended when the container is 90% full, so one page cannot crash the others (FIELDKIT_PROJECT.md §14.42). A game on CrazyGames: about 1.2 GB. |
 | **It is a picture** | FIND and zoom act on the real page; text is selected and copied through the page, and copy and paste work both ways. |
-| **Downloads** | Saved to your device or encrypted into VAULT FILES; a page's "choose file" opens your own picker. |
+| **Downloads** | Saved to your device or encrypted into FILES; a page's "choose file" opens your own picker. |
 
 ---
 

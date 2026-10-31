@@ -68,6 +68,7 @@ let cfg = {};
 let log = () => {};
 let engine = null;
 let fair = null;                 /* fairness.js: the browser's share and its line */
+const moved = new Set();         /* sent to a helper by the line, not yet there */
 let fairTimer = null;
 /* overflow.js: helpers on Bastion 2 that take new sessions when this
    relay is full. null when none are set, and on a helper itself. */
@@ -111,18 +112,13 @@ function init(opts) {
       const was = fair.step, k = fair.videoKbps(cfg.videoKbps || 1500);
       if (fair.step !== was) log("INFO", "browser: video " + (fair.step > was ? "down" : "up") + " to " + k + " kbit/s (house upload " + Math.round(fair.upPct(0)) + "%)");
       for (const v of viewers) v.restep();
-      if (overflow) {
-        overflow.step = fair.step;
-        /* The first in line, if a helper has room for them and this relay
-           does not: told to connect again, which places them there. */
+      if (overflow) overflow.step = fair.step;
+      /* The one line is on Bastion 2 while it answers; its turns come
+         through admit(). Otherwise, this relay's own line. */
+      if (!fair.shared()) {
         const head = fair.ordered()[0];
-        if (head && !fair.fits(head.tier, engine.hasRoom()) && overflow.pick(head.who, head.tier, fair)) {
-          fair.leave(head);
-          head.moved = true;
-          head.go();
-        }
+        if (head && (fair.fits(head.tier, engine.hasRoom()) || canMove(head))) admit(head);
       }
-      fair.pump(engine.hasRoom());
       for (const e of fair.line) if (e.tell) e.tell(fair.place(e));
     }, 2000);
     if (fairTimer.unref) fairTimer.unref();
@@ -329,10 +325,34 @@ async function upgrade(req, sock, head, url) {
 
 /* Which helper a new socket for this account goes to, or null for here
    (the order is in overflow.js). */
+/* Lets someone in from the line. A helper has room and this relay
+   does not: they are told to connect again, which places them there. */
+function canMove(e) { return !!(overflow && overflow.pick(e.who, e.tier, fair)); }
+function admit(e) {
+  if (!fair.fits(e.tier, engine.hasRoom()) && canMove(e)) { e.moved = true; moved.add(e.who); }
+  fair.leave(e);
+  e.go();
+}
+
+/* The one line (SIMPLIFY_PLAN.md §2): what the relay's report to
+   Bastion 2 says, and what to do with its answer. */
+function lineReport() {
+  if (!fair) return {};
+  return fair.report((tier) => fair.fits(tier, engine.hasRoom()) || canMove({ who: "", tier: tier }));
+}
+function lineAnswer(a) {
+  if (!fair) return;
+  fair.answer(a).forEach(admit);
+  for (const e of fair.line) if (e.tell) e.tell(fair.place(e));
+}
+
 function placeOf(who, tier) {
   if (!overflow || !overflow.any() || engine.sessions.has(who)) return null;
   const held = overflow.holding(who);
   if (held) return held;
+  /* A helper is not a way round the line, unless the line just sent
+     them there. */
+  if (!moved.delete(who) && fair && tier !== "admin" && fair.shared() && fair.someoneAhead(tier)) return null;
   const free = engine.sessions.size < engine.cfg.maxSessions;
   if (free && (!fair || tier === "admin" || (!fair.someoneAhead(tier) && fair.fits(tier, true)))) return null;
   return overflow.pick(who, tier, fair);
@@ -504,6 +524,7 @@ async function serve(req, sock, head, who, tier, opts) {
       await w.ready;
       waiting = null;
       if (!alive) return;
+      if (w.dropped) { tell({ t: "error", why: "an admin took you out of the line" }); socket.close(1008, "removed"); return; }
       /* A helper has room and this relay still has none: the panel
          connects again at once, and that lands it there. */
       if (w.moved) { tell({ t: "moved" }); socket.close(1012, "moved"); return; }
@@ -658,7 +679,7 @@ function setHouseStep(n) {
 }
 
 module.exports = {
-  init, route, upgrade, isStreamUpgrade, serve, setHouseStep,
+  init, route, upgrade, isStreamUpgrade, serve, setHouseStep, lineReport, lineAnswer,
   _internals: { tickets, links, linkFor, issue, spend, take, fair: () => fair, viewers, searchUrlFor, sweep,
     engine: () => engine, overflow: () => overflow, placeOf, TICKET_MS, INPUT_PER_SEC }
 };

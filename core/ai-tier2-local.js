@@ -295,9 +295,12 @@
            goes through window.fetch, which is the one we control. */
         useIndexedDBCache: true,
         model_list: [{
-          model: SENTINEL.replace(/\/$/, ""),
+          /* The model's name in the address: the engine caches by URL,
+             so two installed models at one address would swap weights.
+             serve() goes by the file name and does not mind. */
+          model: SENTINEL + encodeURIComponent(modelId),
           model_id: modelId,
-          model_lib: info.wasm.length ? SENTINEL + info.wasm[0] : undefined
+          model_lib: info.wasm.length ? SENTINEL + encodeURIComponent(modelId) + "/" + info.wasm[0] : undefined
         }]
       };
 
@@ -447,6 +450,8 @@
   FieldKit.provide("aiLocal", {
     SENTINEL: SENTINEL,
     pickFolder: pickFolder,
+    /* An installed model (core/ai-install.js) instead of a folder. */
+    useFiles: function (map, label) { vfs = map; vfsLabel = label; },
     inspect: inspect,
     load: load,
     unload: unload,

@@ -35,6 +35,8 @@ const updates = require("./updates");
 const browser = require("./browser-route");
 const runner = require("./runner");
 const { Fairness } = require("./fairness");
+const tinyAi = require("./tiny-ai");
+const topology = require("./topology");
 const { Overflow } = require("./overflow");
 
 /* ---- config -------------------------------------------------- */
@@ -1104,7 +1106,8 @@ const ROUTES = [
   "GET  /browser/status", "POST /browser/ticket", "POST /browser/clear", "GET  /browser/helper-key",
   "GET  /runner/status", "POST /runner/ticket", "GET  /runner/pubkey",
   "WS   /browser/stream",
-  "GET  /updates/latest", "GET  /updates/file", "GET  /updates/status"
+  "GET  /updates/latest", "GET  /updates/file", "GET  /updates/status",
+  "GET  /ai/tiny", "POST /ai/tiny/chat", "GET  /ai/engine.js", "GET  /topology"
 ];
 
 async function route(req, res, url) {
@@ -1203,6 +1206,19 @@ async function route(req, res, url) {
       return send(res, 429, { error: "slow down", detail: "too many runner requests" });
     }
     if (await runner.route(req, res, url, { send, readBody, clientIp })) return;
+  }
+
+  /* The small models and the in-browser engine: by account or public,
+     unlike the vault's /ai/chat below (relay/tiny-ai.js). */
+  if (seg[0] === "ai" && (seg[1] === "tiny" || seg[1] === "engine.js")) {
+    if (!hit("tiny:" + clientIp(req), config.rateLimit.runnerMax)) {
+      return send(res, 429, { error: "slow down", detail: "too many AI requests" });
+    }
+    if (await tinyAi.route(req, res, url, { send, readBody })) return;
+  }
+
+  if (seg[0] === "topology" && !seg[1] && method === "GET") {
+    return void await topology.route(req, res, url, { send });
   }
 
   /* Updates (14.4, 14.43). Public: the builds are public on GitHub,
@@ -1977,6 +1993,10 @@ server.listen(config.port, config.host, () => {
       (br.blockHosts.length ? ", " + br.blockHosts.length + " blocked" : "") +
       ". Private and reserved address ranges are always refused.");
   }
+  const ta = tinyAi.init({ config: config.tinyAi, log: log, upstream: upstreamRequest,
+    whoami: (r) => messaging.whoami(r) });
+  if (ta.enabled) log("INFO", "tiny-ai: " + ta.models + " model(s) for members");
+
   const rn = runner.init({ dataDir: DATA_DIR, config: config.runner || {}, log: log,
     whoami: (r) => messaging.whoami(r) });
   log("INFO", rn.enabled ? "runner: on — run server at " + (rn.url || "(not set)")
@@ -1998,14 +2018,24 @@ server.listen(config.port, config.host, () => {
     fairness: fairness,
     overflow: overflow
   });
+  topology.init({
+    browser: () => Object.assign(bw.status(), overflow ? { helpers: overflow.view() } : {}),
+    runner: () => runner.status(),
+    tiny: () => tinyAi.models(),
+    targets: () => orderedTargets().map((t) => {
+      const h = targetHealth.get(t.name);
+      return { name: t.name, ok: !!(h && h.ok), checked: !!h };
+    })
+  });
   if (overflow && overflow.any()) {
     overflow.start(() => fairness.line.length > 0 || bw.sessions.size > 0);
     log("INFO", "browser: " + overflow.helpers.length + " helper(s) take new sessions when this relay is full: " +
       overflow.helpers.map((h) => h.url).join(", "));
   }
   runner.startReports(() => ({ up: fairness.meter.upKbps, cpu: fairness.meter.cpu, mem: fairness.meter.mem,
-    wait: fairness.line.length,
-    busy: fairness.meter.upKbps > 0 || fairness.line.length > 0 || bw.sessions.size > 0 || !!(overflow && overflow.sessionsOut()) }));
+    wait: fairness.line.length, ...browser.lineReport(),
+    busy: fairness.meter.upKbps > 0 || fairness.line.length > 0 || bw.sessions.size > 0 || !!(overflow && overflow.sessionsOut()) }),
+  browser.lineAnswer);
   if (!config.browser || !config.browser.enabled) {
     log("INFO", "browser: off (browser.enabled is false)");
   } else {

@@ -40,29 +40,222 @@
       title: "START HERE",
       tag: "basics",
       body: [
-        "FieldKit is a portable console that lives on a USB drive. The code is on the " +
-        "drive; your data is not. Data lives encrypted on a small server (the relay), " +
-        "and is decrypted in the browser after you type your master password.",
+        "FieldKit is a small desktop that runs in a browser tab from a USB drive. It " +
+        "needs nothing installed. OUTPOST is the same thing without the encrypted vault: " +
+        "it works on any computer with no password, and keeps nothing on the drive.",
 
-        { h: "WHY IT IS SPLIT THAT WAY" },
-        "A USB drive gets lost, and a lost drive full of notes is a bad day. This drive " +
-        "can be lost with no consequence beyond buying another one: everything on it is " +
-        "code, and the code is not secret. Your actual work is on the relay, encrypted " +
-        "with a key the relay has never seen.",
+        { h: "WHICH APPS YOU GET" },
+        { rows: [
+          ["ONLINE", "BROWSER, MESSAGES, RUNNER, ASK"],
+          ["FILES", "FILES, NOTES, TASK BOARD (FieldKit only)"],
+          ["TOOLS", "QR CODE, GAME MATH, TOPOLOGY"],
+          ["SYSTEM", "SETTINGS, UPDATE, RELAY LINK, DIAGNOSTICS, MANUAL"]
+        ] },
+        "Each has a page here. The online ones need a relay, a small server someone " +
+        "runs for you; your drive already knows the address if it was set up for you.",
 
         { h: "THE THIRTY SECOND VERSION" },
         { steps: [
-          "Plug in the drive and open FIELDKIT.html.",
-          "It runs a self-test, then tries to reach the relay.",
-          "Type your master password. Everything decrypts in the browser.",
-          "Work. Changes save automatically, encrypted before they leave the machine.",
+          "Plug in the drive and open FIELDKIT.html or OUTPOST.html.",
+          "On FieldKit, type your master password. Everything decrypts in the browser.",
+          "Type on the desktop to find an app, or press one of YOUR APPS.",
+          "Changes save by themselves, encrypted before they leave the machine.",
           "Close the tab. Nothing readable is left behind."
         ] },
 
-        { h: "IF THIS IS THE FIRST TIME EVER" },
-        "You need a relay running before you can create a vault, because the vault header " +
-        "has to live somewhere. Set that up first.",
-        { see: ["relay", "firstrun"] }
+        { h: "WHY YOUR DATA IS NOT ON THE DRIVE" },
+        "A USB drive gets lost. Everything on this one is code, and the code is not " +
+        "secret. Your work is on the relay, encrypted with a key the relay has never seen.",
+
+        { h: "SOMETHING WRONG?" },
+        "If anything needs you, the desktop says so under the search bar and takes you " +
+        "to it. Otherwise DIAGNOSTICS checks the lot.",
+        { see: ["firstrun", "network", "fixing"] }
+      ]
+    },
+
+    {
+      id: "keys",
+      title: "KEYBOARD AND HIDDEN THINGS",
+      tag: "basics",
+      body: [
+        { rows: [
+          ["just type", "on the desktop: find an app; Enter opens the first hit"],
+          ["Ctrl+K", "search apps, notes, records and actions"],
+          ["Ctrl+L", "screen lock, if a PIN is set"],
+          ["Escape", "close a dialog or overlay"]
+        ] },
+        { h: "THE DESKTOP" },
+        "The search bar finds any app by its name or by what it does (\"chat\", \"backup\", " +
+        "\"run a program\"). You do not have to click it: typing anywhere on the desktop " +
+        "starts a search. YOUR APPS, under it, are the ones you use most. That count stays " +
+        "on this machine, not in the vault. ALL APPS are four folders: ONLINE, FILES, TOOLS " +
+        "and SYSTEM.",
+        { h: "THERE ARE THINGS TO FIND" },
+        "They do nothing important and break nothing. One is a sequence most people " +
+        "already know; the others are words you type on the desktop with nothing focused.",
+        { note: "Typing into a text field never sets them off." }
+      ]
+    },
+
+    {
+      id: "app-browser",
+      title: "BROWSER",
+      tag: "apps",
+      body: [
+        "A real web browser running on the server, shown in this window as video. " +
+        "Websites see the server, not your computer, and your sign-ins stay on the server.",
+        "Type an address or a search in the bar. Sign in to MESSAGES and it remembers your " +
+        "sign-ins; as a guest it keeps nothing.",
+        { h: "IF YOU ARE ASKED TO WAIT" },
+        "There is one line for BROWSER and RUNNER, and it shows your place. Your turn " +
+        "comes up by itself; you can leave it open in the background.",
+        { h: "KEYS" },
+        { rows: [
+          ["Ctrl+C, Ctrl+X", "copy or cut what is selected on the page"],
+          ["Ctrl+V", "paste your clipboard into the page"],
+          ["Ctrl+F", "find on the page"],
+          ["Ctrl + / −", "zoom. Ctrl 0 goes back to 100%."],
+          ["Ctrl+L", "the address bar. F5 reloads."]
+        ] },
+        { rows: [
+          ["COOKIES", "forget the cookies for this session"],
+          ["WIPE", "end the session and everything in it"]
+        ] },
+        { note: "A minimised window is sent nothing, which saves the server's internet. " +
+                "It picks up where it was when you open it." },
+        { see: ["browser", "network"] }
+      ]
+    },
+
+    {
+      id: "app-messages",
+      title: "MESSAGES",
+      tag: "apps",
+      body: [
+        "Encrypted chat with the people on your relay. The relay carries the messages " +
+        "and cannot read them.",
+        { steps: [
+          "Choose a handle and a password, then press CREATE ACCOUNT.",
+          "If your relay approves accounts by hand, you are a guest until an admin does.",
+          "Start a conversation with anyone on the relay."
+        ] },
+        { rows: [
+          ["guest", "chat. BROWSER and RUNNER forget everything when you leave."],
+          ["member", "sign-ins and RUNNER files that stay, and the server's AI models"],
+          ["admin", "approves people under PEOPLE, and gets the TERMINAL"]
+        ] },
+        { warn: "There is no reset. Your password makes your key, so a forgotten password " +
+                "means the account's messages are gone: nobody else ever had the key." }
+      ]
+    },
+
+    {
+      id: "app-runner",
+      title: "RUNNER",
+      tag: "apps",
+      body: [
+        "Upload a program, press RUN, and it runs on the server. A console program shows " +
+        "its text here. A window program or a Windows .exe shows its window here, and you " +
+        "use it with your mouse and keyboard.",
+        { steps: [
+          "Sign in to MESSAGES.",
+          "Choose a file, or a .zip of a whole program.",
+          "Press RUN. If it is busy you join the line; your turn starts by itself."
+        ] },
+        "A program runs in a sealed box: it cannot see the server's files, other people's " +
+        "programs or your computer. It gets a limited share of the machine and a time limit.",
+        { note: "A guest's files go when they leave. A member's stay until nobody has " +
+                "run them for a while. Keep your own copy." },
+        { see: ["limits"] }
+      ]
+    },
+
+    {
+      id: "app-ask",
+      title: "ASK",
+      tag: "apps",
+      body: [
+        "Ask a question and something answers. The line at the top says what, and each " +
+        "reply is labelled.",
+        { rows: [
+          ["YOUR HOME AI", "a big model on your own PC, when the vault can reach it"],
+          ["SERVER", "the server's small models, for members"],
+          ["THIS BROWSER", "a small model you installed, for everyone"],
+          ["OFFLINE RULES", "no model at all: canned answers, so ASK is never dead"]
+        ] },
+        { h: "GET A MODEL FOR THIS BROWSER" },
+        { steps: [
+          "Open MODELS, then press GET A TINY MODEL.",
+          "Press INSTALL on the smallest one. It downloads a few hundred MB, once.",
+          "Press USE. After that it needs no internet."
+        ] },
+        "It lives in this browser on this machine, and needs a browser with WebGPU. " +
+        "Models that run here cost the server nothing, which is why anyone may use them.",
+        { note: "Small models are quick, and wrong about a lot. Check anything that matters." },
+        { see: ["ai"] }
+      ]
+    },
+
+    {
+      id: "app-files",
+      title: "FILES, NOTES AND TASK BOARD",
+      tag: "apps",
+      body: [
+        "These three keep your work in the vault, so they are in FieldKit and not OUTPOST.",
+        { rows: [
+          ["FILES", "large files on the relay, encrypted: builds, art, recordings"],
+          ["NOTES", "everything written: notes, snippets, configs, decisions, incidents"],
+          ["TASK BOARD", "a to-do board for you and whoever shares the vault"]
+        ] },
+        "NOTES has a tag on each note, and the filter at the top shows one tag at a time. " +
+        "Every version of a note is kept. COPY takes the first code block.",
+        { see: ["sharing", "recovery"] }
+      ]
+    },
+
+    {
+      id: "app-tools",
+      title: "QR CODE, GAME MATH AND TOPOLOGY",
+      tag: "apps",
+      body: [
+        { rows: [
+          ["QR CODE", "a code for a link or a Wi-Fi network, made on this machine"],
+          ["GAME MATH", "easing curves, damage and probability"],
+          ["TOPOLOGY", "a picture of your network"]
+        ] },
+        "TOPOLOGY fills itself in: when it opens it asks the relay what it can see, adds " +
+        "whatever is missing, and puts a green or red dot on each part. Hover a dot for " +
+        "the reason. Your own boxes are never moved or removed, and you can add more with " +
+        "ADD NODE."
+      ]
+    },
+
+    {
+      id: "app-system",
+      title: "SETTINGS, UPDATE, RELAY LINK AND DIAGNOSTICS",
+      tag: "apps",
+      body: [
+        { rows: [
+          ["SETTINGS", "theme, wallpaper, sound. Folded inside: backup, password, lock."],
+          ["UPDATE", "checks for a new signed version and installs it"],
+          ["RELAY LINK", "the relay's address. LINK DOCTOR, inside, finds what is wrong."],
+          ["DIAGNOSTICS", "checks this copy, the relay and, under SERVERS, the machines"]
+        ] },
+        "An update replaces the file on your drive, so a browser may ask where to save it. " +
+        "It is checked against a signature before anything is touched.",
+        { see: ["recovery", "network", "fixing"] }
+      ]
+    },
+
+    {
+      id: "app-terminal",
+      title: "TERMINAL (ADMINS)",
+      tag: "apps",
+      body: [
+        "Admins get a TERMINAL and the CRITTERSCRIPT reference. Everyone else does not see " +
+        "them. Type help for the commands.",
+        { see: ["scripting", "scripting-relay"] }
       ]
     },
 
@@ -106,50 +299,6 @@
     },
 
     {
-      id: "vault",
-      title: "HOW THE ENCRYPTION WORKS",
-      tag: "security",
-      body: [
-        "Worth understanding, because it explains what is and is not possible later.",
-
-        { h: "ENVELOPE ENCRYPTION" },
-        "Every record is encrypted with one random master key (the MDK), not with your " +
-        "password. Your password encrypts the MDK. This is why changing your password is " +
-        "cheap — it re-wraps one key rather than re-encrypting everything — and why two " +
-        "different keys (password and recovery key) can both open the same vault without " +
-        "either knowing about the other.",
-
-        { rows: [
-          ["MDK", "random, generated once, encrypts every record"],
-          ["password KEK", "PBKDF2(password, salt) — wraps the MDK"],
-          ["recovery KEK", "derived from the recovery key — wraps the MDK again"],
-          ["auth token", "derived alongside the password KEK, proves you to the relay"]
-        ] },
-
-        { h: "WHAT THE RELAY CAN SEE" },
-        "Being honest about this matters more than claiming perfection.",
-        { list: [
-          "It CANNOT see: your password, the MDK, the recovery key, or the contents of " +
-          "any record.",
-          "It CAN see: how many records exist, what type each one is (note, snippet, " +
-          "incident), and when each was last changed.",
-          "That metadata is plaintext on purpose — sync cannot work without it. The " +
-          "relay knows you have eleven notes and when you last touched them. It does " +
-          "not know a single word of what they say."
-        ] },
-
-        { h: "THE ONE UNAUTHENTICATED ROUTE" },
-        "GET /vault hands out the vault header — salt and wrapped keys — to anyone who " +
-        "asks. It has to: you need the salt before you can derive the token that would " +
-        "authenticate you. There is no way around that ordering.",
-        "What defends it: 600,000 PBKDF2 iterations make each password guess expensive, " +
-        "and the relay rate-limits that route hard. Everything rests on the master " +
-        "password being a real one.",
-        { see: ["passwords", "relay"] }
-      ]
-    },
-
-    {
       id: "relay",
       title: "SETTING UP THE RELAY",
       tag: "setup",
@@ -173,10 +322,9 @@
         { rows: [
           ["provisionToken", "one-time secret for creating the vault"],
           ["aiTargets", "where to find LM Studio, in priority order"],
-          ["statusServices", "read-only health probes for BASTION STATUS"],
+          ["statusServices", "what DIAGNOSTICS lists under SERVERS"],
           ["trustProxy", "whose X-Forwarded-For to believe — see below"],
           ["httpProxy", "set when Tailscale runs in userspace mode"],
-          ["actions", "the quick-action whitelist, empty by default"],
           ["usageLog", "count requests and AI tiers, on by default"],
           ["rateLimit", "windowMs, max, vaultMax, authFailMax, actionMax"]
         ] },
@@ -187,22 +335,9 @@
                 "GET /vault. Only set it to \"loopback\" once a tunnel sits in front and " +
                 "the relay itself listens on 127.0.0.1." },
 
-        { h: "QUICK ACTIONS — THE KILL SWITCH" },
-        "BASTION REMOTE can restart a server or pull logs through the relay. It is off " +
-        "until you configure it: with no actions in config.json, the relay has no ability " +
-        "to change anything at all.",
-        "FieldKit sends an action id and nothing else. It cannot pass arguments, cannot " +
-        "pass a command, and cannot compose one — the commands live in your config file " +
-        "and are run without a shell, so nothing in an argument can escape into a command " +
-        "line. If you need a variant, that is a second entry in the file.",
-        { warn: "Actions are tailnet-only and that is not configurable. Away from the " +
-                "tailnet, BASTION REMOTE will say so — that is the design, not a fault. " +
-                "Status, sync and AI keep working from anywhere." },
         { note: "The loopback trap: a tunnel such as cloudflared connects to the relay " +
                 "from 127.0.0.1, so once trustProxy is set, loopback stops counting as " +
-                "the tailnet — otherwise the public internet would arrive pre-approved. " +
-                "The practical consequence is that with a tunnel running, curl from the " +
-                "box itself is refused. Test from a real tailnet address." },
+                "the tailnet — otherwise the public internet would arrive pre-approved." },
 
         { h: "USAGE COUNTERS" },
         "How often the AI tier gets used, which target served it, and how often it fell " +
@@ -260,6 +395,42 @@
         "a backdoor and cannot be used as one. FieldKit never puts it in a backup either " +
         "— it is on the export denylist.",
         { see: ["sharing", "recovery"] }
+      ]
+    },
+
+    {
+      id: "ai",
+      title: "SETTING UP THE AI",
+      tag: "setup",
+      body: [
+        "ASK uses the best thing it can reach. There are three things you can set up, and " +
+        "none of them is required.",
+        { h: "THE SERVER'S SMALL MODELS" },
+        "On the second machine, run runnerd/tiny-ai.sh. It fetches two small models, starts " +
+        "them where only the relay can reach them, and prints the tinyAi lines for the " +
+        "relay's config. Then restart the relay. Only members and admins can use them, one " +
+        "question at a time each.",
+        { h: "A BIG MODEL ON YOUR OWN PC" },
+        { steps: [
+          "Install LM Studio on the PC that will host the model.",
+          "Load a model and start the server.",
+          "Enable \"Serve on Local Network\": the default binds to localhost only, and " +
+          "the relay is not on that machine.",
+          "Put the address in aiTargets in the relay config. The lowest priority number wins."
+        ] },
+        "This one needs the vault unlocked, because the vault's token is what the relay checks.",
+        { rows: [
+          ["hop 1", "this browser → the relay, over the internet"],
+          ["hop 2", "the relay → LM Studio on your PC, over Tailscale"]
+        ] },
+        "The boot screen checks the hops separately, so you can see which half broke.",
+        { h: "MODELS IN THE BROWSER" },
+        "Nothing to set up on the server beyond the relay itself, which hands the page the " +
+        "engine. Models come from Hugging Face, so a network that blocks it needs a model " +
+        "folder from a drive instead (MODELS.md, and USE A MODEL FOLDER FROM THIS DRIVE in ASK).",
+        { note: "With none of these, ASK falls back to built-in rules. They are not a " +
+                "language model, and every reply says which answered." },
+        { see: ["app-ask", "network"] }
       ]
     },
 
@@ -428,40 +599,46 @@
     },
 
     {
-      id: "ai",
-      title: "THE AI RELAY",
-      tag: "setup",
+      id: "vault",
+      title: "HOW THE ENCRYPTION WORKS",
+      tag: "security",
       body: [
-        "FieldKit talks to a model on your own machine, through the relay. Nothing goes " +
-        "to a third party.",
+        "Worth understanding, because it explains what is and is not possible later.",
 
-        { h: "THE TWO HOPS" },
+        { h: "ENVELOPE ENCRYPTION" },
+        "Every record is encrypted with one random master key (the MDK), not with your " +
+        "password. Your password encrypts the MDK. This is why changing your password is " +
+        "cheap — it re-wraps one key rather than re-encrypting everything — and why two " +
+        "different keys (password and recovery key) can both open the same vault without " +
+        "either knowing about the other.",
+
         { rows: [
-          ["hop 1", "this browser → the relay, over the internet"],
-          ["hop 2", "the relay → LM Studio on your PC, over Tailscale"]
-        ] },
-        "The boot screen resolves both separately, so when it fails you know which half " +
-        "broke. Hop 2 is checked after unlock, because listing AI targets needs auth.",
-
-        { h: "SETTING UP THE MODEL" },
-        { steps: [
-          "Install LM Studio on the PC that will host the model.",
-          "Load a model and start the server.",
-          "Enable \"Serve on Local Network\" — the default binds to localhost only, and " +
-          "the relay is not on that machine.",
-          "Put the address in aiTargets in the relay config, lowest priority number wins."
+          ["MDK", "random, generated once, encrypts every record"],
+          ["password KEK", "PBKDF2(password, salt) — wraps the MDK"],
+          ["recovery KEK", "derived from the recovery key — wraps the MDK again"],
+          ["auth token", "derived alongside the password KEK, proves you to the relay"]
         ] },
 
-        { h: "THE THREE TIERS" },
-        { rows: [
-          ["tier 1", "a real model via the relay. What you want."],
-          ["tier 2", "in-browser model. A registered slot, not built."],
-          ["tier 3", "built-in heuristics. Always available, no network."]
+        { h: "WHAT THE RELAY CAN SEE" },
+        "Being honest about this matters more than claiming perfection.",
+        { list: [
+          "It CANNOT see: your password, the MDK, the recovery key, or the contents of " +
+          "any record.",
+          "It CAN see: how many records exist, what type each one is (note, snippet, " +
+          "incident), and when each was last changed.",
+          "That metadata is plaintext on purpose — sync cannot work without it. The " +
+          "relay knows you have eleven notes and when you last touched them. It does " +
+          "not know a single word of what they say."
         ] },
-        "Tier 3 is not a language model. It pattern-matches and gives useful canned " +
-        "answers so the assistant is never simply dead. The UI always says which tier " +
-        "answered, so you are never guessing whether that reply came from a model.",
-        { see: ["network"] }
+
+        { h: "THE ONE UNAUTHENTICATED ROUTE" },
+        "GET /vault hands out the vault header — salt and wrapped keys — to anyone who " +
+        "asks. It has to: you need the salt before you can derive the token that would " +
+        "authenticate you. There is no way around that ordering.",
+        "What defends it: 600,000 PBKDF2 iterations make each password guess expensive, " +
+        "and the relay rate-limits that route hard. Everything rests on the master " +
+        "password being a real one.",
+        { see: ["passwords", "relay"] }
       ]
     },
 
@@ -547,234 +724,15 @@
     },
 
     {
-      id: "keys",
-      title: "KEYBOARD AND HIDDEN THINGS",
-      tag: "basics",
-      body: [
-        { rows: [
-          ["just type", "on the desktop: find an app; Enter opens the first hit"],
-          ["Ctrl+K", "command palette — search apps, notes, records and actions"],
-          ["Ctrl+L", "screen lock, if a PIN is set"],
-          ["Escape", "close a dialog or overlay"]
-        ] },
-        { h: "THE DESKTOP" },
-        "The search bar at the top finds any app by its name, by what it does (\"chat\", " +
-        "\"backup\", \"run a program\") or by its group. You do not have to click it: typing " +
-        "anywhere on the desktop starts a search, and Enter opens the first result. Its last " +
-        "row hands the same words to Ctrl+K, which also searches your notes and records.",
-        "YOUR APPS, under it, are the ones you use most, counting how often and how lately; " +
-        "until you have used a few it shows the usual ones. That count lives on this machine, " +
-        "not in the vault — it has to work in a guest session where there is no vault at all, " +
-        "and on a shared vault your friend's habits should not be reordering your desktop.",
-        "ALL APPS are six folders named for what is in them: ONLINE (browser, messages, " +
-        "RUNNER, the AI), FILES, PROJECT, SERVERS, TOOLS and SYSTEM. Each card lists what it holds.",
-        { h: "THERE ARE THINGS TO FIND" },
-        "Five of them. They do nothing important and break nothing. One is a sequence " +
-        "most people already know; the others are words you type on the desktop with " +
-        "nothing focused. ACHIEVEMENTS lists them with hints once you have found the " +
-        "first, and the hints do not give away their own answers.",
-        { note: "Typing into any text field never triggers them. That is deliberate and " +
-                "tested — writing a note about a bastion should not set off fireworks." }
-      ]
-    },
-
-    {
-      id: "projects",
-      title: "TRACKING A PROJECT",
-      tag: "reference",
-      body: [
-        "Several modules want the same idea of \"which thing are we working on\", so there " +
-        "is one project list shared between them. Create a project once, in CHANGELOG, and " +
-        "it turns up everywhere else.",
-        { note: "One list matters more than it sounds. Three modules each keeping their own " +
-                "is how you end up with IRONMARCH, Ironmarch and \"ironmarch \" as three " +
-                "separate projects forever." },
-
-        { h: "CHANGELOG" },
-        "Record what changed while you still remember it. Entries go in one at a time and " +
-        "start life unreleased; CUT A VERSION stamps everything pending with a version and " +
-        "a date in one pass.",
-        { list: [
-          "Categories follow Keep a Changelog — Added, Changed, Fixed, Removed, Deprecated, " +
-          "Security. They exist to force a useful question about each line.",
-          "BREAKING marks anything someone has to act on. It gets its own block at the top " +
-          "of the release.",
-          "Cutting is all or nothing, so a half-finished release cannot exist. Reopening a " +
-          "version puts every entry back to unreleased.",
-          "Re-using a version name is refused — it would silently merge two releases.",
-          "COPY MARKDOWN gives you something to paste straight into a README or a release, " +
-          "with who wrote each line if you have names set."
-        ] },
-
-        { h: "MANIFEST" },
-        "How big the project is and whether it is growing. The plan was to point it at a " +
-        "folder; the Chromebook has never let us invoke a directory picker, and a tool that " +
-        "works on one machine is not a tool. So you paste instead.",
-        { steps: [
-          "Run whatever you already run — wc -l, cloc, npm test, jest, vitest.",
-          "Paste the output into the box. The numbers get pulled out of it.",
-          "Fill in anything it could not find, or leave it blank.",
-          "TAKE SNAPSHOT. That moment is recorded and never edited."
-        ] },
-        { warn: "It never guesses. If it cannot see a test count in what you pasted, it says " +
-                "so and leaves the field empty rather than recording a zero. A stat tracker " +
-                "that quietly reports zero is worse than one that shrugs." },
-        "Two snapshots or more and you get a line chart. One number is trivia; a line is " +
-        "information.",
-
-        { h: "SAVE CODES" },
-        "Decode, edit, re-encode and compare a game's save codes. You describe the format " +
-        "once as a schema and every code in it decodes — a new game needs a new schema, not " +
-        "a new decoder.",
-        { rows: [
-          ["RAW JSON", "the code is json already"],
-          ["BASE64 → JSON", "either alphabet, padding optional"],
-          ["HEX → JSON", "0x prefix tolerated"],
-          ["DELIMITED", "positional fields, e.g. v1|100|50|3"]
-        ] },
-        "COMPARE decodes both codes and diffs the results, so you are comparing what they " +
-        "mean rather than how they are spelled — two codes in different encodings that say " +
-        "the same thing are reported as identical.",
-        { note: "Nothing here runs what it decodes. A save code is data: no eval, no " +
-                "Function, no innerHTML anywhere in the decode path, and a probe checks " +
-                "that by reading the source." },
-        { warn: "If a delimited field contains the separator, encoding is refused rather " +
-                "than producing a code that would decode to something else." },
-        { see: ["modules"] }
-      ]
-    },
-
-    {
-      id: "planning",
-      title: "PLANNING AND DESIGN TOOLS",
-      tag: "reference",
-      body: [
-        "Three tools for deciding things before they exist. All of them work with no " +
-        "network at all, which is the point — planning is what you do before there is " +
-        "anything out there to ask.",
-
-        { h: "TOPOLOGY" },
-        "A draggable diagram of what talks to what. It ships with the real Bastion layout " +
-        "already drawn, so it is useful before you have touched it.",
-        { list: [
-          "Drag a node, or Tab to it and use the arrow keys. Shift makes the steps small.",
-          "Edges that point at a node you deleted are dropped rather than drawn into " +
-          "nowhere.",
-          "COPY SVG and SAVE SVG both produce a standalone file — the colours are baked in, " +
-          "so it still looks right in a README or a document that knows nothing about FieldKit."
-        ] },
-
-        { h: "MESH PLANNER" },
-        "Where the LoRa nodes go, and whether they will actually hear each other. Drag " +
-        "nodes on a grid, mark what is in the way, and read off who can reach the gateway " +
-        "and in how many hops.",
-        { warn: "The range ring is an estimate and the module says so on screen. It is " +
-                "free-space path loss plus a terrain margin — a sanity check, not a " +
-                "survey. Real LoRa range is dominated by what is between the antennas, " +
-                "and this only knows about obstacles you drew yourself." },
-        "The terrain margin is doing all the work. Free-space maths alone says two hundred " +
-        "kilometres, which is true and useless. Forty decibels is roughly suburban with no " +
-        "line of sight and lands near two kilometres on SF9; clear line of sight is nearer " +
-        "ten, and woodland is sixty or worse. The field shows a plain-words hint for " +
-        "whatever number you put in.",
-        { note: "Hop counts and unreachable nodes are exact, not estimated — that half is " +
-                "pure graph work on the links you accepted, so it is a fact rather than a " +
-                "guess. It also names single points of failure: nodes that reach the mesh " +
-                "through exactly one neighbour." },
-        "COPY PLAN JSON exports positions in metres, ready to grow into real Meshtastic " +
-        "config later.",
-
-        { h: "SECURITY SANDBOX" },
-        "A design sandbox for the Bastion security tab, which does not exist yet. Sketch " +
-        "the panel layout, then write the part that actually matters: the action whitelist.",
-        { warn: "Every figure in the mockup is invented and stamped SYNTHETIC. The module " +
-                "has no network access at all, by construction, and a probe fails if any " +
-                "networking ever appears in it." },
-        "The whitelist is the real output. Each action carries a blast radius, who may run " +
-        "it, whether it is tailnet-only, and a cooldown. A linter holds the policy to four " +
-        "rules and refuses to let you forget them:",
-        { list: [
-          "Nothing destructive runs automatically — there is no undo to fall back on.",
-          "Detective proposes, Enforcer acts. The moment Detective can change state, the " +
-          "split has stopped being a safety mechanism.",
-          "Anything that changes state is tailnet-only.",
-          "Automatic mutating actions carry a cooldown, or they can react to their own " +
-          "side effects in a loop."
-        ] },
-        "COPY SPEC gives you a markdown document with the table, the reasoning behind each " +
-        "entry, and any rules the policy currently breaks.",
-        { see: ["relay", "modules"] }
-      ]
-    },
-
-    {
-      id: "assets",
-      title: "THE ASSET LIBRARY",
-      tag: "reference",
-      body: [
-        "Reusable art, sprites and audio across projects. The important thing about it is " +
-        "what it does not do: it does not store the files.",
-        { note: "The bytes stay in assets/assets-library/ on the drive. What is encrypted " +
-                "in the vault is the catalogue — where each file is, what it is for, and " +
-                "whether you are allowed to ship it. Pushing a sprite sheet through " +
-                "envelope encryption to the relay would be a slow way to fill somebody's " +
-                "disk." },
-
-        { h: "LICENCES ARE NOT OPTIONAL" },
-        "Every entry gets asked where it came from. An asset library without licence " +
-        "tracking is how a game ends up shipping someone else's art, and by then nobody " +
-        "remembers where the file came from.",
-        { list: [
-          "Anything without a usable licence is excluded from the build manifest — and " +
-          "listed separately with the reason, because silently dropping it would hide the " +
-          "problem the field exists to surface.",
-          "CC-BY with no source recorded is flagged: the licence needs attribution and " +
-          "there is nothing to credit.",
-          "COPY CREDITS builds the attribution list for you."
-        ] },
-
-        { h: "VERIFY" },
-        "The failure mode of any catalogue is rot — files get moved and the index quietly " +
-        "points at nothing. VERIFY ALL walks every entry and reports three states, not two:",
-        { rows: [
-          ["FOUND", "the browser loaded it, so it is there"],
-          ["MISSING", "the browser tried and failed"],
-          ["UNCHECKABLE", "a file:// page cannot probe this kind at all"]
-        ] },
-        { warn: "That third state matters. Images, audio, video and fonts can be probed " +
-                "from here; .aseprite, .tmx, .blend and .json cannot. Reporting those as " +
-                "MISSING would send you hunting for a file sitting exactly where it " +
-                "should be." },
-        { see: ["projects", "modules"] }
-      ]
-    },
-
-    {
       id: "browser",
-      title: "THE BROWSER, AND WHAT IT CANNOT DO",
+      title: "THE PROXY BROWSER, AND WHAT IT CANNOT DO",
       tag: "reference",
       body: [
-        "BROWSER is a window onto a proxy. Your relay fetches each page, rewrites every " +
+        "On a relay with no browser of its own, BROWSER falls back to a proxy. Your relay fetches each page, rewrites every " +
         "link and script URL to come back through itself, and serves the result into an " +
         "iframe. That is the only shape that can work: a page opened from the drive is a " +
         "file:// page, which cannot fetch across origins at all, and most sites refuse " +
         "to be put in a frame directly.",
-
-        { h: "WHEN YOUR RELAY RUNS A REAL BROWSER" },
-        "If the relay has a browser of its own, BROWSER shows that instead: a real " +
-        "Chromium on the relay, streamed to this panel as video. Pages work as they do " +
-        "anywhere else, because nothing is rewritten. The panel is a picture of the " +
-        "page, so the things a picture cannot do are asked of the real page:",
-        { rows: [
-          ["Ctrl+C, Ctrl+X", "copy or cut the page's selection to your clipboard."],
-          ["Ctrl+V", "paste your clipboard into the page."],
-          ["Ctrl+F, FIND", "find on the page. Enter: next. Shift+Enter: back. Esc: close."],
-          ["Ctrl + / −", "zoom, 50% to 200%. Ctrl 0 or the % button: 100%."],
-          ["Ctrl+L", "the address bar. F5 or Ctrl+R reloads."],
-          ["COOKIES, WIPE", "forget the cookies, or end the session and its data."]
-        ] },
-        "A minimised panel is sent nothing, which saves the relay's upload; it picks up " +
-        "where it was when you open it again. The rest of this page is about the proxy.",
 
         { h: "THE CONTROLS, AND WHY THERE ARE TWO SETS" },
         "There is an address bar inside the page and back/forward/reload buttons above " +
@@ -828,7 +786,7 @@
           "Not a way into FieldKit. The frame is a different origin from this page and " +
           "cannot navigate the top window. That is the wall the whole design rests on."
         ] },
-        { see: ["network", "limits"] }
+        { see: ["app-browser", "network", "limits"] }
       ]
     },
 
@@ -992,15 +950,14 @@
 
     {
       id: "modules",
-      title: "WHAT EVERY MODULE DOES",
+      title: "EVERY APP, IN ONE LIST",
       tag: "reference",
       body: [
         "Built from the live registry, so it cannot go stale.",
         { modules: true },
         { h: "GUEST-SAFE" },
-        "A module marked guest-safe can be opened in a guest session. Anything touching " +
-        "the relay, settings or secrets is not, and unflagged modules are sealed by " +
-        "default — the safe direction to be wrong in."
+        "An app marked guest-safe opens in a guest session. Anything touching the " +
+        "vault or secrets does not, and an unmarked one stays sealed."
       ]
     },
 
@@ -1011,8 +968,9 @@
       body: [
         "Stated plainly so you find out here rather than at a bad moment.",
         { list: [
-          "Not multi-user with separate accounts. One password, one vault, everyone " +
-          "who has it can read and write everything.",
+          "The vault is not multi-user with separate accounts. One password, one vault, " +
+          "everyone who has it can read and write everything. MESSAGES has real accounts; " +
+          "the vault does not.",
           "Not real-time collaboration. Changes land when saved and pulled, not as you " +
           "type.",
           "Not a defence against someone with your master password. There is nothing " +

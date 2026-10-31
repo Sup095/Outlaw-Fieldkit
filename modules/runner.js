@@ -1369,7 +1369,7 @@
     a.line.forEach(function (e) {
       box.appendChild(row([
         el("span", { class: "rn-name", text: e.place + ". " + e.handle + " (" + e.tier + (e.bumped ? ", moved up" : "") + ")" }),
-        el("span", { class: "rn-dim", text: (e.kind === "screen" ? "a window" : "a program") + (e.name ? ": " + e.name : "") +
+        el("span", { class: "rn-dim", text: (e.kind === "browser" ? "the browser" : e.kind === "screen" ? "a window" : "a program") + (e.name ? ": " + e.name : "") +
           (e.turnLeft != null ? ", THEIR TURN NOW" : "") + (e.away ? ", away" : "") }),
         e.place > 1 ? ui.button("MOVE TO FRONT", go({ t: "adm-line-up", id: e.id })) : null,
         ui.button("REMOVE", go({ t: "adm-line-rm", id: e.id }, "Why are you taking them out of the line? They are shown this."), { danger: true })

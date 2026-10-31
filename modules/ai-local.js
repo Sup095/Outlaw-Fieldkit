@@ -326,6 +326,8 @@
 
   FieldKit.register("ai-local", {
     group: "ONLINE",
+    /* A fold of ASK. */
+    inside: "ai-chat",
     about: "The AI model that runs inside this browser, with no server",
     keywords: "ai model llm webllm offline local tier 2",
     guestSafe: false,

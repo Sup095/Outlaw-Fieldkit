@@ -424,8 +424,6 @@
       }
     } else {
       await queue.push({ kind: "put", rec: rec, at: rec.updatedAt });
-      var ach = FieldKit.service("achievements");
-      if (ach && type !== "achievement") ach.noteOfflineWrite();
     }
 
     FieldKit.emit("store:changed", { id: id, type: type });

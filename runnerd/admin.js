@@ -256,6 +256,7 @@ function command(ctx, s, m) {
     case "adm-line-rm": {
       const e = ctx.access.leave(String(m.id));
       if (!e) throw new Error("that place in the line has gone");
+      if (e.kind === "browser") ctx.access.dropped.add(e.who);
       admin.audit(by, "line-remove", e.handle, m.reason || null);
       ctx.tellWho(e.who, { t: "line-gone", id: e.id, why: "an admin took you out of the line" + (m.reason ? ": " + String(m.reason).slice(0, 200) : "") });
       ctx.tickAccess(false);

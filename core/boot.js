@@ -636,18 +636,6 @@
 
     /* Everything lives on one relay unless a second copy exists. Say
        so at boot rather than at the moment it stops mattering. */
-    /* A note left by a guest is sitting unencrypted until someone
-       collects it. Nobody opens the guestbook unprompted, so the
-       prompt has to come to them. */
-    try {
-      var pendingRaw = localStorage.getItem("fieldkit.guestbook.pending.v1");
-      var pendingNotes = pendingRaw ? JSON.parse(pendingRaw) : [];
-      if (Array.isArray(pendingNotes) && pendingNotes.length) {
-        line(pendingNotes.length + " GUESTBOOK NOTE(S) WAITING — OPEN GUESTBOOK TO FILE THEM",
-          "accent");
-      }
-    } catch (e) { /* a malformed staging area is the module's problem */ }
-
     /* The quiet failures: a wrong clock, a full quota, work that
        never uploaded. None of these throw, so nothing else would
        ever mention them. Advisory — it never blocks the desktop. */

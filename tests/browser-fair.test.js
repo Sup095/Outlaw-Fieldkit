@@ -214,7 +214,62 @@ const until = async (fn, ms) => { const end = Date.now() + (ms || 3000); while (
     await get("?load=" + encodeURIComponent(relayRunner._internals.signTicket("x", "admin")));
     await get("?load=garbage");
     ok("anything else is ignored, and health still answers", app.access.upPct(0) === up0);
+
+    /* The one line (SIMPLIFY_PLAN.md §2), over the real report. */
+    const say = (line, free) => get("?load=" + encodeURIComponent(relayRunner._internals.signReport({ up: 0, line, free })));
+    const guest5 = { id: 5, t: "guest" }, member6 = { id: 6, t: "member", h: "sam" };
+    let h = await say([guest5, member6], { guest: false, member: false });
+    ok("the relay's waiting people join the one line", app.access.ordered("browser").length === 2);
+    ok("in the same order as everyone: the member first", h.load.line.places["6"].place === 1 && h.load.line.places["5"].place === 2,
+      JSON.stringify(h.load.line.places));
+    ok("no room, nobody goes", h.load.line.go.length === 0);
+    const noPeek = await get();
+    ok("the answer goes only to the relay", !noPeek.load.line);
+    h = await say([guest5, member6], { guest: true, member: true });
+    ok("room: the first goes, and only one per report, as the room is gone once used", h.load.line.go.join() === "6", h.load.line.go.join());
+    ok("and is out of the line", !app.access.line.some((e) => e.who === "relay:6"));
+    h = await say([guest5], { guest: false, member: false });
+    const gone = app.access.ordered("browser")[0];
+    app.access.leave(gone.id); app.access.dropped.add(gone.who);
+    h = await say([guest5], { guest: true, member: true });
+    ok("someone an admin took out is not added back, and the relay hears", h.load.line.drop.join() === "5" && !h.load.line.go.length &&
+      !app.access.ordered("browser").length, JSON.stringify(h.load.line));
+    h = await say([], {});
+    ok("once the relay has let them go, that is forgotten", !h.load.line.drop.length);
+    const w = app.access.join({ who: "g:w", handle: "w", tier: "guest", kind: "screen", req: { name: "game" } });
+    const hold = app.access.browserHold();
+    ok("a guest's window waiting holds back a new guest's browser, not a member's",
+      hold.includes("guest") && !hold.includes("member"), hold.join());
+    app.access.leave(w.id);
+    await say([guest5], { guest: false });
+    await say([], {});
+    ok("someone who stopped waiting on the relay leaves the line", !app.access.ordered("browser").length);
     await app.close();
+
+    /* The relay's half, on a fake clock. */
+    {
+    let at = 1e6, peer = null;
+    const f = new Fairness({ now: () => at, read: () => ({}), peer: () => peer });
+    const a = f.join("g1", "guest"), b = f.join("sam", "member");
+    const rep = f.report((t) => t === "member");
+    ok("the report: who waits, and no guest's name", rep.line.length === 2 && !rep.line.some((e) => e.t === "guest" && e.h) &&
+      rep.line[0].h === "sam");
+    ok("and who could start", rep.free.member === true && rep.free.guest === false);
+    ok("with nothing from Bastion 2 the line is this relay's own", !f.shared() && f.place(b).place === 1);
+    peer = { at: at, line: { hold: ["guest"] } };
+    ok("Bastion 2 answering, the line is shared", f.shared());
+    f.leave(a); f.leave(b);
+    ok("a person it holds back for counts as someone ahead", f.someoneAhead("guest") && !f.someoneAhead("member"));
+    const c = f.join("g2", "guest"), d = f.join("g3", "guest"), e2 = f.join("g4", "guest");
+    let let2 = false, gone2 = false;
+    d.go = () => { let2 = true; }; e2.go = () => { gone2 = true; };
+    const out = f.answer({ go: [d.n, 999], drop: [e2.n], places: { [c.n]: { place: 7, ahead: 6, of: 9, etaSec: 60 } } });
+    ok("its answer names who goes, and nobody unknown", out.length === 1 && out[0] === d);
+    ok("someone taken out is let go, marked, and off the line", gone2 && e2.dropped && !f.line.includes(e2));
+    ok("a place is the one line's", f.place(c).place === 7 && f.place(c).etaSec === 60);
+    at += 16000;
+    ok("Bastion 2 silent: this relay's own line again, and nobody stranded", !f.shared() && f.place(c).place === 1 && !f.someoneAhead("member"));
+    }
     relayRunner._internals.forget && relayRunner._internals.forget();
   }
 

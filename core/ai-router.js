@@ -36,12 +36,33 @@
     return true;
   }
 
+  /* The server's small models: an account, not the vault, so they
+     work in OUTPOST too. Members and admins only; the relay checks. */
+  function tiny() {
+    var m = FieldKit.service("messages");
+    if (!m || !m.tinyChat || !m.signedIn()) return null;
+    return m.tier() === "member" || m.tier() === "admin" ? m : null;
+  }
+
   async function availability() {
     var out = {
+      server: { name: "SERVER MODEL", available: false, detail: "", models: [] },
       1: { name: "RELAY / LM STUDIO", available: false, detail: "" },
       2: { name: "IN-BROWSER MODEL", available: false, detail: "not built yet" },
       3: { name: "HEURISTIC", available: true, detail: "always available" }
     };
+
+    var m = FieldKit.service("messages");
+    if (!m || !m.signedIn || !m.signedIn()) out.server.detail = "sign in to MESSAGES as a member";
+    else if (!tiny()) out.server.detail = "for members";
+    else {
+      try {
+        var list = await m.tinyModels();
+        out.server.models = list.models || [];
+        out.server.available = out.server.models.length > 0;
+        out.server.detail = out.server.available ? "" : "this relay runs none";
+      } catch (e) { out.server.detail = e.message; }
+    }
 
     var r = relay(), s = store();
     if (!r || !r.url()) out[1].detail = "relay not configured";
@@ -105,8 +126,6 @@
           var content = choice && choice.message && choice.message.content;
           if (content) {
             lastTierUsed = 1;
-            var ach = FieldKit.service("achievements");
-            if (ach) ach.noteTier1();
             /* Belt and braces for the next time something upstream
                cuts a reply short — the model's own server, a context
                window, a proxy. `length` means it stopped because it
@@ -124,6 +143,21 @@
           lastError = e.message;
           FieldKit.log("warn", "ai-router", "tier 1 failed, degrading: " + e.message);
         }
+      }
+    }
+
+    var t = !opts.forceTier && tiny();
+    if (t) {
+      try {
+        var st = FieldKit.service("settings");
+        var said = await t.tinyChat(opts.tinyModel || (st && st.get("askServerModel")) || undefined, messages);
+        if (said.content) {
+          lastTierUsed = 1;
+          return { content: said.content, tier: 1, server: true, model: said.model, truncated: said.truncated };
+        }
+      } catch (e) {
+        lastError = e.message;
+        FieldKit.log("warn", "ai-router", "server model failed, degrading: " + e.message);
       }
     }
 

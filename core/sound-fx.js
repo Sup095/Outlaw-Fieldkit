@@ -114,7 +114,6 @@
   FieldKit.on("shell:open", function () { SFX.open(); });
   FieldKit.on("shell:close", function () { SFX.close(); });
   FieldKit.on("boot:done", function () { SFX.boot(); });
-  FieldKit.on("achievement:unlocked", function () { SFX.unlock(); });
   FieldKit.on("store:state", function (e) {
     if (!e) return;
     if (e.state === "ONLINE") SFX.ok();

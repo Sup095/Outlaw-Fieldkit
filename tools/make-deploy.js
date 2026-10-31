@@ -44,13 +44,13 @@ const arg = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1
    into the image, so nothing here may be a secret. */
 const RELAY_CODE = ["start.js", "server.js", "browse.js", "browse-runtime.js", "messaging.js",
   "updates.js", "ws.js", "cdp.js", "guard.js", "browser-engine.js", "browser-route.js", "video-encoder.js", "proc-usage.js", "pulse.js", "ogg-opus.js", "fairness.js",
-  "overflow.js", "browser-helper.js", "runner.js", "jsonfile.js", "adblock.js", "fetch-adblock.js", "fetch-cloudflared.js", "fetch-tailscale.js"];
+  "overflow.js", "browser-helper.js", "runner.js", "tiny-ai.js", "topology.js", "jsonfile.js", "adblock.js", "fetch-adblock.js", "fetch-cloudflared.js", "fetch-tailscale.js"];
 
 const BASTION2 = [
   ["relay/ws.js", "relay/ws.js"], ["relay/guard.js", "relay/guard.js"], ["relay/jsonfile.js", "relay/jsonfile.js"],
   ["runnerd/server.js"], ["runnerd/ticket.js"], ["runnerd/limits.js"], ["runnerd/sandbox.js"],
   ["runnerd/store.js"], ["runnerd/admin.js"], ["runnerd/save.js"], ["runnerd/egress.js"], ["runnerd/power.js"], ["runnerd/fk-power.sh"], ["runnerd/access.js"], ["runnerd/zip.js"], ["runnerd/Dockerfile"], ["runnerd/compose.yml"],
-  ["runnerd/config.example.json"], ["runnerd/setup.sh"], ["runnerd/inspect.sh"],
+  ["runnerd/config.example.json"], ["runnerd/setup.sh"], ["runnerd/inspect.sh"], ["runnerd/tiny-ai.sh"],
   ["runnerd/image/Dockerfile"], ["runnerd/image-wine/Dockerfile"], ["runnerd/image-wine/run-exe.sh"],
   ["runnerd/image-screen/Dockerfile"], ["runnerd/image-screen/fk-screen.py"]
 ];
@@ -104,6 +104,8 @@ for (const f of RELAY_CODE) {
   put(src, path.join(b1, "relay", f), true);
   now[f] = sha(path.join(b1, "relay", f));
 }
+/* The in-browser engine, served to installers (relay/tiny-ai.js). */
+put(path.join(ROOT, "vendor", "web-llm.js"), path.join(b1, "relay", "web-llm.js"), true);
 for (const [from, to] of [["relay/docker/Dockerfile", "Dockerfile"], ["relay/docker/entrypoint.sh", "entrypoint.sh"]]) {
   put(path.join(ROOT, from), path.join(b1, to), true);
   now[to] = sha(path.join(b1, to));

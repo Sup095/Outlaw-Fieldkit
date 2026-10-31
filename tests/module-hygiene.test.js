@@ -88,7 +88,7 @@ function shape(node) {
   section("every module mounts");
   {
     ok("the real boot manifest was read, not a hand-kept list", list.length > 40, String(list.length));
-    ok("modules registered", ids.length > 30, String(ids.length));
+    ok("modules registered", ids.length >= 20, String(ids.length));
   }
 
   section("nothing leaks out of its own panel");
@@ -185,8 +185,7 @@ function shape(node) {
     /* And the trap: reading the module-scope variable inside a
        continuation reads whichever mount is CURRENT, which always
        passes. Modules must capture it in a local. */
-    const users = ["modules/selftest-panel.js", "modules/settings-panel.js",
-      "modules/build-manifest.js"];
+    const users = ["modules/selftest-panel.js", "modules/settings-panel.js"];
     users.forEach((f) => {
       const src = fs.readFileSync(path.join(ROOT, f), "utf8");
       ok(f.split("/").pop() + " claims a guard at mount", /mountGuard\(/.test(src));

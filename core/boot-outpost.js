@@ -94,8 +94,8 @@
   }
 
   /* Whether anything written here survives the tab. Worth saying at
-     boot rather than leaving someone to discover it by losing a
-     guestbook entry. */
+     boot rather than leaving someone to discover it by losing
+     something. */
   async function storage() {
     var store = FieldKit.need("store");
     var row = pair("LOCAL STORE", "OPENING");

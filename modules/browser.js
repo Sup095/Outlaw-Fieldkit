@@ -1265,7 +1265,7 @@
           /* Every browser session is busy or the house upload is: a
              place in line (RUNNER_PLAN.md §22). It connects by itself. */
           stat.textContent = "waiting for a browser: " + (m.ahead ? m.ahead + " ahead of you" : "you are next") +
-            " (" + (m.why || "busy") + "). Members go ahead of guests. This connects by itself.";
+            " in the line for BROWSER and RUNNER (" + (m.why || "busy") + "). Members go ahead of guests. This connects by itself.";
           stat.className = "br-status warn";
         } else if (m.t === "moved") {
           /* A browser has come free on the relay's second machine: the

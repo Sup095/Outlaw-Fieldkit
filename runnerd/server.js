@@ -117,11 +117,18 @@ function create(cfg, logFn) {
   /* The relay's signed report of its browser's upload, carried on its
      health check. Believed only if it verifies, once. */
   function takeReport(text) {
-    if (!text || !state.key) return;
+    if (!text || !state.key) return false;
     const v = ticket.verifyReport(state.key, text);
-    if (!v.ok || !reports.use(v.claims)) return;
+    if (!v.ok || !reports.use(v.claims)) return false;
     state.relayUp = { kbps: v.claims.up, wait: Math.max(0, Math.min(1000, v.claims.wait | 0)), at: Date.now() };
+    /* The browser's waiting people join the one line, and the relay
+       says whether it could start one now (SIMPLIFY_PLAN.md §2). */
+    const list = (Array.isArray(v.claims.line) ? v.claims.line : []).slice(0, 60)
+      .filter((r) => r && typeof r.id === "number" && (r.t === "guest" || r.t === "member"));
+    state.relayFree = v.claims.free && typeof v.claims.free === "object" ? v.claims.free : {};
+    access.syncBrowser(list);
     if (!state.relayHeard) { state.relayHeard = true; log("INFO", "runnerd: hearing the relay's load reports (one home upload for both)"); }
+    return true;
   }
 
   /* How busy a job's processor is, in % of one; null when it cannot be
@@ -325,6 +332,7 @@ function create(cfg, logFn) {
     if (!access.line.length) return;
     const r = access.pump({ countsOk: countsOk,
       online: (who) => Array.from(sessions.values()).some((x) => whoOf(x) === who),
+      browserShort: (e) => (relayFresh() && state.relayFree && state.relayFree[e.tier] ? [] : ["host"]),
       running: () => Array.from(jobs.values()).map((j) => ({ id: j.id, kind: kindOf(j), tier: j.tier,
         startedAt: j.startedAt, lastInput: j.lastInput, lastOut: j.lastOut, warned: j.warned })) });
     const turn = access.settings().turnSec;
@@ -332,6 +340,12 @@ function create(cfg, logFn) {
       log("INFO", `runnerd: ${e.handle}'s turn for a ${e.kind}`);
       toWho(e.who, { t: "turn", id: e.id, kind: e.kind, name: e.req.name, seconds: turn });
     });
+    /* One at a time: the relay's word on room is out of date as soon
+       as it is used. Its next report says again. */
+    if (r.browser.length) {
+      state.relayFree = {};
+      r.browser.forEach((e) => log("INFO", `runnerd: ${e.handle}'s turn for the browser`));
+    }
     r.lapsed.forEach((x) => toWho(x.e.who, { t: "line-gone", id: x.e.id, why: x.why }));
     r.warn.forEach((w) => {
       const j = jobs.get(w.id);
@@ -912,9 +926,12 @@ function create(cfg, logFn) {
     if (req.method === "GET" && p === "/health") {
       let q = null;
       try { q = new URL(req.url, "http://x").searchParams.get("load"); } catch (e) {}
-      if (q) takeReport(q);
+      const heard = q ? takeReport(q) : false;
+      if (heard) tickAccess(false);
+      const body = health();
+      if (heard) body.load.line = Object.assign(access.browserAnswer(), { hold: access.browserHold() });
       res.writeHead(200, head);
-      return res.end(JSON.stringify(health()));
+      return res.end(JSON.stringify(body));
     }
     res.writeHead(404, head);
     res.end(JSON.stringify({ error: "no such route", routes: ["GET /health", "WS /attach?t=<ticket>"] }));

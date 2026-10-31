@@ -62,7 +62,7 @@
 
      "SKIPPED — " is the existing convention the runner already reads,
      so naming the absence is all this has to do. */
-  var NOT_IN_OUTPOST = ["crypto", "queue", "ai", "aiTier3", "aiTier2", "diff", "backup", "files"];
+  var NOT_IN_OUTPOST = ["crypto", "queue", "backup", "files"];
 
   function onOutpost() {
     var boot = FieldKit.service("boot");
@@ -229,6 +229,25 @@
         if (!r || !r.enabled) throw new Error("SKIPPED — RUNNER is not on this relay");
         if (!r.online || r.ready === false) throw new Error(r.why || "the run server is offline");
         return "ready (" + (r.sandbox || "?") + ")" + (r.viaRelay ? ", through the relay's own address" : ", on its own address");
+      }),
+      check("SERVER AI MODELS", false, async function () {
+        var t = await getJson(relayBase() + "/ai/tiny");
+        if (!t) throw new Error("SKIPPED — this relay is too old to offer them");
+        if (!t.enabled) throw new Error("SKIPPED — this relay runs none");
+        return t.models.map(function (m) { return m.name; }).join(", ") + ", for members";
+      }),
+      check("MODELS IN THIS BROWSER", false, async function () {
+        var inst = svc("aiInstall");
+        if (!inst) throw new Error("SKIPPED — this build cannot install models");
+        var have = await inst.installed();
+        return have.length + " installed" + (inst.gpu() ? "" : ", but this browser has no WebGPU to run them");
+      }),
+      check("NETWORK REPORT", false, async function () {
+        var t = await getJson(relayBase() + "/topology");
+        if (!t) throw new Error("SKIPPED — this relay is too old to report");
+        var down = t.parts.filter(function (p) { return !p.up; });
+        if (down.length) throw new Error(down.map(function (p) { return p.label; }).join(", ") + " down");
+        return t.parts.length + " parts, all up";
       }),
       check("VIDEO DECODING", false, async function () {
         if (typeof VideoDecoder !== "function") throw new Error("no WebCodecs here: the browser and RUNNER windows fall back to pictures, which use more data");
@@ -775,22 +794,6 @@
 
     /* ---- engines ---- */
     groups.push(group("ENGINES", [
-      check("DIFF RECONSTRUCTION", true, async function () {
-        var d = need("diff");
-        var A = "alpha\nbravo\ncharlie\ndelta\necho";
-        var B = "alpha\nbravo modified\ncharlie\nfoxtrot\ndelta\necho";
-        var rows = d.diffLines(A, B);
-        /* The real test of a diff engine: both sides must be exactly
-           rebuildable from its output. Unchanged rows are "eq". */
-        var left = rows.filter(function (r) { return r.type === "eq" || r.type === "del"; })
-          .map(function (r) { return r.text; }).join("\n");
-        var right = rows.filter(function (r) { return r.type === "eq" || r.type === "add"; })
-          .map(function (r) { return r.text; }).join("\n");
-        if (left !== A) throw new Error("left side did not reconstruct");
-        if (right !== B) throw new Error("right side did not reconstruct");
-        var st = d.stats(rows);
-        return st.added + " added, " + st.removed + " removed, both sides exact";
-      }),
       check("QR ENCODE", true, async function () {
         var qr = need("qr");
         var code = qr.encode("https://github.com/example/fieldkit");
@@ -887,7 +890,7 @@
         var shell = svc("shell");
         if (!shell || !shell.desktop()) throw new Error("desktop not built");
         var ids = Object.keys(FieldKit.modules());
-        var target = ids.indexOf("dev-tools") >= 0 ? "dev-tools" : ids[0];
+        var target = ids.indexOf("qr-gen") >= 0 ? "qr-gen" : ids[0];
         if (!target) throw new Error("no modules registered");
         var alreadyOpen = shell.openWindows().indexOf(target) >= 0;
         if (alreadyOpen) return "SKIPPED — " + target + " is already open";
@@ -915,27 +918,6 @@
         /* Deliberately does not make a noise — just proves the engine
            can be driven without throwing when it is switched off. */
         return s.enabled() ? "enabled" : "present, currently off";
-      }),
-      check("AMBIENT FX", false, async function () {
-        var fx = svc("ambientFx");
-        if (!fx) throw new Error("ambient service not registered");
-        var was = fx.isRunning();
-        sb.onCleanup(function () { if (!was) fx.stop(); });
-        if (!was) {
-          fx.start();
-          var n = fx.count();
-          fx.stop();
-          return "started with " + n + " particles, stopped";
-        }
-        return "already running with " + fx.count() + " particles";
-      }),
-      check("ACHIEVEMENTS ENGINE", false, async function () {
-        var a = svc("achievements");
-        if (!a) throw new Error("achievements not registered");
-        if (isGuest()) throw new Error("SKIPPED — guest session");
-        if (typeof a.evaluate === "function") await a.evaluate();
-        var got = Object.keys(a.unlocked() || {}).length;
-        return got + " of " + (a.DEFS ? a.DEFS.length : "?") + " unlocked";
       }),
       check("COMMAND PALETTE", false, async function () {
         need("commandPalette");
@@ -1115,11 +1097,6 @@
   async function runExercise(onStep) {
     var sb = makeSandbox();
 
-    /* Probe notes, snippets, and incidents would otherwise push the
-       achievement counters up for work nobody did. */
-    var ach = svc("achievements");
-    var resumeAchievements = ach && typeof ach.suspend === "function" ? ach.suspend() : null;
-
     /* Taken before anything mounts, restored in the finally so a
        crash halfway through still puts the desktop back. */
     var env = snapshotEnvironment();
@@ -1143,7 +1120,6 @@
          call above never ran if run() threw, and a second call with
          nothing left to change returns an empty list. */
       restoreEnvironment(env);
-      if (resumeAchievements) resumeAchievements();
     }
   }
 

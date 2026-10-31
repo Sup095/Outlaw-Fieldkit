@@ -15,7 +15,7 @@
 (function (FieldKit) {
   "use strict";
 
-  var ctx, ui, el, nodes = {};
+  var ctx, ui, el, nodes = {}, doctor = null;
   var results = {};          /* address -> { ok, ms } from TEST */
   var services = null;       /* the last service check of the address in use */
   var busy = false;
@@ -248,10 +248,18 @@
       nodes.root = el("div", { class: "rl-root" });
       host.appendChild(nodes.root);
       render();
+      /* Outside render(), so a redraw of the address list leaves a
+         running diagnosis alone. */
+      doctor = ui.moduleFold("link-doctor", ctx);
+      if (doctor) host.appendChild(doctor);
       if (list().length && typeof fetch === "function") checkServices();
     },
 
-    unmount() { nodes = {}; }
+    unmount() {
+      if (doctor) doctor.unmount();
+      doctor = null;
+      nodes = {};
+    }
   });
 
   function injectCSS() {
@@ -259,7 +267,7 @@
     var s = document.createElement("style");
     s.id = "rl-style";
     s.textContent = [
-      ".rl-root{display:flex;flex-direction:column;gap:10px;height:100%;overflow:auto}",
+      ".rl-root{display:flex;flex-direction:column;gap:10px;overflow:auto;max-height:calc(100% - 36px)}",
       ".rl-h{font-size:12px;letter-spacing:.2em;color:var(--accent)}",
       ".rl-p{font-size:10px;color:var(--fg-dim);line-height:1.6}",
       ".rl-row{display:flex;gap:6px;flex-wrap:wrap;align-items:center}",
