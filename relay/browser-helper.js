@@ -126,7 +126,7 @@ function start(opts) {
   const config = opts.config || readConfig(configPath());
   const relayKey = opts.relayKey || new RelayKey(config.helper.relayUrl);
   const spent = new Spent();
-  const meter = new Fairness();
+  const meter = opts.meter || new Fairness();
   fs.mkdirSync(config.dataDir, { recursive: true });
 
   if (!relayKey.base) log("ERROR", "helper: helper.relayUrl is empty, so no pass can ever be checked — set it to the relay's https address");

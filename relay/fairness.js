@@ -31,6 +31,10 @@ const DEFAULTS = { guest: { load: 60, upload: 50 }, member: { load: 85, upload: 
 /* One browser session: Chromium's share while in use, and its video
    while the page moves (0.5-0.8 Mbit/s measured scrolling). */
 const COST = { cpu: 10, mem: 6, kbps: 800, pids: 20 };
+/* What the meter says, shared out, is at most this. It counts everything
+   in the box, not only sessions, so with one session running it would
+   otherwise say the next costs all that is in use. */
+const COST_MAX = { cpu: 40, mem: 25, pids: 30 };
 const LINE_MAX = 40;
 /* Video quality, as a share of the full bitrate: full, then two steps
    down while the house upload is busy or anyone waits (§22 point 5). */
@@ -141,7 +145,9 @@ class Fairness {
      of text are not the same six. */
   costNow() {
     const n = this.sessions(), cpu = this.meter.avg === null ? this.meter.cpu : this.meter.avg;
-    return { cpu: Math.max(COST.cpu, n ? cpu / n : 0), mem: Math.max(COST.mem, n ? this.meter.mem / n : 0), kbps: COST.kbps, pids: n ? this.meter.pids / n : COST.pids };
+    const share = (used, least, most) => Math.min(most, Math.max(least, n ? used / n : 0));
+    return { cpu: share(cpu, COST.cpu, COST_MAX.cpu), mem: share(this.meter.mem, COST.mem, COST_MAX.mem), kbps: COST.kbps,
+      pids: n ? Math.min(COST_MAX.pids, this.meter.pids / n) : COST.pids };
   }
 
   /* RUNNER's upload, while its report is fresh. */
@@ -271,4 +277,4 @@ class Fairness {
   }
 }
 
-module.exports = { Fairness, readCgroup, DEFAULTS, COST, STEPS };
+module.exports = { Fairness, readCgroup, DEFAULTS, COST, COST_MAX, STEPS };

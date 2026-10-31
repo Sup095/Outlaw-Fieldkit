@@ -60,6 +60,7 @@ const POLL_IDLE_MS = 20000;
 const STATE_FRESH_MS = 25000;        /* longer than the idle poll, or a quiet helper reads as down */
 const TIMEOUT_MS = 4000;
 /* What a helper's new session is guessed to cost, as in fairness.js. */
+const { COST_MAX } = require("./fairness");
 const COST = { cpu: 10, mem: 6, gpu: 8 };
 
 const b64u = (b) => Buffer.from(b).toString("base64url");
@@ -172,8 +173,9 @@ class Overflow {
       if ((only === "gpu" && !h.state.gpu) || (only === "plain" && h.state.gpu)) return false;
       if (!t || tier === "admin") return true;
       const n = h.state.sessions.length;
-      const cpu = Math.max(COST.cpu, n ? h.state.cpu / n : 0), mem = Math.max(COST.mem, n ? h.state.mem / n : 0);
-      if (h.state.pids + (n ? h.state.pids / n : 4) > t.load) return false;
+      const share = (used, least, most) => Math.min(most, Math.max(least, n ? used / n : 0));
+      const cpu = share(h.state.cpu, COST.cpu, COST_MAX.cpu), mem = share(h.state.mem, COST.mem, COST_MAX.mem);
+      if (h.state.pids + (n ? Math.min(COST_MAX.pids, h.state.pids / n) : 4) > t.load) return false;
       if (h.state.gpu && h.state.gpuMem + COST.gpu > t.load) return false;
       return Math.max(h.state.cpu, box ? box.cpu : 0) + cpu <= t.load && Math.max(h.state.mem, box ? box.mem : 0) + mem <= t.load;
     });

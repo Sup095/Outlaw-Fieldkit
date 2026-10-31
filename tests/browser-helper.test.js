@@ -90,7 +90,9 @@ const json = (r) => { try { return JSON.parse(r.body.toString("utf8")); } catch 
   const f = new Fairness({ now: Date.now, read: () => ({}) });
   let ov;
   const relayKey = { base: "https://relay.example.com", key: null, due: () => false, load: async () => true };
-  const helper = await helperMod.start({ relayKey,
+  /* A helper's own meter reads the machine running the tests, whatever
+     that is doing; these are about who goes where, so it reads nothing. */
+  const helper = await helperMod.start({ relayKey, meter: new Fairness({ read: () => ({}) }),
     config: { host: "127.0.0.1", port: 0, dataDir: path.join(TMP, "helper"), helper: { relayUrl: relayKey.base },
       browser: { enabled: true, video: false, maxSessions: 2 }, browse: {} } });
   const hEngine = standIn(helper.engine, { status: () => ({ available: true }) });
@@ -138,6 +140,9 @@ const json = (r) => { try { return JSON.parse(r.body.toString("utf8")); } catch 
     box = { cpu: 30, mem: 30 };
     card.state = st({ gpu: true, gpuMem: 20, cpu: 60, sessions: ["a", "b"] });
     ok("what the sessions there really cost decides", o.pick("sam", "member", fair, "gpu") === null);
+    card.state = st({ gpu: true, gpuMem: 20, mem: 50, sessions: ["a"] });
+    box = null;
+    ok("one session does not read as costing everything in use", o.pick("sam", "member", fair, "gpu") === card);
     ok("a helper near its process limit is passed over", (plain.state.pids = 84) && o.pick("sam", "member", fair, "plain") === null);
     o.stop();
   }
@@ -247,7 +252,8 @@ const json = (r) => { try { return JSON.parse(r.body.toString("utf8")); } catch 
     await ov.poll(ov.helpers[0]);
     await until(() => has(dan, "moved"), 5000);
     ok("a session comes free on the helper: dan is told to connect again", has(dan, "moved"));
-    await dan.closed;
+    /* Not for ever: a failure above should fail, not stop the suite. */
+    await Promise.race([dan.closed, new Promise((r) => setTimeout(r, 3000))]);
     const dan2 = await open("msg:dan", "member");
     await until(() => has(dan2, "ready"));
     ok("and connecting again lands him there", has(dan2, "ready") && hEngine.sessions.has("msg:dan"));

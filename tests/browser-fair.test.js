@@ -265,6 +265,11 @@ const until = async (fn, ms) => { const end = Date.now() + (ms || 3000); while (
       let at = 1e6, p = { machine: { cpu: 70, mem: 40 }, at: at };
       const m = new Fairness({ now: () => at, read: () => ({}), peer: () => p });
       ok("Bastion 2 as a whole, while the word is fresh", m.machine().cpu === 70);
+      {
+        const one = new Fairness({ read: () => ({}), sessions: () => 1 });
+        one.meter.mem = 60; one.meter.cpu = 70;
+        ok("one session is never taken to cost all that is in use", one.costNow().mem === 25 && one.costNow().cpu === 40, JSON.stringify(one.costNow()));
+      }
       at += 16000;
       ok("and not after", m.machine() === null);
     }
