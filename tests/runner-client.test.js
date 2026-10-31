@@ -221,8 +221,8 @@ const remount = () => { def.unmount(); host = fakeElement("div"); def.mount(host
     const jid = Array.from(app._internals.jobs.keys())[0];
     app._internals.driver.fakeStats = { [jid]: { cpu: 0.5, memMb: 30 } };
     await app._internals.sampleUse();
-    await until(() => /0\.50 core · 30 MB of 2048 MB/.test(text()));
-    ok("a running program's row says what it is using", /0\.50 core · 30 MB of 2048 MB/.test(text()), text().slice(0, 300));
+    await until(() => /0\.50 core · 30 MB of 4096 MB/.test(text()));
+    ok("a running program's row says what it is using", /0\.50 core · 30 MB of 4096 MB/.test(text()), text().slice(0, 300));
     await until(() => /slow done/.test(text()) && app._internals.jobs.size === 0, 5000);
     app._internals.driver.fakeStats = null;
     del();

@@ -33,10 +33,16 @@
    WHERE A NEW SESSION GOES (browser-route.js asks place()):
      1. it already has a session here: here;
      2. it has one on a helper: there;
-     3. here has a free session and is under the line: here;
-     4. a helper has a free session and is under the line: there;
-     5. otherwise here, as before (an unwatched session gives way, or
+     3. an approved account, and a helper with a graphics card has room:
+        there, because that is where a page runs best;
+     4. here has a free session and is under the line: here;
+     5. a helper has a free session and is under the line: there;
+     6. otherwise here, as before (an unwatched session gives way, or
         the line).
+   A guest never gets the card (RUNNER_PLAN.md: only approved accounts).
+   A helper is on Bastion 2 with RUNNER, so its room is judged by the
+   whole machine as runnerd measures it, not only by its own container:
+   that is how the two share one machine with no split between them.
    The home upload is shared, so it counts the same for both.
    ============================================================ */
 "use strict";
@@ -51,10 +57,10 @@ const AUDIENCE = "fieldkit-browser-helper";
 const PASS_MS = 60 * 1000;
 const POLL_BUSY_MS = 3000;           /* someone is on a helper, or waiting */
 const POLL_IDLE_MS = 20000;
-const STATE_FRESH_MS = 15000;
+const STATE_FRESH_MS = 25000;        /* longer than the idle poll, or a quiet helper reads as down */
 const TIMEOUT_MS = 4000;
 /* What a helper's new session is guessed to cost, as in fairness.js. */
-const COST = { cpu: 10, mem: 6 };
+const COST = { cpu: 10, mem: 6, gpu: 8 };
 
 const b64u = (b) => Buffer.from(b).toString("base64url");
 
@@ -152,16 +158,24 @@ class Overflow {
     return this.helpers.find((h) => this.fresh(h) && (h.state.sessions || []).indexOf(who) >= 0) || null;
   }
 
-  /* A helper with a free session that this tier may have, by its own
-     load and the shared upload; the one keeping this account's
-     sign-ins first, then the least busy. */
-  pick(who, tier, fair) {
+  /* A helper with a free session that this tier may have, by the
+     machine's load and the shared upload; the one keeping this account's
+     sign-ins first, then the least busy. `only`: "gpu" for helpers with
+     a graphics card, "plain" for those without, nothing for either. */
+  pick(who, tier, fair, only) {
     const t = fair ? fair.settings()[tier] || fair.settings().guest : null;
     if (fair && tier !== "admin" && fair.upPct(800) > t.upload) return null;
+    const box = fair && fair.machine ? fair.machine() : null;
     const ok = this.helpers.filter((h) => {
       if (!this.fresh(h) || !h.state.ready || !(h.state.free > 0)) return false;
+      if (h.state.gpu && tier === "guest") return false;
+      if ((only === "gpu" && !h.state.gpu) || (only === "plain" && h.state.gpu)) return false;
       if (!t || tier === "admin") return true;
-      return h.state.cpu + COST.cpu <= t.load && h.state.mem + COST.mem <= t.load;
+      const n = h.state.sessions.length;
+      const cpu = Math.max(COST.cpu, n ? h.state.cpu / n : 0), mem = Math.max(COST.mem, n ? h.state.mem / n : 0);
+      if (h.state.pids + (n ? h.state.pids / n : 4) > t.load) return false;
+      if (h.state.gpu && h.state.gpuMem + COST.gpu > t.load) return false;
+      return Math.max(h.state.cpu, box ? box.cpu : 0) + cpu <= t.load && Math.max(h.state.mem, box ? box.mem : 0) + mem <= t.load;
     });
     const kept = ok.find((h) => (h.state.kept || []).indexOf(String(who)) >= 0);
     return kept || ok.sort((a, b) => (b.state.free - a.state.free) || (a.state.cpu - b.state.cpu))[0] || null;
@@ -197,7 +211,8 @@ class Overflow {
       const s = await this.request(h, "GET", "/helper/state", { what: "state", step: this.step });
       if (!s || typeof s !== "object") throw new Error("the helper said nothing useful");
       h.state = { ready: !!s.ready, free: Math.max(0, s.free | 0), max: s.max | 0,
-        cpu: Number(s.cpu) || 0, mem: Number(s.mem) || 0,
+        cpu: Number(s.cpu) || 0, mem: Number(s.mem) || 0, pids: Number(s.pids) || 0,
+        gpu: !!s.gpu, gpuMem: Number(s.gpuMem) || 0,
         sessions: Array.isArray(s.sessions) ? s.sessions.map(String).slice(0, 200) : [],
         kept: Array.isArray(s.kept) ? s.kept.map(String).slice(0, 200) : [] };
       h.at = this.now();
@@ -326,7 +341,7 @@ class Overflow {
 
   view() {
     return this.helpers.map((h) => ({ name: h.name, up: this.fresh(h), free: h.state ? h.state.free : 0,
-      sessions: h.state ? h.state.sessions.length : 0 }));
+      sessions: h.state ? h.state.sessions.length : 0, gpu: !!(h.state && h.state.gpu) }));
   }
 }
 

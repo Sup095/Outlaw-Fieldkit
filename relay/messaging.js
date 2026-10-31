@@ -95,6 +95,9 @@ function init(opts) {
     log("ERROR", "messaging: the account list is DAMAGED (and so is its .bak); sign-ins and new accounts fail until " + USERS + " is restored");
     return { enabled: true, users: 0, moderators: cfg.moderators.length, damaged: true };
   }
+  convCache = null;
+  scanLogs();
+  seen = readJson(path.join(DIR, "seen.json")) || {};
   const n = Object.keys(users).length;
   const made = adminList(users).length - cfg.moderators.length;
   log("INFO", `messaging: ${n} account(s), ${cfg.moderators.length} admin(s) from config.json` +
@@ -147,8 +150,23 @@ function newId() { return crypto.randomBytes(16).toString("hex"); }
 const ID_RE = /^[a-f0-9]{32}$/;
 const validId = (s) => typeof s === "string" && ID_RE.test(s);
 
-function convMeta(id) { return validId(id) ? readJson(path.join(CONV_DIR, id + ".json")) : null; }
-function writeConvMeta(c) { writeJson(path.join(CONV_DIR, c.id + ".json"), c); }
+/* Every conversation, kept in memory once read: a poll asks for "mine"
+   on every wake, and that used to read every file there is. */
+let convCache = null;              // id -> meta
+function allConvs() {
+  if (convCache) return convCache;
+  convCache = new Map();
+  let names = [];
+  try { names = fs.readdirSync(CONV_DIR); } catch (e) { return convCache; }
+  for (const n of names) {
+    if (!n.endsWith(".json")) continue;
+    const c = readJson(path.join(CONV_DIR, n));
+    if (c && c.id) convCache.set(c.id, c);
+  }
+  return convCache;
+}
+function convMeta(id) { return validId(id) ? allConvs().get(id) || null : null; }
+function writeConvMeta(c) { writeJson(path.join(CONV_DIR, c.id + ".json"), c); allConvs().set(c.id, c); }
 function convLog(id) { return path.join(CONV_DIR, id + ".log"); }
 
 /* ---- passwords -----------------------------------------------
@@ -368,15 +386,109 @@ setInterval(() => {
    append. A client polls with the highest cursor it has seen and
    is woken when anything it can read moves past it.
 
+   The cursor is read back from the logs when the relay starts
+   (scanLogs). It used to begin at 0 again, so after a restart new
+   messages got numbers everyone already had, and a person signed in
+   with any history was never sent them, nor shown what they sent
+   themselves.
+
    Long poll rather than WebSocket on purpose: it is an ordinary
    GET on 443 through the same tunnel as everything else, and
    §14's whole constraint is that nothing new opens a port or a
    hostname that a filter has not already seen. */
 let cursor = 0;
 
-function wake() {
-  const now = waiters.splice(0, waiters.length);
-  now.forEach((w) => { clearTimeout(w.timer); w.fire(); });
+/* Without `who` everyone is woken; with a list, only them. A message
+   used to wake every person on the relay for nothing. */
+function wake(who) {
+  for (let i = waiters.length - 1; i >= 0; i--) {
+    const w = waiters[i];
+    if (who && who.indexOf(w.handle) < 0) continue;
+    waiters.splice(i, 1);
+    clearTimeout(w.timer);
+    w.fire();
+  }
+}
+
+/* What each person's list last changed at: bumped for the members of a
+   conversation when anything in it changes, so their panel re-reads
+   the list then, and only then. In memory: a panel that sees a
+   different number just reads the list once more. */
+const stamps = new Map();
+function touch(who) {
+  for (const h of who) stamps.set(h, (stamps.get(h) || 0) + 1);
+  wake(who);
+}
+
+/* ---- what is waiting for whom --------------------------------
+   Messages stay in the conversation's log, sealed, however long
+   someone is away, so nothing is held back for them: when they sign
+   in, their first poll asks from the beginning and gets it all. What
+   this adds is knowing which of it is new.
+
+   tail: for each conversation the newest entries, { at, from } only.
+   seen: for each conversation and person, the time of the newest
+   message that has reached them (got) and that they opened (read). */
+const TAIL_MAX = 1000;
+const tails = new Map();           // conv id -> { seq, list }
+let seen = {};
+let seenTimer = null;
+
+function tailOf(id) {
+  let t = tails.get(id);
+  if (!t) { t = { seq: 0, list: [] }; tails.set(id, t); }
+  return t;
+}
+function noteTail(entry) {
+  const t = tailOf(entry.conv);
+  if (entry.seq > t.seq) t.seq = entry.seq;
+  t.list.push({ at: entry.at, from: entry.from });
+  if (t.list.length > TAIL_MAX) t.list.splice(0, t.list.length - TAIL_MAX);
+}
+
+/* Every log, once, as the relay starts: the cursor and the tails. */
+function scanLogs() {
+  cursor = 0;
+  tails.clear();
+  let names = [];
+  try { names = fs.readdirSync(CONV_DIR); } catch (e) { return; }
+  for (const n of names.filter((x) => /\.log(\.\d+)?$/.test(x))) {
+    let raw;
+    try { raw = fs.readFileSync(path.join(CONV_DIR, n), "utf8"); } catch (e) { continue; }
+    for (const line of raw.split("\n")) {
+      if (!line) continue;
+      let m;
+      try { m = JSON.parse(line); } catch (e) { continue; }
+      if (!m || typeof m.seq !== "number") continue;
+      if (m.seq > cursor) cursor = m.seq;
+      const t = tailOf(n.slice(0, 32));
+      if (m.seq > t.seq) t.seq = m.seq;
+      t.list.push({ at: m.at, from: m.from });
+    }
+  }
+  /* By time: numbers from before this was fixed can repeat. */
+  for (const t of tails.values()) t.list = t.list.sort((a, b) => String(a.at).localeCompare(String(b.at))).slice(-TAIL_MAX);
+}
+
+function markSeen(convId, handle, what, at) {
+  const c = seen[convId] || (seen[convId] = {});
+  const me = c[handle] || (c[handle] = {});
+  if (me[what] && me[what] >= at) return false;
+  me[what] = at;
+  if (!seenTimer) {
+    seenTimer = setTimeout(() => { seenTimer = null; flushSeen(); }, 2000);
+    if (seenTimer.unref) seenTimer.unref();
+  }
+  return true;
+}
+function flushSeen() { try { writeJson(path.join(DIR, "seen.json"), seen); } catch (e) { log("WARN", "messaging: could not save who has seen what: " + e.message); } }
+
+function unreadFor(convId, handle) {
+  const read = ((seen[convId] || {})[handle] || {}).read || "";
+  const list = (tails.get(convId) || { list: [] }).list;
+  let n = 0;
+  for (let i = list.length - 1; i >= 0 && list[i].at > read; i--) if (list[i].from !== handle) n++;
+  return n;
 }
 
 /* ---- messages ------------------------------------------------- */
@@ -397,30 +509,32 @@ function appendMessage(convId, entry) {
   } catch (e) { /* a failed rotate must not lose the message */ }
 
   fs.appendFileSync(p, line, "utf8");
+  noteTail(entry);
 }
 
+/* The rotated logs too: someone away for a long time is owed those. A
+   conversation with nothing past `since` is not opened at all. */
 function readMessages(convId, since) {
-  let raw;
-  try { raw = fs.readFileSync(convLog(convId), "utf8"); } catch (e) { return []; }
+  if ((tails.get(convId) || { seq: 0 }).seq <= since) return [];
+  let names = [];
+  try { names = fs.readdirSync(CONV_DIR).filter((n) => n.startsWith(convId + ".log")); } catch (e) { return []; }
   const out = [];
-  for (const line of raw.split("\n")) {
-    if (!line) continue;
-    let m;
-    try { m = JSON.parse(line); } catch (e) { continue; }   // a torn line costs one message
-    if (m.seq > since) out.push(m);
+  for (const n of names) {
+    let raw;
+    try { raw = fs.readFileSync(path.join(CONV_DIR, n), "utf8"); } catch (e) { continue; }
+    for (const line of raw.split("\n")) {
+      if (!line) continue;
+      let m;
+      try { m = JSON.parse(line); } catch (e) { continue; }   // a torn line costs one message
+      if (m.seq > since) out.push(m);
+    }
   }
   return out;
 }
 
 function myConversations(handle) {
-  let names;
-  try { names = fs.readdirSync(CONV_DIR); } catch (e) { return []; }
   const out = [];
-  for (const n of names) {
-    if (!n.endsWith(".json")) continue;
-    const c = readJson(path.join(CONV_DIR, n));
-    if (c && c.members && c.members.indexOf(handle) >= 0) out.push(c);
-  }
+  for (const c of allConvs().values()) if (c.members && c.members.indexOf(handle) >= 0) out.push(c);
   return out;
 }
 
@@ -443,7 +557,7 @@ async function route(req, res, url, helpers) {
      "log in first" — which sends you looking in the wrong place. */
   const ROUTES_BY_NAME = {
     register: ["POST"], login: ["POST"], logout: ["POST"], users: ["GET"],
-    conv: ["GET", "POST"], send: ["POST"], poll: ["GET"], rotate: ["POST"],
+    conv: ["GET", "POST"], send: ["POST"], read: ["POST"], poll: ["GET"], rotate: ["POST"],
     report: ["POST"], reports: ["GET"], review: ["GET"], resolve: ["POST"],
     signins: ["GET"], people: ["GET"], role: ["POST"]
   };
@@ -592,7 +706,12 @@ async function route(req, res, url, helpers) {
       id: c.id, kind: c.kind, name: c.name || null,
       members: c.members, createdAt: c.createdAt, createdBy: c.createdBy,
       keyEpoch: c.keyEpoch || 1,
-      myKey: (c.keys || {})[me.handle] || null
+      myKey: (c.keys || {})[me.handle] || null,
+      /* What the panel shows: how many are new for me, and what has
+         reached the others. */
+      unread: unreadFor(c.id, me.handle),
+      lastAt: (tails.get(c.id) || { list: [] }).list.slice(-1).map((m) => m.at)[0] || c.createdAt,
+      seen: seen[c.id] || {}
     }));
     return send(res, 200, { conversations: mine }), true;
   }
@@ -637,7 +756,7 @@ async function route(req, res, url, helpers) {
     };
     writeConvMeta(c);
     cursor++;
-    wake();
+    touch(c.members);
     return send(res, 201, { id: c.id, keyEpoch: 1 }), true;
   }
 
@@ -666,8 +785,24 @@ async function route(req, res, url, helpers) {
       at: new Date().toISOString(), epoch: c.keyEpoch || 1, ct: body.ct
     };
     appendMessage(c.id, entry);
-    wake();
+    markSeen(c.id, me.handle, "read", entry.at);
+    touch(c.members);
     return send(res, 201, { id: entry.id, seq: entry.seq, at: entry.at }), true;
+  }
+
+  /* ---- read ----
+     The panel opened a conversation: everything in it so far counts as
+     read, and the others are told. */
+  if (what === "read" && method === "POST") {
+    const body = await readBody(req);
+    const c = body && convMeta(body.convId);
+    if (!c || c.members.indexOf(me.handle) < 0) return send(res, 404, { error: "no such conversation" }), true;
+    const at = (tails.get(c.id) || { list: [] }).list.slice(-1).map((m) => m.at)[0];
+    if (at) {
+      const got = markSeen(c.id, me.handle, "got", at), read = markSeen(c.id, me.handle, "read", at);
+      if (got || read) touch(c.members.filter((h) => h !== me.handle));
+    }
+    return send(res, 200, { ok: true }), true;
   }
 
   /* ---- poll ----
@@ -682,16 +817,23 @@ async function route(req, res, url, helpers) {
       let msgs = [];
       convs.forEach((c) => { msgs = msgs.concat(readMessages(c.id, since)); });
       msgs.sort((a, b) => a.seq - b.seq);
-      return { cursor: cursor, messages: msgs, conversations: convs.length };
+      /* They have it now: whoever sent it can be told. */
+      for (const c of convs) {
+        const got = msgs.filter((m) => m.conv === c.id).map((m) => m.at).sort().pop();
+        if (got && markSeen(c.id, me.handle, "got", got)) touch(c.members.filter((h) => h !== me.handle));
+      }
+      return { cursor: cursor, stamp: stamps.get(me.handle) || 0, messages: msgs, conversations: convs.length };
     };
 
     const first = collect();
-    if (first.messages.length || since >= cursor) {
-      if (first.messages.length) return send(res, 200, first), true;
-    }
+    if (first.messages.length) return send(res, 200, first), true;
+    /* Something changed while no poll was parked. */
+    const had = url.searchParams.get("stamp");
+    if (had !== null && Number(had) !== first.stamp) return send(res, 200, first), true;
 
     await new Promise((resolve) => {
       const w = {
+        handle: me.handle,
         fire: () => { if (!w.done) { w.done = true; resolve(); } },
         timer: setTimeout(() => {
           const i = waiters.indexOf(w);
@@ -729,7 +871,7 @@ async function route(req, res, url, helpers) {
     c.rotatedBy = me.handle;
     writeConvMeta(c);
     cursor++;
-    wake();
+    touch(c.members);
     log("INFO", `messaging: ${me.handle} rotated the key for ${c.id.slice(0, 8)} (epoch ${c.keyEpoch})`);
     return send(res, 200, { keyEpoch: c.keyEpoch }), true;
   }

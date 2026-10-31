@@ -109,7 +109,17 @@
         "sign-ins; as a guest it keeps nothing.",
         { h: "IF YOU ARE ASKED TO WAIT" },
         "There is one line for BROWSER and RUNNER, and it shows your place. Your turn " +
-        "comes up by itself; you can leave it open in the background.",
+        "comes up by itself; you can leave it open in the background. Who gets in depends " +
+        "on what the server has free at that moment, and there is always room kept for admins.",
+        { h: "GAMES" },
+        "Approved accounts run on the graphics card when it has room, so games are smooth. " +
+        "A game the card cannot draw moves to the processor by itself, and you will see a " +
+        "note and a short reconnect.",
+        { h: "OPEN ON THIS DEVICE" },
+        "A heavy page runs better on your own computer, if your network will load it. " +
+        "When a page is heavy you are offered this, and it is also under ⋯. The page opens " +
+        "in its own tab and the server stops running it. Your session stays for when you " +
+        "come back. It is a normal tab, so nothing in it is kept private by FieldKit.",
         { h: "KEYS" },
         { rows: [
           ["Ctrl+C, Ctrl+X", "copy or cut what is selected on the page"],
@@ -140,6 +150,10 @@
           "If your relay approves accounts by hand, you are a guest until an admin does.",
           "Start a conversation with anyone on the relay."
         ] },
+        "You can write to someone who is away. The message waits on the relay until they " +
+        "sign in, and it shows under NEW. Under your last message it says WAITING, then " +
+        "DELIVERED, then READ. While you are signed in, new messages reach you with this " +
+        "window closed too.",
         { rows: [
           ["guest", "chat. BROWSER and RUNNER forget everything when you leave."],
           ["member", "sign-ins and RUNNER files that stay, and the server's AI models"],

@@ -5,7 +5,7 @@
     "relayUrl": "https://relay.example.com"
   },
   "browser": {
-    "_maxSessions": "How many sessions this machine holds. Each is a Chromium of its own, about 350 MB, and up to half a processor while its page moves; give the Pterodactyl server room for them.",
-    "maxSessions": 8
+    "_maxSessions": "The most sessions this machine holds, as a safety ceiling: what is measured decides who fits. Each is a Chromium of its own, about 350 MB and over 100 processes, and up to two processors playing a game without a card; give the server room for them. runnerd/browser-card.sh runs this same helper with the graphics card.",
+    "maxSessions": 16
   }
 }

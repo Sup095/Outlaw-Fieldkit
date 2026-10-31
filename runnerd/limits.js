@@ -69,10 +69,10 @@ const DEFAULTS = {
 /* Whole-machine ceilings. Bastion 2 has eight threads and they are
    the scarce thing; these keep a queue of guests from starving a
    member, and everybody together from starving the machine. */
-/* Screens: each is a CPU core encoding and ~1.5 Mbit/s of the house's
-   ~20 Mbit/s upload, so two at once to begin with (RUNNER_PLAN.md §22
-   replaces this with a live meter and a waiting line). */
-const MACHINE = { maxJobs: 6, maxGuestJobs: 2, maxSessions: 24, maxGuestSessions: 8, maxScreens: 2 };
+/* Ceilings only, since the meter and the line (access.js) decide who
+   fits by what is really in use: these are there so that a fault in
+   that can never fill the machine. */
+const MACHINE = { maxJobs: 12, maxGuestJobs: 4, maxSessions: 24, maxGuestSessions: 8, maxScreens: 4 };
 
 function build(overrides) {
   const o = overrides || {};

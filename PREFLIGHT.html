@@ -196,7 +196,7 @@ var driveChecked = false, relayChecked = false, ranAuto = false;
 var manifestInfo = null;
 /* The FieldKit version this page was written for; a test keeps it
    equal to core/kernel.js, so it is updated with every release. */
-var FOR_VERSION = "0.4.0";
+var FOR_VERSION = "0.5.0";
 /* Next to the drive's files (FIELDKIT.html, core/...), or next to the
    downloaded single-file builds. Decided by whether core/kernel.js loads. */
 var layout = "unknown";
@@ -928,7 +928,7 @@ async function checkServices(G, base) {
     rec(G, "streamed browser", b.v.available === false ? "WARN" : "PASS",
       (b.v.available === false ? "on, but not available right now" : "available") + ", " + (b.v.sessions || 0) + " of " +
       (b.v.maxSessions || "?") + " sessions in use" + (hs.length ? ", " + hs.filter(function (h) { return h.up; }).length +
-      " of " + hs.length + " helper machine(s) up" : ""));
+      " of " + hs.length + " helper machine(s) up" + (hs.some(function (h) { return h.up && h.gpu; }) ? ", one with a graphics card" : "") : ""));
   } else {
     rec(G, "streamed browser", "INFO", b.v ? "switched off on this relay" : "this relay does not offer it");
   }

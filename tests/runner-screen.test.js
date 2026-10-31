@@ -53,7 +53,7 @@ const frame = (k, body) => { const b = Buffer.from(body), h = Buffer.alloc(5); h
     const L = limits.build({ tiers: { guest: { gpu: true } } }).tiers;
     ok("guests never get the card, whatever the config says", L.guest.gpu === false);
     ok("screens are for members and admins by default", !limits.DEFAULTS.guest.screen && limits.DEFAULTS.member.screen && limits.DEFAULTS.admin.screen);
-    ok("two screens at once, machine-wide, to begin with", limits.MACHINE.maxScreens === 2);
+    ok("a ceiling on screens machine-wide, under the meter", limits.MACHINE.maxScreens === 4);
 
     const d = new sandbox.DockerDriver({ images: { screen: "img:1" }, runtime: "runsc", gpu: { runtime: "runsc-gpu" } });
     const job = { id: "j1", dir: "/x", limits: limits.DEFAULTS.member, plan: sandbox.plan("g.py", "script", [], "/job", true) };
@@ -99,7 +99,7 @@ const frame = (k, body) => { const b = Buffer.from(body), h = Buffer.alloc(5); h
 
   /* ---- a run server whose docker is the stand-in ---- */
   process.env.FK_FAKE_LOG = LOG;
-  const app = runnerd.create(Object.assign({}, runnerd.DEFAULTS, { host: "127.0.0.1", port: 0,
+  const app = runnerd.create(Object.assign({}, runnerd.DEFAULTS, { host: "127.0.0.1", port: 0, machine: { maxScreens: 2 },
     storePath: path.join(TMP, "store"), driver: "docker", runtime: "runsc",
     dockerBin: [process.execPath, path.join(__dirname, "fake-docker.js")],
     images: { base: "fieldkit-runner:1", wine: "", screen: "fieldkit-runner-screen:1" },

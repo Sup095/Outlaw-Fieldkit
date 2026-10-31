@@ -159,6 +159,49 @@ every path it tried.
 
 ---
 
+## A graphics card
+
+Games need one. Measured on four processors with the WebGL aquarium's
+own counter: Chromium's default software drawing 1 frame a second,
+Mesa's llvmpipe 60, and a Quadro K2200 60 at a fifth of the memory.
+Without a card the relay uses llvmpipe by itself, so games are playable
+anywhere. With an NVIDIA card:
+
+1. The machine needs Docker's NVIDIA runtime. Pterodactyl cannot give a
+   server a card, so this helper is a plain container.
+2. Copy `deploy/helper-upload/config.json` over, and on that machine:
+
+   ```
+   sh runnerd/browser-card.sh config.json
+   ```
+
+3. List the address it prints first in the relay's `browser.helpers`.
+
+Pages are drawn on the card and their video is encoded on it. Only
+approved accounts are sent there. A page the card's driver cannot draw
+moves to the processor by itself. The card is not behind gVisor: what
+stands between a page and the driver is Chromium, no root, no
+capabilities and no new privileges. `sh browser-card.sh stop` ends it.
+
+## How many people fit
+
+Nobody sets that. `maxSessions` is only a ceiling. A new session gets in
+if what the running ones really use, plus one more of the same, stays
+under that tier's line for processor, memory, processes and upload.
+Guests stop first, then members, and admins always get in. If memory or
+processes run out anyway, an unwatched session goes first and an admin's
+never does. RUNNER and a helper on the same machine are judged by one
+whole-machine reading from runnerd, so whatever one is not using is
+there for the other, and when both want the processors a page someone is
+looking at wins.
+
+**Pterodactyl's limit.** Wings allows a container 512 processes, each
+thread counts, and an idle Chromium is over 100. That is about two
+sessions. The browser now waits rather than crashing when it gets there.
+To raise it, set `container_pid_limit: 2048` under `docker:` in
+`/etc/pterodactyl/config.yml`, run `systemctl restart wings`, and restart
+the server.
+
 ## A second machine: browser helpers
 
 When the relay has no free session, or is over its load line, new

@@ -30,6 +30,10 @@ USER root
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       chromium \
+      # Drawing pages: libegl1 reaches a graphics card where there is one,
+      # mesa-vulkan-drivers is llvmpipe, 60 times SwiftShader's frame rate
+      # (browser-engine.js, renderPlan).
+      libegl1 libgl1 libgles2 mesa-vulkan-drivers \
       # Chromium's own library closure. The metapackage usually pulls
       # these, but naming them means a missing one fails the BUILD
       # rather than showing up as "chromium exited during startup" on

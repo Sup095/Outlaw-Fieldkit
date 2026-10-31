@@ -50,7 +50,7 @@ const BASTION2 = [
   ["relay/ws.js", "relay/ws.js"], ["relay/guard.js", "relay/guard.js"], ["relay/jsonfile.js", "relay/jsonfile.js"],
   ["runnerd/server.js"], ["runnerd/ticket.js"], ["runnerd/limits.js"], ["runnerd/sandbox.js"],
   ["runnerd/store.js"], ["runnerd/admin.js"], ["runnerd/save.js"], ["runnerd/egress.js"], ["runnerd/power.js"], ["runnerd/fk-power.sh"], ["runnerd/access.js"], ["runnerd/zip.js"], ["runnerd/Dockerfile"], ["runnerd/compose.yml"],
-  ["runnerd/config.example.json"], ["runnerd/setup.sh"], ["runnerd/inspect.sh"], ["runnerd/tiny-ai.sh"],
+  ["runnerd/config.example.json"], ["runnerd/setup.sh"], ["runnerd/inspect.sh"], ["runnerd/tiny-ai.sh"], ["runnerd/browser-card.sh"],
   ["runnerd/image/Dockerfile"], ["runnerd/image-wine/Dockerfile"], ["runnerd/image-wine/run-exe.sh"],
   ["runnerd/image-screen/Dockerfile"], ["runnerd/image-screen/fk-screen.py"]
 ];

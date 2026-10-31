@@ -77,7 +77,7 @@ const DEFAULTS = {
   enabled: false,
   chromium: "",                 /* path to the binary; "" means search */
   dnsFilter: "adult",
-  maxSessions: 6,
+  maxSessions: 16,              /* a ceiling only: fairness.js decides who fits, from what is measured */
   maxViewportWidth: 1920,
   maxViewportHeight: 1200,
   idleMinutes: 15,
@@ -107,10 +107,59 @@ const DEFAULTS = {
   profileRoot: "",
   diskCacheMB: 64,              /* per Chromium; thrown away with the session */
   rendererLimit: 6,             /* renderer processes per Chromium; tabs share past this */
-  sessionMemMB: 1800,           /* one session past this is ended, with a reason, before it can take the others down */
+  sessionMemMB: 1800,           /* the least one session may reach; on a bigger machine, 60% of it (_watchdog) */
   memHighPct: 90,               /* the container this full: the largest session is ended */
-  freezeAfterSec: 120           /* nobody watching this long: its pages are frozen until someone is */
+  freezeAfterSec: 120,          /* nobody watching this long: its pages are frozen until someone is */
+  render: "auto",               /* how pages are drawn: auto, gpu, cpu or off (renderPlan) */
+  renderThreads: 4,             /* processor threads drawing one page, without a graphics card */
+  cores: 4,                     /* processors one Chromium sees: it starts threads by that count (see pids below) */
+  pidsFullPct: 75,              /* the container's process limit this full: no new session */
+  pidsEndPct: 92,               /* this full: a session is ended before Chromium starts failing */
+  maxFps: 30,                   /* pictures made per second, however fast the page draws */
+  heavyCpu: 1.2                 /* a page using this many processors for 15 s is offered to the person's own device */
 };
+
+/* HOW A PAGE IS DRAWN. Measured on Bastion 2 with 4 processors, 2026-10-31,
+   the WebGL aquarium's own counter: Chromium's default software path
+   (SwiftShader) 1 frame a second, Mesa's llvmpipe through ANGLE and Vulkan
+   60, and the Quadro through EGL 60 at a fifth of the memory. Two real
+   games together on llvmpipe held 20 each. That one choice is why games
+   were unplayable. Vulkan does not work on the Quadro (ANGLE needs an
+   extension it lacks) and EGL does not work without a card, so each has
+   its own way in. "off" is the old way, for a machine neither suits. */
+const NVIDIA_EGL = "/usr/share/glvnd/egl_vendor.d/10_nvidia.json";
+const SOFT_VULKAN = "/usr/share/vulkan/icd.d/lvp_icd.json";
+function renderPlan(want, threads, exists) {
+  exists = exists || fs.existsSync;
+  const card = exists("/dev/nvidia0") && exists(NVIDIA_EGL);
+  if ((want === "auto" || want === "gpu") && card) {
+    return { mode: "gpu", args: ["--use-gl=angle", "--use-angle=gl-egl", "--ignore-gpu-blocklist", "--enable-gpu-rasterization"],
+      env: { __EGL_VENDOR_LIBRARY_FILENAMES: NVIDIA_EGL } };
+  }
+  if ((want === "auto" || want === "cpu" || want === "gpu") && exists(SOFT_VULKAN)) {
+    return { mode: "cpu", args: ["--use-angle=vulkan", "--enable-features=Vulkan", "--disable-vulkan-surface", "--ignore-gpu-blocklist"],
+      env: { VK_ICD_FILENAMES: SOFT_VULKAN, LP_NUM_THREADS: String(Math.max(1, threads | 0 || 4)) } };
+  }
+  return { mode: "off", args: ["--disable-gpu"], env: {} };
+}
+/* Some games make the Quadro's driver reset (Smash Karts did, on every
+   flag tried: GL_GUILTY_CONTEXT_RESET, and the GPU process exits), and
+   Chromium then has no WebGL at all. That session comes back on llvmpipe. */
+const CARD_FAULT = /GPU process exited unexpectedly|context lost via EXT_robustness/;
+
+/* PROCESSES. A Pterodactyl container may have 512, and each thread is
+   one. Measured on the relay: one game page and the spare, 349, because
+   Chromium sizes its thread pools by the processors it can see, and
+   there are 20. A second game passed the limit, Chromium could not start
+   a thread, and it died with no message: that was the browser "crashing"
+   on games. Now it is shown fewer processors (cores), and the limit is
+   measured like memory, so a session waits rather than breaks it. */
+function containerPids() {
+  const n = (f) => { try { return fs.readFileSync(f, "utf8").trim(); } catch (e) { return null; } };
+  const max = Number(n("/sys/fs/cgroup/pids.max")), cur = Number(n("/sys/fs/cgroup/pids.current"));
+  return max > 0 && cur > 0 ? { used: cur, max: max } : null;
+}
+const pct = (u) => (u ? u.used / u.max * 100 : 0);
 /* The container's memory: { used, max } in bytes, or null outside a
    limited container. "Used" leaves out file cache the kernel can drop. */
 function containerMemory() {
@@ -188,6 +237,9 @@ class Engine {
     this.cdp = null;
     this.guard = null;
     this.ready = false;
+    this.render = renderPlan(this.cfg.render, this.cfg.renderThreads);
+    this.fps = Math.max(5, this.cfg.maxFps | 0 || 30);
+    this.softly = new Map();            /* key -> the address that broke the card */
     /* SOUND (RUNNER_PLAN.md §23). One Chromium cannot give each person
        their own sound: every page in it plays to the same card. So with
        sound on, each session gets a Chromium of its own (a "host") on a
@@ -280,7 +332,8 @@ class Engine {
 
   /* One Chromium: a "host". Shared by every session when there is no
      sound; one per session, on its own sink, when there is. */
-  async _launch(withSink) {
+  async _launch(withSink, drawn) {
+    const render = drawn || this.render;
     const port = await freePort();
     const root = this._profileRoot();
     const profile = fs.mkdtempSync(path.join(root, "fk-browser-"));
@@ -308,7 +361,7 @@ class Engine {
       /* /dev/shm is 64 MB in a default container and Chromium will
          happily try to put a compositor surface in it. */
       "--disable-dev-shm-usage",
-      "--disable-gpu",
+      ...render.args,
 
       /* Nothing that phones home on its own. Not evasion — this is
          a browser somebody else's relay is running on their behalf,
@@ -378,15 +431,20 @@ class Engine {
       XDG_CACHE_HOME: path.join(profile, "cache"),
       /* Shared memory (--disable-dev-shm-usage) and anything else temporary: on the profile's disk too. */
       TMPDIR: path.join(profile, "tmp")
-    }, sink ? Object.assign(this.pulse.env(), { PULSE_SINK: sink.name }) : {});
-    const proc = spawn(this.chromiumPath, args, { stdio: ["ignore", "pipe", "pipe"], env: env });
-    const host = { proc: proc, cdp: null, profile: profile, sink: sink, shared: !withSink, meter: new Meter() };
+    }, render.env, sink ? Object.assign(this.pulse.env(), { PULSE_SINK: sink.name }) : {});
+    const run = this._pinned(this.chromiumPath, args);
+    const proc = spawn(run[0], run.slice(1), { stdio: ["ignore", "pipe", "pipe"], env: env });
+    /* Behind the relay itself, which shares this container's processors:
+       a game must not be able to slow every other request down. */
+    try { if (proc.pid) os.setPriority(proc.pid, 5); } catch (e) {}
+    const host = { proc: proc, cdp: null, profile: profile, sink: sink, shared: !withSink, meter: new Meter(), render: render };
     this.hosts.add(host);
 
     let stderr = "";
     proc.stderr.on("data", (d) => {
       stderr += d.toString();
       if (stderr.length > 8000) stderr = stderr.slice(-4000);
+      if (render.mode === "gpu" && !host.faulted && CARD_FAULT.test(stderr)) this._cardFault(host);
     });
     /* A Chromium that was stopped on purpose (park, stop, a session
        ending) has already been let go, and one exiting late must not
@@ -434,6 +492,15 @@ class Engine {
     return host;
   }
 
+  /* The command, shown only `cores` processors, chosen at random so that
+     sessions spread out over a big machine. See containerPids. */
+  _pinned(cmd, args) {
+    const all = os.cpus().length, n = this.cfg.cores | 0;
+    if (n < 1 || n >= all || !fs.existsSync("/usr/bin/taskset")) return [cmd].concat(args);
+    const first = Math.floor(Math.random() * (all - n + 1));
+    return ["/usr/bin/taskset", "-c", first + "-" + (first + n - 1), cmd].concat(args);
+  }
+
   _profileRoot() {
     const want = this.cfg.profileRoot || process.env.FK_BROWSER_TMP || "";
     if (want) {
@@ -478,6 +545,20 @@ class Engine {
     }
   }
 
+  /* See CARD_FAULT. The session goes (keeping its sign-ins) and the panel
+     is told to connect again, which makes a new one, drawn on the
+     processor and on the same page. A spare is simply replaced. */
+  _cardFault(host) {
+    host.faulted = true;
+    if (host === this.spare) { this.spare = null; this._dropHost(host); return this._topUp(); }
+    const s = [...this.sessions.values()].find((x) => x.host === host);
+    if (!s) return;
+    this.log("WARN", "browser: " + s.who + "'s page broke the graphics card's driver; moving it to the processor: " + String(s.url).slice(0, 120));
+    this.softly.set(s.key, s.url);
+    for (const v of [...s.viewers]) { try { if (v.onMove) { s.viewers.delete(v); v.onMove(); } } catch (e) {} }
+    this.destroy(s.key, "made room for another session").catch(() => {});
+  }
+
   _dropHost(host) {
     if (!host || host.dropped) return;
     host.dropped = host.gone = true;
@@ -501,6 +582,9 @@ class Engine {
   _topUp() {
     if (!this.ready || !this.soundOn || this.spare || this._sparing) return;
     if (this.sessions.size >= this.cfg.maxSessions) return;
+    /* A spare costs what a session costs. Not while room is short. */
+    const box = containerMemory();
+    if (pct(containerPids()) > this.cfg.pidsFullPct * 0.8 || (box && box.used / box.max * 100 > 70)) return;
     this._sparing = this._launch(true).then((h) => {
       if (!this.ready || this.spare) return this._dropHost(h);
       this.spare = h;
@@ -563,6 +647,8 @@ class Engine {
       ready: this.ready,
       available: !!this.cfg.enabled && !!this.binary,
       sound: this.soundOn,
+      render: this.render.mode,
+      videoOnCard: !!this.videoCard,
       chromium: this.ready ? this.version || null : null,
       sessions: this.sessions.size,
       maxSessions: this.cfg.maxSessions,
@@ -584,10 +670,12 @@ class Engine {
   /* Could a new session start without waiting? (One that nobody is
      looking at can always be evicted to make room.) */
   hasRoom() {
-    if (this.sessions.size < this.cfg.maxSessions) return true;
+    if (this.sessions.size < this.cfg.maxSessions && !this._pidsFull()) return true;
     for (const s of this.sessions.values()) if (!s.viewers.size) return true;
     return false;
   }
+
+  _pidsFull() { return pct(containerPids()) >= this.cfg.pidsFullPct; }
 
   async sessionFor(who, opts) {
     if (!this.ready) {
@@ -599,7 +687,7 @@ class Engine {
     const existing = this.sessions.get(key);
     if (existing) { existing.lastSeen = Date.now(); return existing; }
 
-    if (this.sessions.size >= this.cfg.maxSessions) {
+    if (this.sessions.size >= this.cfg.maxSessions || this._pidsFull()) {
       /* Evict the coldest rather than refusing. Refusing means the
          newest person is the one who cannot browse, which is the
          wrong way round — the idle session's owner is not looking. */
@@ -615,10 +703,13 @@ class Engine {
        started), and another spare is started for whoever is next. */
     let host = null;
     if (this.soundOn) {
-      if (!this.spare && this._sparing) await this._sparing.catch(() => {});
-      host = this.spare;
-      this.spare = null;
-      if (!host || host.gone) host = await this._launch(true);
+      if (this.softly.has(key)) host = await this._launch(true, renderPlan("cpu", this.cfg.renderThreads));
+      else {
+        if (!this.spare && this._sparing) await this._sparing.catch(() => {});
+        host = this.spare;
+        this.spare = null;
+        if (!host || host.gone) host = await this._launch(true);
+      }
     }
     const cdp = host ? host.cdp : this.cdp;
     let browserContextId;
@@ -661,6 +752,11 @@ class Engine {
     const tab = await this._newTab(s);
     this._show(s, tab);
     this.log("INFO", "browser: session for " + who + " (" + this.sessions.size + " open)");
+    const back = this.softly.get(key);
+    if (back) {
+      this.softly.delete(key);
+      if (/^https?:/.test(back)) this.navigate(s, back).catch(() => {});
+    }
     return s;
   }
 
@@ -693,6 +789,7 @@ class Engine {
     this._wirePage(s, tab);
     await tab.page.send("Page.enable");
     await tab.page.send("Runtime.enable").catch(() => {});
+    await tab.page.send("Inspector.enable").catch(() => {});
     await this._metricsFor(s, tab.page);
     /* Touch off: this is a desktop viewport and a site that thinks
        it is on a phone lays out for one. */
@@ -863,14 +960,32 @@ class Engine {
       if (!s.viewers.size) this.answerDialog(s, false, "");
     });
 
-    tab.page.on("Page.screencastFrame", async (p) => {
-      /* Ack first, always. Chromium sends at most one unacked frame
-         and stops until it is acknowledged, so a throw between the
-         frame and the ack freezes the stream permanently. */
-      try { await tab.page.send("Page.screencastFrameAck", { sessionId: p.sessionId }); }
-      catch (e) {}
-      if (!on()) return;
-      for (const v of s.viewers) { if (!v.paused) { try { v.onFrame(p.data, p.metadata); } catch (e) {} } }
+    /* A page's process died: the "Aw, Snap" nobody could see, since the
+       screencast just stopped and the last picture stayed up. It is
+       loaded again, twice at most, and the person is told. */
+    tab.page.on("Inspector.targetCrashed", () => {
+      tab.crashes = (tab.crashes || 0) + 1;
+      this.log("WARN", "browser: a page crashed for " + s.who + " (" + tab.crashes + "): " + String(tab.url).slice(0, 120));
+      if (tab.crashes > 2) return push({ t: "note", why: "this page keeps crashing, so it was left closed. Try another page." });
+      push({ t: "note", why: "that page crashed, so it is being opened again" });
+      tab.page.send("Page.reload", {}).catch(() => {});
+    });
+
+    tab.page.on("Page.screencastFrame", (p) => {
+      /* Chromium sends at most one unacked frame and stops until it is
+         acknowledged. So the ack is the pace: held back, Chromium draws
+         and compresses no pictures that nobody would be sent, which is
+         most of what a 60 frames a second game costs here. Nothing
+         before it may throw, or the stream would freeze for good. */
+      if (on()) for (const v of s.viewers) { if (!v.paused) { try { v.onFrame(p.data, p.metadata); } catch (e) {} } }
+      const ack = () => { tab.page.send("Page.screencastFrameAck", { sessionId: p.sessionId }).catch(() => {}); };
+      /* A turn each: Chromium can have two out at once, and two acks
+         at the same moment would make double the rate. */
+      const now = Date.now(), at = Math.max(now, (s.frameAt || 0) + 1000 / this.fps);
+      s.frameAt = at;
+      if (at <= now) return ack();
+      const t = setTimeout(ack, at - now);
+      if (t.unref) t.unref();
     });
   }
 
@@ -1148,6 +1263,10 @@ class Engine {
      full the largest one is, each with a sentence saying why. */
   async _watchdog() {
     if (!this.sessions.size) return;
+    const box = containerMemory();
+    /* As much as this machine can give: a game on a big machine is not
+       ended for a number chosen for a small one. */
+    const limit = Math.max(this.cfg.sessionMemMB, box ? Math.round(box.max / 1048576 * 0.6) : 0);
     let big = null;
     for (const s of [...this.sessions.values()]) {
       this._life(s).catch(() => {});
@@ -1156,18 +1275,38 @@ class Engine {
       const r = s.host.watch.read(s.host.proc.pid);
       if (!r) continue;
       s.memMb = r.memMb;
-      if (r.memMb > this.cfg.sessionMemMB) {
-        this.log("WARN", "browser: " + s.who + "'s session used " + r.memMb + " MB, over the " + this.cfg.sessionMemMB + " MB a session may; ended");
-        await this.destroy(s.key, "this page needed " + r.memMb + " MB of memory, more than a session may use (" + this.cfg.sessionMemMB + " MB). Open the browser again to start fresh.").catch(() => {});
+      if (r.memMb > limit) {
+        this.log("WARN", "browser: " + s.who + "'s session used " + r.memMb + " MB, over the " + limit + " MB a session may; ended");
+        await this.destroy(s.key, "this page needed " + r.memMb + " MB of memory, more than a session may use (" + limit + " MB). Open the browser again to start fresh.").catch(() => {});
         continue;
       }
-      if (!big || r.memMb > big.memMb) big = s;
+      /* Heavy for 15 s, and someone is watching: the panel offers to
+         run it on their own device instead. Once per address. */
+      s.hot = s.viewers.size && r.cpu >= this.cfg.heavyCpu ? (s.hot || 0) + 1 : 0;
+      if (s.hot >= 3 && s.heavyUrl !== s.url) {
+        s.heavyUrl = s.url;
+        this._push(s, { t: "heavy", url: s.url });
+      }
+      /* Never an admin's, which is what keeps room for them. Someone not
+         looking goes before someone who is. */
+      if (s.tier === "admin") continue;
+      const idle = !s.viewers.size, wasIdle = big && !big.viewers.size;
+      if (!big || (idle && !wasIdle) || (idle === !!wasIdle && r.memMb > big.memMb)) big = s;
     }
-    const box = containerMemory();
-    if (big && box && box.used / box.max * 100 > this.cfg.memHighPct) {
-      this.log("WARN", "browser: the container is " + Math.round(box.used / box.max * 100) + "% full; ending the largest session (" + big.who + ", " + big.memMb + " MB)");
-      await this.destroy(big.key, "the browser ran out of memory for everyone, and this session was using the most (" + big.memMb + " MB). Open the browser again to start fresh.").catch(() => {});
+    const pids = containerPids();
+    const memFull = box && box.used / box.max * 100 > this.cfg.memHighPct, pidsFull = pct(pids) > this.cfg.pidsEndPct;
+    if (big && (memFull || pidsFull)) {
+      const what = memFull ? "memory" : "room for more processes";
+      this.log("WARN", "browser: the container has run out of " + what + "; ending " + big.who + "'s session (" + big.memMb + " MB)");
+      await this.destroy(big.key, "the browser ran out of " + what + " for everyone, and this session was the one to go (" + big.memMb + " MB). Open the browser again to start fresh.").catch(() => {});
     }
+  }
+
+  /* The person took the page to their own device: the server stops
+     running it, and the session stays for when they come back. */
+  async release(s) {
+    s.lastSeen = Date.now();
+    await s.page.send("Page.navigate", { url: "about:blank" });
   }
 
   /* The current picture again, for a viewer whose decoder lost its place. */
@@ -1484,4 +1623,4 @@ function normaliseUrl(raw) {
   return null;    /* the caller turns this into a search */
 }
 
-module.exports = { Engine, findChromium, normaliseUrl, cleanName, DEFAULTS, LIKELY_PATHS, CURSORS };
+module.exports = { Engine, findChromium, normaliseUrl, cleanName, renderPlan, containerPids, DEFAULTS, LIKELY_PATHS, CURSORS };

@@ -782,6 +782,33 @@
       noteOf[key] = n;
       return n;
     }
+    /* RUNNING IT HERE INSTEAD. A game costs the server whole processors
+       and costs this Chromebook nothing it cannot do, if this network
+       will load the page at all. A real tab: sites like these refuse to
+       sit inside another page. Asked with no-cors, so the answer is only
+       whether anything came back; a filter that answers with its own
+       page looks like a yes, and the tab then shows that page. */
+    async function reachable(url) {
+      var ac = new AbortController(), t = setTimeout(function () { ac.abort(); }, 5000);
+      try {
+        await window.fetch(new URL(url).origin + "/", { mode: "no-cors", cache: "no-store", signal: ac.signal });
+        return true;
+      } catch (e) { return false; }
+      finally { clearTimeout(t); }
+    }
+    function openHere(url) {
+      window.open(url, "_blank", "noopener");
+      cmd({ t: "release" });
+      note("here", null);
+      stat.textContent = "opened on this device: the server is no longer running that page";
+      stat.className = "br-status ok";
+    }
+    async function offerHere(url) {
+      if (!/^https?:/.test(url) || !(await reachable(url))) return;
+      note("here", [el("span", { class: "br-ask-t", text: "This page is heavy for the server, and this device can load it. It will run better here." }),
+        btn("OPEN ON THIS DEVICE", "open it in a tab of its own, on this device", function () { openHere(url); }),
+        btn("✕", "keep it on the server", function () { note("here", null); })]);
+    }
     function fmtSize(b) {
       return b >= 1048576 ? (b / 1048576).toFixed(1) + " MB" : b >= 1024 ? Math.round(b / 1024) + " KB" : (b | 0) + " B";
     }
@@ -1042,7 +1069,15 @@
       btn("WIPE", "end the session and throw away everything in it", function () {
         cmd({ t: "clear", what: "all" });
       }),
-      usageBtn
+      usageBtn,
+      btn("OPEN ON THIS DEVICE", "run this page here instead of on the server, if this network allows it", async function () {
+        moreClose();
+        var url = live && live.url;
+        if (!url || !/^https?:/.test(url)) { stat.textContent = "open a page first"; stat.className = "br-status warn"; return; }
+        if (await reachable(url)) return openHere(url);
+        stat.textContent = "this network will not load that page, so it stays on the server";
+        stat.className = "br-status warn";
+      })
     ]);
     moreBar.style.display = "none";
     function moreClose() { moreBar.style.display = "none"; moreBtn.classList.remove("on"); }
@@ -1324,6 +1359,8 @@
         } else if (m.t === "note") {
           stat.textContent = m.why || "";
           stat.className = "br-status warn";
+        } else if (m.t === "heavy") {
+          offerHere(m.url || "");
         } else if (m.t === "nav") {
           if (live) live.url = m.url || "";
           if (document.activeElement !== addr) addr.value = m.url || "";

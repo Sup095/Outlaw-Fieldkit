@@ -35,6 +35,7 @@
   var messages = {};           // convId -> [{ from, at, text, ok }]
   var openConv = null;
   var cursor = 0;
+  var stamp = -1;              // when the relay last said the list changed
   var polling = false, stopPolling = false;
 
   /* 8, matching the vault's rule in core/store.js rather than
@@ -161,6 +162,7 @@
     messages = {};
     openConv = null;
     cursor = 0;
+    stamp = -1;
     if (why) ui.toast(String(why).toUpperCase(), "warn");
     render();
   }
@@ -184,7 +186,9 @@
 
   async function loadConversations() {
     var out = await api("GET", "/msg/conv");
-    conversations = out.conversations || [];
+    conversations = (out.conversations || []).sort(function (a, b) {
+      return String(b.lastAt || "").localeCompare(String(a.lastAt || ""));
+    });
     return conversations;
   }
 
@@ -271,41 +275,95 @@
       messages[m.conv].push(row);
       if (m.seq > cursor) cursor = m.seq;
     }
+    /* By time, not by number: numbers from before the relay kept its
+       count across a restart can repeat. */
     Object.keys(messages).forEach(function (id) {
-      messages[id].sort(function (a, b) { return (a.seq || 0) - (b.seq || 0); });
+      messages[id].sort(function (a, b) {
+        return String(a.at || "").localeCompare(String(b.at || "")) || (a.seq || 0) - (b.seq || 0);
+      });
     });
+  }
+
+  /* The one on screen counts as read; the sender is told. */
+  function seeing(id) {
+    return !!(nodes.root && id && id === openConv && !document.hidden);
+  }
+
+  function markRead(conv) {
+    if (!conv || !conv.unread && !seeing(conv.id)) return;
+    conv.unread = 0;
+    api("POST", "/msg/read", { convId: conv.id }).catch(function () { /* the next open says it again */ });
+  }
+
+  function unreadTotal() {
+    return conversations.reduce(function (n, c) { return n + (c.unread || 0); }, 0);
+  }
+
+  /* What has happened to the last thing you sent here. Messages wait on
+     the relay for as long as someone is away, so this is news, not a
+     warning. */
+  function receipt(conv) {
+    var mine = (messages[conv.id] || []).filter(function (m) { return m.from === session.handle; }).pop();
+    if (!mine) return "";
+    var others = conv.members.filter(function (h) { return h !== session.handle; });
+    var seen = conv.seen || {};
+    var had = function (what) {
+      return others.filter(function (h) { return seen[h] && seen[h][what] >= mine.at; }).length;
+    };
+    if (had("read") === others.length) return "READ";
+    if (had("got") === others.length) return "DELIVERED";
+    if (others.length === 1) return "WAITING: " + others[0] + " GETS THIS WHEN THEY SIGN IN";
+    return "DELIVERED TO " + had("got") + " OF " + others.length + ", THE REST GET IT WHEN THEY SIGN IN";
   }
 
   /* Long poll. One request parked at a time, re-armed on return —
      an ordinary GET on 443 through the tunnel that already works,
-     rather than a WebSocket on a port a filter has never seen. */
+     rather than a WebSocket on a port a filter has never seen.
+
+     It keeps running while you are signed in, with the window closed
+     too: that is how you hear a message arrived. */
   async function pollLoop() {
+    /* Asked to stop but not yet out of a parked request: it carries on. */
+    stopPolling = false;
     if (polling) return;
     polling = true;
-    stopPolling = false;
+    var away = true;          // the first answer is what came while you were gone
     while (!stopPolling && session) {
       var started = Date.now();
       try {
-        var out = await api("GET", "/msg/poll?since=" + cursor, undefined, { timeout: 40000 });
+        var out = await api("GET", "/msg/poll?since=" + cursor + "&stamp=" + stamp, undefined, { timeout: 40000 });
         if (!session) break;
-        if (out && out.messages && out.messages.length) {
-          await absorb(out.messages);
-          renderThread();
-          renderList();
-          var unread = out.messages.filter(function (m) { return m.from !== session.handle; });
-          if (unread.length && (!openConv || unread.some(function (m) { return m.conv !== openConv; }))) {
-            ui.toast(unread.length + " NEW MESSAGE" + (unread.length > 1 ? "S" : ""), "info");
-          }
-        } else if (out && typeof out.cursor === "number" && out.cursor > cursor) {
-          /* Something changed that is not a message — a new
-             conversation, or a rotation. Reload rather than sit on a
-             stale member list. */
-          cursor = out.cursor;
+        var got = (out && out.messages) || [];
+        var before = unreadTotal();
+        /* The list first: a message can arrive in the same answer as
+           the conversation it belongs to, and the conversation's list
+           is what says how many are new. */
+        if (out && typeof out.stamp === "number" && out.stamp !== stamp) {
+          stamp = out.stamp;
           await loadConversations();
-          renderList();
+        } else if (got.some(function (m) { return !conversations.some(function (c) { return c.id === m.conv; }); })) {
+          await loadConversations();
         }
+        if (got.length) await absorb(got);
+        else if (out && typeof out.cursor === "number" && out.cursor > cursor) cursor = out.cursor;
+        var open = conversations.filter(function (c) { return c.id === openConv; })[0];
+        if (open && seeing(open.id)) markRead(open);
+        renderThread();
+        renderList();
+        var news = away ? unreadTotal() : unreadTotal() - before;
+        if (news > 0) {
+          ui.toast(news + " NEW MESSAGE" + (news > 1 ? "S" : "") + (away ? " WHILE YOU WERE AWAY" : ""), "info");
+        }
+        away = false;
       } catch (e) {
         if (!session) break;
+        /* Signed out by the relay (it restarted, or 12 hours passed).
+           Trying again would look signed in and hear nothing, for ever.
+           Everything sent meanwhile is kept for the next sign-in. */
+        if (e.status === 401) {
+          signOut("your sign-in ended: sign in again, your messages are kept");
+          break;
+        }
         /* A poll that fails must not spin. Back off and keep the
            panel usable; the relay being briefly unreachable is the
            normal condition on a school network, not an error state
@@ -496,7 +554,8 @@
         el("span", { class: "mg-conv-last",
           text: last ? (last.from + ": " + last.text).slice(0, 44) : "no messages yet" })
       ]);
-      row.addEventListener("click", function () { openConv = c.id; renderList(); renderThread(); });
+      if (c.unread > 0) row.appendChild(el("span", { class: "mg-unread", text: c.unread + " NEW" }));
+      row.addEventListener("click", function () { openConv = c.id; markRead(c); renderList(); renderThread(); });
       nodes.list.appendChild(row);
     });
   }
@@ -524,6 +583,9 @@
         el("span", { class: "mg-at", text: String(m.at || "").slice(11, 16) })
       ]));
     });
+
+    var state = receipt(conv);
+    if (state) body.appendChild(el("div", { class: "mg-receipt", text: state }));
 
     var input = el("input", { class: "mg-input mg-send", type: "text",
       placeholder: "message" });
@@ -1071,7 +1133,6 @@
     },
 
     unmount() {
-      stopPolling = true;
       nodes = {};
     }
   });
@@ -1091,6 +1152,9 @@
       ".mg-thread{flex:1;display:flex;flex-direction:column;min-width:0}",
       ".mg-conv{padding:7px 6px;border-bottom:1px solid var(--line);cursor:pointer}",
       ".mg-conv.sel{background:rgba(var(--accent-glow),.10)}",
+      ".mg-unread{display:inline-block;margin-top:3px;padding:0 5px;font-size:9px;letter-spacing:.1em;",
+      "  background:var(--accent);color:var(--bg)}",
+      ".mg-receipt{align-self:flex-end;font-size:9px;letter-spacing:.1em;color:var(--fg-dimmer);margin:2px 0 4px}",
       ".mg-conv-name{display:block;font-size:11px;letter-spacing:.1em;color:var(--fg)}",
       ".mg-conv-last{display:block;font-size:10px;color:var(--fg-dimmer);margin-top:2px}",
       ".mg-head{display:flex;justify-content:space-between;font-size:10px;color:var(--fg-dim);",

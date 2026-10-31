@@ -116,7 +116,9 @@ function remember(body) {
   const l = body && body.load;
   if (!l || typeof l !== "object") return;
   peer = { upKbps: Math.max(0, Number(l.upKbps) || 0), settings: l.settings && typeof l.settings === "object" ? l.settings : null,
-    waiting: Math.max(0, l.waiting | 0), line: l.line && typeof l.line === "object" ? l.line : null, at: Date.now() };
+    waiting: Math.max(0, l.waiting | 0), line: l.line && typeof l.line === "object" ? l.line : null,
+    machine: l.machine && typeof l.machine === "object" ? { cpu: Number(l.machine.cpu) || 0, mem: Number(l.machine.mem) || 0 } : null,
+    at: Date.now() };
   if (onAnswer && peer.line) onAnswer(peer.line);
 }
 

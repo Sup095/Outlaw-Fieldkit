@@ -38,6 +38,7 @@ const { verify, Spent } = require("./overflow");
 const browserRoute = require("./browser-route");
 const browse = require("./browse");
 const { Fairness } = require("./fairness");
+const { execFile } = require("child_process");
 
 const KEY_EVERY_MS = 10 * 60 * 1000;
 const KEY_RETRY_MS = 30 * 1000;
@@ -69,6 +70,22 @@ function readConfig(file) {
   c.dataDir = path.resolve(file ? path.dirname(file) : __dirname, raw.dataDir || "data");
   if (process.env.SERVER_PORT) c.port = Number(process.env.SERVER_PORT);
   return c;
+}
+
+/* How much of the graphics card's memory is in use, as a percentage,
+   every few seconds while something asks: a card has none to spare and
+   no way to wait for more. */
+function cardMeter() {
+  let pct = 0, at = 0;
+  return () => {
+    if (Date.now() - at < 4000) return pct;
+    at = Date.now();
+    execFile("nvidia-smi", ["--query-gpu=memory.used,memory.total", "--format=csv,noheader,nounits"], { timeout: 3000 }, (e, out) => {
+      const m = !e && /(\d+)\s*,\s*(\d+)/.exec(String(out));
+      if (m && Number(m[2]) > 0) pct = Math.round(Number(m[1]) / Number(m[2]) * 1000) / 10;
+    });
+    return pct;
+  };
 }
 
 /* The relay's public key, from the relay. */
@@ -115,6 +132,10 @@ function start(opts) {
   if (!relayKey.base) log("ERROR", "helper: helper.relayUrl is empty, so no pass can ever be checked — set it to the relay's https address");
   browse.init({ dataDir: config.dataDir, config: config.browse, log: log });
   const engine = browserRoute.init({ config: config.browser, log: log, filter: (host) => browse.hostVerdict(host) });
+  meter.sessions = () => engine.sessions.size;
+  const onCard = engine.render.mode === "gpu";
+  const card = onCard ? cardMeter() : () => 0;
+  log("INFO", "helper: pages are drawn " + (onCard ? "on the graphics card; guests are not sent here" : engine.render.mode === "cpu" ? "on the processor (llvmpipe)" : "the old way (SwiftShader)"));
 
   /* The claims of a good pass for `what`, or null. */
   async function passOf(req, what) {
@@ -160,7 +181,8 @@ function start(opts) {
         const m = meter.sample();
         const st = engine.status();
         return send(res, 200, { ready: !!st.available, free: Math.max(0, engine.cfg.maxSessions - engine.sessions.size),
-          max: engine.cfg.maxSessions, cpu: m.cpu, mem: m.mem,
+          max: engine.cfg.maxSessions, cpu: m.avg === null ? m.cpu : m.avg, mem: m.mem, pids: m.pids,
+          gpu: onCard, gpuMem: card(),
           sessions: Array.from(engine.sessions.keys()), kept: Array.from(engine.kept.keys()) });
       }
       if (p === "/helper/usage" && req.method === "GET") {
@@ -198,6 +220,8 @@ function start(opts) {
     if (!browserRoute.isStreamUpgrade(url)) return no();
     const c = await passOf(req, "stream");
     if (!c || typeof c.who !== "string" || !c.who || ["guest", "member", "admin"].indexOf(c.tier) < 0) return no();
+    /* Said here too: the relay decides, this makes sure. */
+    if (onCard && c.tier === "guest") return no();
     browserRoute.serve(req, sock, head, c.who, c.tier, { linkBase: "/browser/via/" + (c.via | 0) + "/" }).catch((e) => {
       log("WARN", "helper: stream failed — " + e.message);
       try { sock.destroy(); } catch (x) {}

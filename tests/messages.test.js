@@ -95,7 +95,8 @@ global.window.fetch = function (url, opts) {
       conversations: Object.keys(relay.convs).map((id) => relay.convs[id])
         .filter((c) => c.members.indexOf(me) >= 0)
         .map((c) => ({ id: c.id, kind: c.kind, name: c.name, members: c.members,
-          keyEpoch: c.keyEpoch, myKey: c.keys[me] || null }))
+          keyEpoch: c.keyEpoch, myKey: c.keys[me] || null, unread: c.unread || 0, seen: c.seen || {},
+          lastAt: "2026-08-16T12:00:00.000Z" }))
     });
   }
 
@@ -119,8 +120,11 @@ global.window.fetch = function (url, opts) {
     const since = Number(u.searchParams.get("since") || 0);
     const mine = relay.msgs.filter((m) =>
       m.seq > since && relay.convs[m.conv].members.indexOf(me) >= 0);
-    return reply(200, { cursor: relay.seq, messages: mine });
+    if (relay.signedOut) return reply(401, { error: "sign in again" });
+    return reply(200, { cursor: relay.seq, stamp: relay.seq, messages: mine });
   }
+
+  if (p === "/msg/read") { relay.read = body.convId; return reply(200, { ok: true }); }
 
   if (p === "/msg/rotate") {
     const c = relay.convs[body.convId];
@@ -352,6 +356,33 @@ let bob, mod;
     const showed = await until(() =>
       byClass("mg-text").some((n) => /must not be able to read/.test(n.textContent)), 6000);
     ok("and it came back down the poll and rendered for the sender too", showed);
+
+    const say = () => byClass("mg-receipt").map((n) => n.textContent).join("");
+    ok("the sender is told it is waiting for bob", await until(() => /WAITING: bob GETS THIS WHEN THEY SIGN IN/.test(say()), 6000), say());
+    const c = relay.convs.conv1;
+    c.seen = { bob: { got: "2026-08-16T12:00:00.000Z" } };
+    relay.seq++;
+    ok("and when it reaches bob", await until(() => say() === "DELIVERED", 6000), say());
+    c.seen = { bob: { got: "2026-08-16T12:00:00.000Z", read: "2026-08-16T12:00:00.000Z" } };
+    relay.seq++;
+    ok("and when bob reads it", await until(() => say() === "READ", 6000), say());
+  }
+
+  section("what came while you were away");
+  {
+    const c = relay.convs.conv1;
+    /* On screen it would count as read at once; in a hidden tab it does not. */
+    document.hidden = true;
+    c.unread = 3;
+    relay.seq++;
+    ok("a conversation shows how many are new", await until(() =>
+      byClass("mg-unread").some((n) => n.textContent === "3 NEW"), 6000));
+    document.hidden = false;
+    byClass("mg-conv")[0].click();
+    ok("opening it tells the relay", await until(() => relay.read === c.id, 3000));
+    c.unread = 0;
+    relay.seq++;
+    ok("and the count goes", await until(() => !byClass("mg-unread").length, 6000));
   }
 
   section("reporting hands over the conversation, and says so first");
@@ -475,6 +506,20 @@ let bob, mod;
       settings.get("msgHandle") === "alice", settings.get("msgHandle"));
   }
 
+  section("closing the window does not stop messages arriving");
+  {
+    const polls = () => relay.requests.filter((r) => r.path === "/msg/poll").length;
+    def.unmount();
+    host.children.length = 0;
+    await settle(50);
+    const before = polls();
+    ok("still asking with the window closed", await until(() => polls() > before + 1, 6000));
+    await def.mount(host, ctx);
+    await until(() => byClass("mg-conv").length > 0, 3000);
+    const again = polls();
+    ok("and open again, still asking", await until(() => polls() > again + 1, 6000));
+  }
+
   section("signing out leaves nothing behind");
   {
     button("SIGN OUT").click();
@@ -489,6 +534,16 @@ let bob, mod;
        survives the tab. A token in it would survive with it. */
     const dump = JSON.stringify(global.localStorage.getItem("fieldkit.settings") || "");
     ok("no session token was written to storage", dump.indexOf("tok-alice") < 0, dump.slice(0, 120));
+  }
+
+  section("the relay ends a sign-in");
+  {
+    placeholder("password").value = "a long enough password";
+    button("SIGN IN").click();
+    await until(() => byClass("mg-conv").length > 0, 15000);
+    relay.signedOut = true;
+    ok("the panel says so instead of looking signed in for ever", await until(() => byClass("mg-signin").length > 0, 8000));
+    relay.signedOut = false;
   }
 
   console.log("\nRESULT  pass " + state.pass + "  fail " + state.fail);

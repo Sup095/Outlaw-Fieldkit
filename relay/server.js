@@ -1099,7 +1099,7 @@ const ROUTES = [
   "GET  /usage",
   "POST /msg/register", "POST /msg/login", "POST /msg/logout",
   "GET  /msg/users", "GET/POST /msg/conv", "POST /msg/send", "GET  /msg/poll",
-  "POST /msg/rotate", "POST /msg/report",
+  "POST /msg/read", "POST /msg/rotate", "POST /msg/report",
   "GET  /msg/reports", "GET  /msg/review", "POST /msg/resolve", "GET  /msg/signins",
   "GET  /msg/people", "POST /msg/role",
   "POST /browse/ticket", "GET  /browse/get", "GET  /browse/check",
@@ -2042,7 +2042,7 @@ server.listen(config.port, config.host, () => {
     const found = require("./browser-engine").findChromium(config.browser.chromium);
     if (found.path) {
       log("INFO", "browser: streamed browser on — chromium at " + found.path +
-        ", up to " + (config.browser.maxSessions || 6) + " session(s), " +
+        ", up to " + (config.browser.maxSessions || 16) + " session(s), " +
         "content filter: " + (config.browser.dnsFilter || "adult") + ".");
       log("INFO", "browser: every request it makes goes through the guard proxy. " +
         "It cannot reach this relay's own API or any private address.");

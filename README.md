@@ -256,6 +256,7 @@ Everything after the relay is optional, and each step works without the next.
 | 4. Streamed browser | BROWSER | the Docker image, [`relay/BROWSER.md`](relay/BROWSER.md) |
 | 5. Run server | RUNNER, on a second Linux machine | `runnerd/setup.sh`, [below](#running-your-own-run-server-runner) |
 | 6. Small AI models | ASK for your members | `sh runnerd/tiny-ai.sh`, [below](#small-ai-models) |
+| Optional: a graphics card | smooth games in BROWSER | `sh runnerd/browser-card.sh`, [`relay/BROWSER.md`](relay/BROWSER.md#a-graphics-card) |
 | 7. A big AI model | ASK with your own PC | LM Studio and `aiTargets`, [`MODELS.md`](MODELS.md) |
 | 8. Accounts | who may use what | `messaging` in the config: `moderators`, `requireApproval` |
 | 9. Your own updates | signed releases to your users | [`SETUP.md`](SETUP.md) part 6 |

@@ -117,6 +117,31 @@ const json = (r) => { try { return JSON.parse(r.body.toString("utf8")); } catch 
   await new Promise((r) => relay.listen(0, "127.0.0.1", r));
   const rPort = relay.address().port;
 
+  section("who goes where");
+  {
+    const o = new Overflow({ urls: ["http://127.0.0.1:1", "http://127.0.0.1:2"], dataDir: path.join(TMP, "where"), log: () => {} });
+    const [card, plain] = o.helpers;
+    const st = (x) => Object.assign({ ready: true, free: 4, max: 8, cpu: 10, mem: 10, pids: 5, gpu: false, gpuMem: 0, sessions: [], kept: [] }, x);
+    card.state = st({ gpu: true, gpuMem: 20 }); card.at = Date.now();
+    plain.state = st({}); plain.at = Date.now();
+    let box = null;
+    const t = { guest: { load: 60, upload: 50 }, member: { load: 85, upload: 85 } };
+    const fair = { settings: () => t, upPct: () => 0, machine: () => box };
+    ok("a member is offered the card", o.pick("sam", "member", fair, "gpu") === card);
+    ok("a guest never is", o.pick("g", "guest", fair, "gpu") === null && o.pick("g", "guest", fair) === plain);
+    card.state.gpuMem = 80;
+    ok("a card with no memory left is passed over", o.pick("sam", "member", fair, "gpu") === null);
+    ok("except for an admin", o.pick("root", "admin", fair, "gpu") === card);
+    card.state.gpuMem = 20;
+    box = { cpu: 80, mem: 30 };
+    ok("Bastion 2 busy with RUNNER: the helper's own small numbers do not count", o.pick("sam", "member", fair, "gpu") === null);
+    box = { cpu: 30, mem: 30 };
+    card.state = st({ gpu: true, gpuMem: 20, cpu: 60, sessions: ["a", "b"] });
+    ok("what the sessions there really cost decides", o.pick("sam", "member", fair, "gpu") === null);
+    ok("a helper near its process limit is passed over", (plain.state.pids = 84) && o.pick("sam", "member", fair, "plain") === null);
+    o.stop();
+  }
+
   section("a helper answers nobody but the relay");
   {
     ok("an address that is not http://address:port is not used", ov.helpers.length === 1);

@@ -359,6 +359,7 @@ class DockerDriver {
       "--pids-limit", String(L.pids),
       "--memory", L.memoryMb + "m", "--memory-swap", L.memoryMb + "m",
       "--cpus", String(L.cpus),
+      ...(L.shares ? ["--cpu-shares", String(L.shares)] : []),
       "--ipc", "none",
       "--hostname", "sandbox",
       "--log-driver", "none",

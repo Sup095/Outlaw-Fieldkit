@@ -26,7 +26,8 @@ const { makeRunner } = require("./harness");
 const { AdBlock, CORE } = require("../relay/adblock");
 const { clean } = require("../relay/fetch-adblock");
 const { Guard } = require("../relay/guard");
-const { Engine } = require("../relay/browser-engine");
+const { Engine, renderPlan } = require("../relay/browser-engine");
+const { Transcoder } = require("../relay/video-encoder");
 const { ok, section, state } = makeRunner("browser-lean");
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), "fk-lean-"));
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -150,6 +151,83 @@ function connectVia(port, target) {
     ok("with a sentence the person can act on, and a line in the log", /Open the browser again/.test(ended[0]) && logs.some((m) => /over the 1000 MB/.test(m)));
     void s;
     eng.stop();
+  }
+
+  section("how pages are drawn, and what happens when that fails");
+  {
+    const has = (...names) => (f) => names.includes(f);
+    const NV = "/usr/share/glvnd/egl_vendor.d/10_nvidia.json", LVP = "/usr/share/vulkan/icd.d/lvp_icd.json";
+    let p = renderPlan("auto", 4, has("/dev/nvidia0", NV, LVP));
+    ok("a card and its EGL driver: on the card, through EGL", p.mode === "gpu" && p.args.includes("--use-angle=gl-egl") && p.env.__EGL_VENDOR_LIBRARY_FILENAMES === NV);
+    p = renderPlan("auto", 3, has(LVP));
+    ok("no card: llvmpipe, with its threads capped", p.mode === "cpu" && p.args.includes("--use-angle=vulkan") && p.env.LP_NUM_THREADS === "3" && p.env.VK_ICD_FILENAMES === LVP);
+    ok("asked for the processor, a card is left alone", renderPlan("cpu", 4, has("/dev/nvidia0", NV, LVP)).mode === "cpu");
+    ok("neither: the old way, which always starts", renderPlan("auto", 4, has()).args.join() === "--disable-gpu");
+    ok("and off means off", renderPlan("off", 4, has("/dev/nvidia0", NV, LVP)).mode === "off");
+
+    const logs = [], pics = [];
+    const eng = new Engine({ config: { enabled: true, maxFps: 20 }, log: (l, m) => logs.push(m) });
+    const hand = {};
+    const sends = [];
+    const page = { on: (e, f) => { hand[e] = f; }, send: async (m, o) => { sends.push(m + (o && o.sessionId ? ":" + o.sessionId : "")); } };
+    const pushed = [];
+    const v = { paused: false, onFrame: (d) => pics.push(d), onEvent: (m) => pushed.push(m) };
+    const tab = { id: "t", page: page, url: "https://game.example/", title: "" };
+    const s = { key: "k", who: "sam", tier: "member", tabs: [tab], active: tab, page: page, viewers: new Set([v]), url: tab.url };
+    eng._wirePage(s, tab);
+    hand["Page.screencastFrame"]({ data: "a", sessionId: 1 });
+    hand["Page.screencastFrame"]({ data: "b", sessionId: 2 });
+    hand["Page.screencastFrame"]({ data: "c", sessionId: 3 });
+    ok("every picture goes out at once", pics.join("") === "abc");
+    ok("the first is acknowledged straight away, the rest wait their turn", sends.filter((x) => /Ack/.test(x)).length === 1, sends.join());
+    await wait(130);
+    ok("one turn per picture, so two out at once cannot double the rate", sends.filter((x) => /Ack/.test(x)).length === 3, sends.join());
+    sends.length = 0;
+    hand["Inspector.targetCrashed"]();
+    ok("a page that crashes is opened again, and the person is told", sends.includes("Page.reload") && pushed.some((m) => m.t === "note" && /crashed/.test(m.why)));
+    hand["Inspector.targetCrashed"]();
+    hand["Inspector.targetCrashed"]();
+    ok("not for ever", sends.filter((x) => x === "Page.reload").length === 2 && pushed.some((m) => /keeps crashing/.test(m.why || "")));
+
+    /* What the watchdog does with what it measures. */
+    pushed.length = 0;
+    const ended = [];
+    eng.destroy = async (key, why) => { ended.push(key); eng.sessions.delete(key); return true; };
+    const hostOf = (mb, cpu) => ({ proc: { pid: 1 }, watch: { read: () => ({ memMb: mb, cpu: cpu }) } });
+    eng.sessions.set("k", Object.assign(s, { host: hostOf(300, 2), tabs: [] }));
+    await eng._watchdog(); await eng._watchdog();
+    ok("heavy for a moment is not heavy", !pushed.some((m) => m.t === "heavy"));
+    await eng._watchdog();
+    ok("heavy for 15 s: the panel hears", pushed.filter((m) => m.t === "heavy").length === 1 && pushed.find((m) => m.t === "heavy").url === tab.url);
+    await eng._watchdog();
+    ok("once per address", pushed.filter((m) => m.t === "heavy").length === 1);
+
+    /* A page that breaks the card. */
+    const moved = [];
+    eng.spare = null;
+    const card = { render: { mode: "gpu" } };
+    s.host = card;
+    s.viewers.add({ onMove: () => moved.push(1) });
+    eng._cardFault(card);
+    ok("a page that breaks the card: its panel reconnects, its page is remembered", moved.length === 1 && eng.softly.get("k") === tab.url && ended.includes("k"));
+    ok("and it is said in the log", logs.some((m) => /broke the graphics card/.test(m)));
+    eng.stop();
+  }
+
+  section("video on the card");
+  {
+    /* A stand-in encoder that writes nothing and stops, then one that works. */
+    const script = path.join(TMP, "enc.js");
+    fs.writeFileSync(script, "if (process.argv.includes('h264_nvenc')) process.exit(1);\nprocess.stdin.on('data', () => process.stdout.write(Buffer.from([0,0,0,1,9,0x10,0,0,1,0x65,1])));\nprocess.stdin.on('end', () => process.exit(0));");
+    const tx = new Transcoder({ ffmpeg: [process.execPath, script], kbps: 800, card: true });
+    let frames = 0, failed = null;
+    tx.on("frame", () => frames++);
+    tx.on("fail", (w) => { failed = w; });
+    const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xc0, 0, 17, 8, 0, 100, 0, 200, 3, 1, 34, 0, 2, 17, 1, 3, 17, 1, 0xff, 0xd9]);
+    tx.feed(jpeg);
+    await wait(700);
+    ok("a card that will not encode: x264 takes over, and the panel never knows", !tx.card && !failed && frames > 0, "frames " + frames + " " + failed);
+    tx.close();
   }
 
   section("search");

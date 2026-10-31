@@ -62,6 +62,9 @@ const AUDIO_TAG = Buffer.from([2]);
    steps wins. A step costs a keyframe, so they are at least
    OWN_GAP_MS apart. */
 const OWN = [1, 0.6, 0.35];
+/* Pictures a second at each house step: fewer, as well as smaller, while
+   the upload is busy or anyone waits. */
+const FPS = [30, 24, 15];
 const STRAIN_MS = 6000, OWN_GAP_MS = 5000, OWN_CALM_MS = 30000;
 
 let cfg = {};
@@ -99,6 +102,8 @@ function init(opts) {
   /* The browser as video (RUNNER_PLAN.md §23) when the image has
      ffmpeg and the setting is not off. Without it, pictures as before. */
   engine.videoBin = cfg.video === false ? null : findFfmpeg(cfg.ffmpeg);
+  engine.videoCard = !!engine.videoBin && engine.render.mode === "gpu";
+  if (opts.fairness) opts.fairness.sessions = () => engine.sessions.size;
   /* RUNNER_PLAN.md §22. Every 2 s: the meter, then the first in line
      is let in if there is room, and everyone waiting hears where they are. */
   fair = opts.fairness || null;
@@ -112,6 +117,7 @@ function init(opts) {
       const was = fair.step, k = fair.videoKbps(cfg.videoKbps || 1500);
       if (fair.step !== was) log("INFO", "browser: video " + (fair.step > was ? "down" : "up") + " to " + k + " kbit/s (house upload " + Math.round(fair.upPct(0)) + "%)");
       for (const v of viewers) v.restep();
+      engine.fps = FPS[fair.step] || FPS[0];
       if (overflow) overflow.step = fair.step;
       /* The one line is on Bastion 2 while it answers; its turns come
          through admit(). Otherwise, this relay's own line. */
@@ -247,13 +253,16 @@ async function route(req, res, url, helpers) {
     /* Starting the engine here rather than at the socket means the
        "chromium will not start" failure arrives as a JSON error the
        panel can print, instead of as a socket that closes. */
-    const ok = await engine.start();
+    const tier = helpers.tierOf ? helpers.tierOf(req) : (who === "vault" ? "admin" : "guest");
+    /* Going to the card: no Chromium is needed here, and it would sit
+       there, with a spare, costing memory until it parked. */
+    const away = !!(overflow && !engine.sessions.has(String(who)) && overflow.pick(who, tier, fair, "gpu"));
+    const ok = away || await engine.start();
     if (!ok) {
       send(res, 503, { error: "the browser could not start",
         detail: engine.lastFailure || "see the relay log" });
       return true;
     }
-    const tier = helpers.tierOf ? helpers.tierOf(req) : (who === "vault" ? "admin" : "guest");
     /* The tier is said so the panel knows to offer admin things (USAGE);
        the relay checks it again on every one of them. */
     send(res, 201, { ticket: issue(who, tier), expiresIn: TICKET_MS / 1000, tier: tier });
@@ -353,9 +362,11 @@ function placeOf(who, tier) {
   /* A helper is not a way round the line, unless the line just sent
      them there. */
   if (!moved.delete(who) && fair && tier !== "admin" && fair.shared() && fair.someoneAhead(tier)) return null;
-  const free = engine.sessions.size < engine.cfg.maxSessions;
+  const card = overflow.pick(who, tier, fair, "gpu");
+  if (card) return card;
+  const free = engine.hasRoom() && engine.sessions.size < engine.cfg.maxSessions;
   if (free && (!fair || tier === "admin" || (!fair.someoneAhead(tier) && fair.fits(tier, true)))) return null;
-  return overflow.pick(who, tier, fair);
+  return overflow.pick(who, tier, fair, "plain");
 }
 
 /* One panel's socket, served by this process. opts.linkBase is where
@@ -449,6 +460,8 @@ async function serve(req, sock, head, who, tier, opts) {
       tell(msg);
     },
     onGone(why) { tell({ t: "gone", why }); socket.close(1000, why); },
+    /* The session is being made again: the panel connects straight back. */
+    onMove() { tell({ t: "note", why: "the graphics card could not draw that page, so it is moving to the processor" }); tell({ t: "moved" }); socket.close(1012, "moved"); },
     /* One Opus packet of this session's sound: 2 | packet. Dropped,
        not queued, while the socket is backed up: late sound is worse
        than a gap, and the picture matters more. */
@@ -473,7 +486,7 @@ async function serve(req, sock, head, who, tier, opts) {
      after a "video" message giving the size; a failure says
      { t: "video", off: true } and pictures resume. */
   function startVideo() {
-    const tx = new Transcoder({ ffmpeg: engine.videoBin, kbps: kbpsNow(), maxFps: 30 });
+    const tx = new Transcoder({ ffmpeg: engine.videoBin, kbps: kbpsNow(), maxFps: 30, card: engine.videoCard });
     tx.on("start", (sz) => tell({ t: "video", w: sz.w, h: sz.h }));
     tx.on("frame", (au, key) => { if (alive) out(Buffer.concat([Buffer.from([key ? 1 : 0]), au])); });
     tx.on("fail", (why) => {
@@ -593,6 +606,9 @@ async function serve(req, sock, head, who, tier, opts) {
           break;
         }
 
+        /* The person took this page to their own device. */
+        case "release": await engine.release(session); break;
+
         case "back": await engine.back(session); break;
         case "fwd": await engine.forward(session); break;
         case "reload": await engine.reload(session); break;
@@ -675,6 +691,7 @@ function setHouseStep(n) {
   n = Math.max(0, Math.min(STEPS.length - 1, n | 0));
   if (n === houseStep) return;
   houseStep = n;
+  if (engine) engine.fps = FPS[n] || FPS[0];
   for (const v of viewers) v.restep();
 }
 

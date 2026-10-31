@@ -131,6 +131,18 @@ const MIN = 60000;
   {
     const b = new Access({ settingsFile: path.join(TMP, "one.json"), now: () => clock, read: () => proc, sent: () => sent });
     const load = (cpu, mem, up) => { b.meter.cpu = cpu; b.meter.mem = mem; b.meter.upKbps = up; };
+    {
+      const q = new Access({ settingsFile: path.join(TMP, "sized.json"), read: () => ({}) });
+      const member = { keepFiles: true, cpus: 2, memoryMb: 2048 }, guest = { keepFiles: false, cpus: 1, memoryMb: 512 };
+      q.meter.cpu = 10; q.meter.mem = 10;
+      let z = q.sized(member, "console");
+      ok("a quiet machine: a run may use double", z.cpus === 4 && z.memoryMb === 4096 && member.cpus === 2);
+      ok("and gives way to a page someone is looking at", z.shares < 1024);
+      ok("a window weighs more than a console program", q.sized(member, "screen").shares > z.shares);
+      ok("a guest's limit is a limit", q.sized(guest, "console").cpus === 1);
+      q.meter.cpu = 70;
+      ok("a busy machine: the tier's own room", q.sized(member, "console").cpus === 2);
+    }
     const names = (r) => r.offer.concat(r.browser).map((e) => e.handle).join(",");
     let browserRoom = [];
     const ctx = { countsOk: () => true, online: () => true, running: () => [], browserShort: () => browserRoom };

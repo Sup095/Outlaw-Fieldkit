@@ -114,6 +114,11 @@ class Transcoder extends EventEmitter {
     super();
     this.bin = opts.ffmpeg;
     this.kbps = opts.kbps || 1500;
+    /* The graphics card's encoder, where there is one: a viewer costs a
+       fraction of a processor instead of up to a whole one. If it will
+       not start, x264 takes over without the panel noticing. */
+    this.card = !!opts.card;
+    this.made = false;
     this.minGap = 1000 / (opts.maxFps || 30);
     this.proc = null;
     this.size = null;
@@ -180,23 +185,27 @@ class Transcoder extends EventEmitter {
     const w = sz.w & ~1, h = sz.h & ~1;
     this.size = sz;
     const k = this.kbps;
-    const args = ["-nostdin", "-loglevel", "error",
+    const crop = ["-nostdin", "-loglevel", "error",
       "-f", "mpjpeg", "-r", "30", "-i", "-",
-      "-vf", "crop=" + w + ":" + h + ":0:0,format=yuv420p",
-      "-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency", "-profile:v", "baseline",
-      "-threads", "2", "-bf", "0",
-      /* Quality-targeted, capped: a still picture is refined up to the
-         quality target, while motion is held to the bitrate. */
-      "-crf", "23", "-maxrate", k + "k", "-bufsize", Math.max(200, k >> 1) + "k",
-      "-x264-params", "aud=1:repeat-headers=1:scenecut=0:keyint=240",
-      "-flush_packets", "1", "-f", "h264", "-"];
+      "-vf", "crop=" + w + ":" + h + ":0:0,format=yuv420p"];
+    /* Quality-targeted, capped, either way: a still picture is refined up
+       to the quality target, while motion is held to the bitrate. */
+    const cap = ["-maxrate", k + "k", "-bufsize", Math.max(200, k >> 1) + "k"];
+    const args = crop.concat(this.card
+      ? ["-c:v", "h264_nvenc", "-preset", "p1", "-tune", "ull", "-profile:v", "baseline", "-bf", "0",
+        "-rc", "vbr", "-cq", "23", "-b:v", "0"].concat(cap,
+        ["-g", "240", "-aud", "1", "-bsf:v", "dump_extra=freq=keyframe"])
+      : ["-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency", "-profile:v", "baseline",
+        "-threads", "2", "-bf", "0", "-crf", "23"].concat(cap,
+        ["-x264-params", "aud=1:repeat-headers=1:scenecut=0:keyint=240"]),
+      ["-flush_packets", "1", "-f", "h264", "-"]);
     let proc;
     const bin = Array.isArray(this.bin) ? this.bin : [this.bin];
     try { proc = spawn(bin[0], bin.slice(1).concat(args), { stdio: ["pipe", "pipe", "pipe"] }); }
     catch (e) { return this._fail("could not start the encoder: " + e.message); }
     this.proc = proc;
     let err = "";
-    const split = splitter((au, key) => { if (this.proc === proc) this.emit("frame", au, key); });
+    const split = splitter((au, key) => { if (this.proc === proc) { this.made = true; this.emit("frame", au, key); } });
     proc.stdout.on("data", (d) => split.push(d));
     proc.stderr.on("data", (d) => { err = (err + d).slice(-600); });
     proc.stdin.on("error", () => {});
@@ -205,6 +214,12 @@ class Transcoder extends EventEmitter {
       split.end();
       if (this.proc !== proc || this.closed) return;
       this.proc = null;
+      if (this.card && !this.made) {
+        this.card = false;
+        this.size = null;
+        if (this.last) this._write(this.last);
+        return;
+      }
       this._fail("the encoder stopped (" + code + "): " + err.trim().split("\n").pop());
     });
     this.emit("start", { w: w, h: h });

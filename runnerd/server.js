@@ -297,6 +297,9 @@ function create(cfg, logFn) {
       /* For the relay, whose browser shares the home line and the
          thresholds (RUNNER_PLAN.md §22). Numbers only. */
       load: { upKbps: access.meter.upKbps, waiting: access.line.length,
+        /* The whole machine, so the browser's helpers here and RUNNER
+           are judged by one reading (SIMPLIFY_PLAN.md §3). */
+        machine: { cpu: access.meter.cpu, mem: access.meter.mem },
         settings: (() => { const s = access.settings(); return { guest: s.guest, member: s.member, uploadMbps: s.uploadMbps }; })() } };
   }
 
@@ -432,7 +435,7 @@ function create(cfg, logFn) {
     const id = crypto.randomBytes(8).toString("hex");
     const staged = store.stage(s.owner, m.file, id);
     const job = { id: id, sid: s.sid, who: who, handle: s.handle, tier: s.tier, file: entry.id, name: entry.name,
-      dir: staged.dir, plan: plan, limits: lim, startedAt: Date.now(), lastInput: Date.now(), lastOut: 0, warned: false, bytes: 0, why: null,
+      dir: staged.dir, plan: plan, limits: access.sized(lim, runKind), startedAt: Date.now(), lastInput: Date.now(), lastOut: 0, warned: false, bytes: 0, why: null,
       kbps: wantScreen ? (state.screenKbps || screenCfg.kbps) : 0,
       sha256: entry.sha256, library: !!entry.library,
       save: save, wantNet: !!lim.internet, keep: !!lim.keepRunning,

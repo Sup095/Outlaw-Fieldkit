@@ -246,6 +246,29 @@ const until = async (fn, ms) => { const end = Date.now() + (ms || 3000); while (
     ok("someone who stopped waiting on the relay leaves the line", !app.access.ordered("browser").length);
     await app.close();
 
+    /* What a session costs is measured, not guessed. */
+    {
+      let at = 1e6;
+      let box = { cpuUsec: 0, cpus: 4, memUsed: 50, memLimit: 100, pidsUsed: 100, pidsLimit: 512 };
+      const m = new Fairness({ now: () => at, read: () => box, sessions: () => 2 });
+      m.sample(); at += 2000; box = Object.assign({}, box, { cpuUsec: 4 * 2 * 1e6 * 0.4 });
+      m.sample();
+      ok("the running sessions' real share is what one more is expected to cost", m.costNow().cpu === 20 && m.costNow().mem === 25, JSON.stringify(m.costNow()));
+      ok("a guest does not fit beside two heavy sessions", !m.fits("guest", true));
+      ok("a member does not either, or nothing would be left for an admin", !m.fits("member", true) === (40 + 20 > 85 || 50 + 25 > 85));
+      ok("an admin always does", m.fits("admin", false));
+      box = Object.assign({}, box, { pidsUsed: 480 });
+      at += 2000; m.sample();
+      ok("the process limit counts like memory", m.meter.pids > 90 && !m.fits("member", true), String(m.meter.pids));
+    }
+    {
+      let at = 1e6, p = { machine: { cpu: 70, mem: 40 }, at: at };
+      const m = new Fairness({ now: () => at, read: () => ({}), peer: () => p });
+      ok("Bastion 2 as a whole, while the word is fresh", m.machine().cpu === 70);
+      at += 16000;
+      ok("and not after", m.machine() === null);
+    }
+
     /* The relay's half, on a fake clock. */
     {
     let at = 1e6, peer = null;

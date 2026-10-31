@@ -30,7 +30,7 @@ const RANK = { admin: 0, member: 1, guest: 2 };
 const DEFAULTS = { guest: { load: 60, upload: 50 }, member: { load: 85, upload: 85 }, uploadMbps: 20 };
 /* One browser session: Chromium's share while in use, and its video
    while the page moves (0.5-0.8 Mbit/s measured scrolling). */
-const COST = { cpu: 10, mem: 6, kbps: 800 };
+const COST = { cpu: 10, mem: 6, kbps: 800, pids: 20 };
 const LINE_MAX = 40;
 /* Video quality, as a share of the full bitrate: full, then two steps
    down while the house upload is busy or anyone waits (§22 point 5). */
@@ -55,6 +55,8 @@ function readCgroup() {
     const inactive = num((/inactive_file (\d+)/.exec(stat) || [])[1]) || 0;
     out.memUsed = cur != null ? Math.max(0, cur - inactive) : null;
     out.memLimit = lim && lim.trim() !== "max" ? num(lim) : os.totalmem();
+    out.pidsUsed = num(readText("/sys/fs/cgroup/pids.current"));
+    out.pidsLimit = num(readText("/sys/fs/cgroup/pids.max"));
     return out;
   }
   const v1 = readText("/sys/fs/cgroup/cpuacct/cpuacct.usage");
@@ -87,7 +89,8 @@ class Fairness {
     this.peer = opts.peer || (() => null);   /* Bastion 2's { upKbps, settings, at } */
     this.sent = 0;                           /* bytes the browser has sent to panels */
     this.prev = null;
-    this.meter = { cpu: 0, mem: 0, upKbps: 0, at: 0 };
+    this.meter = { cpu: 0, avg: null, mem: 0, pids: 0, upKbps: 0, at: 0 };
+    this.sessions = opts.sessions || (() => 0);   /* how many sessions the meter is seeing */
     this.line = [];
     this.n = 0;
     this.step = 0;                           /* index into STEPS */
@@ -102,7 +105,11 @@ class Fairness {
     if (p && r.cpuUsec != null && p.cpuUsec != null && now > p.at && r.cpus > 0) {
       const used = (r.cpuUsec - p.cpuUsec) / ((now - p.at) * 1000 * r.cpus);
       this.meter.cpu = Math.max(0, Math.min(100, Math.round(used * 1000) / 10));
+      /* Who gets in follows a smoothed reading: a page loading is a
+         spike, a game is a level. */
+      this.meter.avg = this.meter.avg === null ? this.meter.cpu : Math.round((this.meter.avg * 0.7 + this.meter.cpu * 0.3) * 10) / 10;
     }
+    if (r.pidsUsed > 0 && r.pidsLimit > 0) this.meter.pids = Math.round(r.pidsUsed / r.pidsLimit * 1000) / 10;
     if (r.memUsed != null && r.memLimit > 0) this.meter.mem = Math.round(r.memUsed / r.memLimit * 1000) / 10;
     if (p && now > p.at) this.meter.upKbps = Math.max(0, Math.round((this.sent - p.sent) * 8 / (now - p.at)));
     this.meter.at = now;
@@ -120,6 +127,21 @@ class Fairness {
       member: s && ok(s.member) ? s.member : DEFAULTS.member,
       uploadMbps: s && num(s.uploadMbps) > 0 ? s.uploadMbps : DEFAULTS.uploadMbps
     };
+  }
+
+  /* Bastion 2 as a whole, RUNNER, the browser, and anything else on it:
+     { cpu, mem }, while its report is fresh. */
+  machine() {
+    const p = this.peer();
+    return p && p.machine && this.now() - p.at < SHARED_MS ? p.machine : null;
+  }
+
+  /* What one more session is likely to cost: what the ones running
+     really use, and at least the guess. Six sessions of games and six
+     of text are not the same six. */
+  costNow() {
+    const n = this.sessions(), cpu = this.meter.avg === null ? this.meter.cpu : this.meter.avg;
+    return { cpu: Math.max(COST.cpu, n ? cpu / n : 0), mem: Math.max(COST.mem, n ? this.meter.mem / n : 0), kbps: COST.kbps, pids: n ? this.meter.pids / n : COST.pids };
   }
 
   /* RUNNER's upload, while its report is fresh. */
@@ -166,15 +188,16 @@ class Fairness {
   fits(tier, slotFree) {
     if (tier === "admin") return true;
     if (!slotFree) return false;
-    const t = this.settings()[tier] || this.settings().guest;
-    return this.meter.cpu + COST.cpu <= t.load && this.meter.mem + COST.mem <= t.load && this.upPct(COST.kbps) <= t.upload;
+    const t = this.settings()[tier] || this.settings().guest, c = this.costNow();
+    const cpu = this.meter.avg === null ? this.meter.cpu : this.meter.avg;
+    return cpu + c.cpu <= t.load && this.meter.mem + c.mem <= t.load && this.meter.pids + c.pids <= t.load && this.upPct(COST.kbps) <= t.upload;
   }
 
   why(tier, slotFree) {
     if (!slotFree) return "every browser session is in use";
     const t = this.settings()[tier] || this.settings().guest;
     if (this.upPct(COST.kbps) > t.upload) return "the home internet's upload is busy";
-    if (this.meter.mem + COST.mem > t.load) return "the relay's memory is nearly full";
+    if (this.meter.mem + this.costNow().mem > t.load) return "the relay's memory is nearly full";
     return "the relay is busy";
   }
 

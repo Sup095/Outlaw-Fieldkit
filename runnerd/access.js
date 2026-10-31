@@ -236,6 +236,19 @@ class Access {
     return out;
   }
 
+  /* What a run is given, by how the machine is doing now. There is no
+     share set aside for RUNNER or for the browser. A run gets double
+     its tier's room when the machine is quiet, and its processor weight
+     stays under the browser's (1024) so that a page someone is looking
+     at wins as soon as both want the same processors. A guest's stays
+     as it is: that is a limit on a stranger, not a share. */
+  sized(limits, kind) {
+    const shares = kind === "screen" ? 768 : 384;
+    if (limits.keepFiles === false) return Object.assign({}, limits, { shares: shares });
+    const quiet = this.meter.cpu < 50 && this.meter.mem < 50;
+    return Object.assign({}, limits, { shares: shares, cpus: limits.cpus * (quiet ? 2 : 1), memoryMb: limits.memoryMb * (quiet ? 2 : 1) });
+  }
+
   /* ---- the line ---- */
   /* In order: moved up by an admin, then tier, then when they joined.
      With a kind, only that kind's entries (the line is still one). */

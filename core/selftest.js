@@ -222,7 +222,9 @@
         var helpers = Array.isArray(b.helpers) ? b.helpers : [];
         return (b.available === false ? "not available right now" : "available") + ", " + (b.sessions || 0) + " of " + (b.maxSessions || "?") +
           " sessions in use" + (b.video ? ", video" : "") + (b.sound ? ", sound" : "") +
-          (helpers.length ? ", helpers: " + helpers.filter(function (h) { return h.up; }).length + " of " + helpers.length + " up" : "");
+          (b.render === "off" ? ", pages drawn the slow way, games will crawl" : "") +
+          (helpers.length ? ", helpers: " + helpers.filter(function (h) { return h.up; }).length + " of " + helpers.length + " up" +
+            (helpers.some(function (h) { return h.up && h.gpu; }) ? ", with a graphics card" : "") : "");
       }),
       check("RUNNER", false, async function () {
         var r = await getJson(relayBase() + "/runner/status");

@@ -497,6 +497,83 @@ function anyFileContains(dir, needle) {
       h.data.service === "fieldkit-relay");
   }
 
+  section("a message waits for someone who is away, across a restart");
+  {
+    const sign = async (h, pw) => (await api("POST", "/msg/login", { handle: h, authSecret: secretFor(pw, h) })).data.token;
+    const made = await api("POST", "/msg/conv", { kind: "dm", members: ["alice", "carol"], keys: { alice: "A", carol: "C" } }, alice);
+    const c = made.data.id;
+    await api("POST", "/msg/logout", {}, carol);
+    const sent1 = await api("POST", "/msg/send", { convId: c, ct: sealed("while you were out") }, alice);
+    ok("sending to someone signed out works", sent1.status === 201);
+    let list = (await api("GET", "/msg/conv", undefined, alice)).data.conversations.find((x) => x.id === c);
+    ok("the sender can see it has not reached them", !(list.seen.carol && list.seen.carol.got), JSON.stringify(list.seen));
+
+    proc.kill();
+    await new Promise((r) => proc.once("exit", r));
+    await startRelay();
+    ok("the old session did not survive the restart", (await api("GET", "/msg/conv", undefined, alice)).status === 401);
+    alice = await sign("alice", "correct horse");
+    /* Someone who is in none of this (bob was banned further up). */
+    bob = (await api("POST", "/msg/register", { handle: "dora", authSecret: secretFor("explorer", "dora"),
+      pubKey: "PUB-dora", wrappedPrivKey: "WRAPPED-dora", displayName: "DORA" })).data.token;
+    const sent2 = await api("POST", "/msg/send", { convId: c, ct: sealed("second") }, alice);
+    ok("the count carries on past a restart", sent2.data.seq > sent1.data.seq, sent1.data.seq + " then " + sent2.data.seq);
+
+    carol = await sign("carol", "third wheel");
+    list = (await api("GET", "/msg/conv", undefined, carol)).data.conversations.find((x) => x.id === c);
+    ok("coming back, both show as new", list.unread === 2, String(list.unread));
+    const p = await api("GET", "/msg/poll?since=0", undefined, carol);
+    const here = p.data.messages.filter((m) => m.conv === c);
+    ok("and the first poll brings them, in order", here.length === 2 && here[0].seq < here[1].seq);
+    list = (await api("GET", "/msg/conv", undefined, alice)).data.conversations.find((x) => x.id === c);
+    ok("the sender now sees it reached them", list.seen.carol && list.seen.carol.got >= sent2.data.at, JSON.stringify(list.seen));
+    ok("but not that it was read", !list.seen.carol.read);
+
+    /* A person with history, then something new: the case that went silent. */
+    const cursor = p.data.cursor;
+    const parked = api("GET", "/msg/poll?since=" + cursor + "&stamp=" + p.data.stamp, undefined, carol);
+    await new Promise((r) => setTimeout(r, 150));
+    const sent3 = await api("POST", "/msg/send", { convId: c, ct: sealed("live") }, alice);
+    const woke = await parked;
+    ok("a new message reaches someone who already has the history", woke.data.messages.some((m) => m.id === sent3.data.id));
+
+    await api("POST", "/msg/read", { convId: c }, carol);
+    list = (await api("GET", "/msg/conv", undefined, carol)).data.conversations.find((x) => x.id === c);
+    ok("opening it clears the new count", list.unread === 0, String(list.unread));
+    list = (await api("GET", "/msg/conv", undefined, alice)).data.conversations.find((x) => x.id === c);
+    ok("and the sender can see it was read", list.seen.carol.read >= sent3.data.at);
+    ok("nobody else can mark it", (await api("POST", "/msg/read", { convId: c }, bob)).status === 404);
+
+    /* A stale number makes a poll answer at once rather than sit. */
+    const t0 = Date.now();
+    await api("GET", "/msg/poll?since=" + woke.data.cursor + "&stamp=-1", undefined, bob);
+    ok("a panel that has missed a change hears at once", Date.now() - t0 < 2000);
+
+    /* Only the people in a conversation are woken. */
+    let outside = false;
+    api("GET", "/msg/poll?since=999999&stamp=" + (await api("GET", "/msg/poll?since=999999&stamp=-1", undefined, bob)).data.stamp, undefined, bob).then(() => { outside = true; }, () => { /* the restart below ends it */ });
+    await new Promise((r) => setTimeout(r, 150));
+    await api("POST", "/msg/send", { convId: c, ct: sealed("not for bob") }, alice);
+    await new Promise((r) => setTimeout(r, 300));
+    ok("someone not in it stays parked", !outside);
+
+    /* What was marked read outlives a restart too. */
+    await new Promise((r) => setTimeout(r, 2300));
+    proc.kill();
+    await new Promise((r) => proc.once("exit", r));
+    await startRelay();
+    carol = await sign("carol", "third wheel");
+    list = (await api("GET", "/msg/conv", undefined, carol)).data.conversations.find((x) => x.id === c);
+    ok("after a restart only the unread one shows", list.unread === 1, String(list.unread));
+
+    /* The rotated log counts for someone who has been away. */
+    const log = path.join(DATA, "msg", "conv", c + ".log");
+    fs.renameSync(log, log + ".1793000000000");
+    await api("POST", "/msg/send", { convId: c, ct: sealed("after rotation") }, await sign("alice", "correct horse"));
+    const all = await api("GET", "/msg/poll?since=0", undefined, carol);
+    ok("older logs still reach someone coming back", all.data.messages.filter((m) => m.conv === c).length === 5);
+  }
+
   if (proc) proc.kill();
   try { fs.rmSync(TMP, { recursive: true, force: true }); } catch (e) { /* windows holds files */ }
 
