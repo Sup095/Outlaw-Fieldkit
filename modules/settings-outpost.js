@@ -24,8 +24,8 @@
      drive carrying both should not forget your theme depending on
      which file you opened. Writing a relay URL from here would mean
      the limited build could reconfigure the real one. */
-  var OWNED = ["theme", "crt", "sound", "perfMode", "wallpaper",
-    "bootFlavor", "displayName"];
+  var OWNED = ["theme", "crt", "textSize", "contrast", "calm", "sound", "perfMode",
+    "wallpaper", "bootFlavor", "displayName"];
 
   function set(key, value) {
     if (OWNED.indexOf(key) < 0) {
@@ -64,6 +64,7 @@
     var shell = FieldKit.service("shell");
     if (shell && shell.setWallpaper) shell.setWallpaper(ctx.settings.get("wallpaper"));
     document.body.classList.toggle("crt", !!ctx.settings.get("crt"));
+    ui.applyLook(ctx.settings);
   }
 
   function themeGrid() {
@@ -190,11 +191,22 @@
       });
       perf.addEventListener("change", function () { set("perfMode", perf.value); });
 
+      var size = el("select", { class: "so-input" });
+      [[100, "NORMAL"], [115, "LARGER"], [130, "LARGE"], [150, "LARGEST"]].forEach(function (o) {
+        var opt = el("option", { value: String(o[0]), text: o[1] });
+        if (Number(ctx.settings.get("textSize")) === o[0]) opt.selected = true;
+        size.appendChild(opt);
+      });
+      size.addEventListener("change", function () { set("textSize", Number(size.value)); apply(); });
+
       host.appendChild(el("div", { class: "so-wrap" }, [
         ui.panel("APPEARANCE", [
           row("ACCENT", "everything highlights in this colour", themes)
         ]),
         ui.panel("DISPLAY", [
+          row("TEXT SIZE", "everything inside windows, and the icons", size),
+          toggle("contrast", "HIGHER CONTRAST", "brighter text and lines on black"),
+          toggle("calm", "LESS MOTION", "no animation or fading"),
           toggle("crt", "CRT OVERLAY", "scanlines and a little glow"),
           row("PERFORMANCE", "how hard to work this machine", perf)
         ]),

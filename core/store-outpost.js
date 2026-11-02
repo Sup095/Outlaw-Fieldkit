@@ -7,7 +7,7 @@
    `core/crypto.js` and both transports are not in its manifest at
    all, so there is no vault code on the machine to reach.
 
-   But the modules it *does* carry — GUESTBOOK, QR CODE,
+   But the modules it *does* carry — BROWSER, QR CODE,
    DIAGNOSTICS — all write through `ctx.store`, so something has to
    answer that. This is that something: the same surface, backed by
    plain IndexedDB, holding only what this build produces.
@@ -21,9 +21,9 @@
    account password and handled separately (§14.2). If a future
    module wants to keep a secret, it needs its own answer, not this.
 
-   Anyone with the machine can read what OUTPOST wrote. Everything
-   OUTPOST writes is a QR payload or a self-test result, and none of
-   that was ever private.
+   Anyone with the machine can read what OUTPOST wrote: QR payloads,
+   self-test results, and BROWSER's bookmarks and history, which is
+   why BROWSER says so where it keeps them, and can stop keeping history.
    ============================================================ */
 (function (FieldKit) {
   "use strict";

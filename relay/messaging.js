@@ -446,7 +446,22 @@ function noteTail(entry) {
   if (t.list.length > TAIL_MAX) t.list.splice(0, t.list.length - TAIL_MAX);
 }
 
-/* Every log, once, as the relay starts: the cursor and the tails. */
+/* The end of a file, whole lines only. */
+function readEnd(file, bytes) {
+  const fd = fs.openSync(file, "r");
+  try {
+    const size = fs.fstatSync(fd).size, n = Math.min(size, bytes);
+    const buf = Buffer.alloc(n);
+    fs.readSync(fd, buf, 0, n, size - n);
+    const text = buf.toString("utf8");
+    return n < size ? text.slice(text.indexOf("\n") + 1) : text;
+  } finally { fs.closeSync(fd); }
+}
+
+/* Every log, once, as the relay starts: the cursor and the tails. Only
+   each file's end: that holds the newest numbers and more than TAIL_MAX
+   entries, and a busy conversation can be 32 MB a file. */
+const SCAN_BYTES = 1024 * 1024;
 function scanLogs() {
   cursor = 0;
   tails.clear();
@@ -454,7 +469,7 @@ function scanLogs() {
   try { names = fs.readdirSync(CONV_DIR); } catch (e) { return; }
   for (const n of names.filter((x) => /\.log(\.\d+)?$/.test(x))) {
     let raw;
-    try { raw = fs.readFileSync(path.join(CONV_DIR, n), "utf8"); } catch (e) { continue; }
+    try { raw = readEnd(path.join(CONV_DIR, n), SCAN_BYTES); } catch (e) { continue; }
     for (const line of raw.split("\n")) {
       if (!line) continue;
       let m;
@@ -1133,4 +1148,27 @@ async function route(req, res, url, helpers) {
    identity those users do have. It also means a banned account
    cannot browse, which falls out of banState() rather than needing
    a second rule. */
-module.exports = { init, route, whoami, LIMITS, _internals: { hashSecret, banState, sessions, tierOf, adminList, isRoot } };
+/* For ADMIN CENTER: how many of what, and nothing about anyone. */
+function counts() {
+  if (!cfg.enabled) return null;
+  const users = readUsers(), roles = readRoles();
+  const out = { total: 0, guests: 0, members: 0, admins: 0, banned: 0, waiting: 0, reports: 0, requireApproval: !!cfg.requireApproval };
+  for (const h of Object.keys(users)) {
+    const t = tierOf(h, users[h], roles);
+    out.total++;
+    if (banState(users[h])) out.banned++;
+    if (t === "admin") out.admins++;
+    else if (t === "member") out.members++;
+    else {
+      out.guests++;
+      if (cfg.requireApproval && !banState(users[h])) out.waiting++;
+    }
+  }
+  try {
+    out.reports = fs.readdirSync(REPORT_DIR).filter((n) => n.endsWith(".json") &&
+      ((readJson(path.join(REPORT_DIR, n)) || {}).status === "open")).length;
+  } catch (e) {}
+  return out;
+}
+
+module.exports = { init, route, whoami, LIMITS, counts, flush: () => { if (seenTimer) flushSeen(); }, _internals: { hashSecret, banState, sessions, tierOf, adminList, isRoot } };

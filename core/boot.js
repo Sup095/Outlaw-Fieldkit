@@ -716,6 +716,7 @@
     var dp = FieldKit.service("driveProfile");
     var profile = dp ? dp.apply() : { loaded: false, applied: [] };
     ui.applyTheme(settings.get("theme"));
+    ui.applyLook(settings);
 
     screenEl = document.getElementById("fk-boot");
     consoleEl = document.getElementById("fk-boot-console");

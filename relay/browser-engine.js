@@ -71,7 +71,7 @@ const { Guard } = require("./guard");
 const { Meter } = require("./proc-usage");
 const { Pulse } = require("./pulse");
 const { OggOpus } = require("./ogg-opus");
-const { AdBlock } = require("./adblock");
+const { Blocklist } = require("./blocklist");
 
 const DEFAULTS = {
   enabled: false,
@@ -97,8 +97,9 @@ const DEFAULTS = {
   sound: true,                  /* sound, when the image has PulseAudio: a Chromium per session, each on its own sink */
   soundKbps: 48,                /* Opus, per session that someone is listening to */
   pulse: "",                    /* path to pulseaudio; "" means search */
-  adblock: true,                /* ads and trackers refused by name (adblock.js) */
-  adblockAllow: [],             /* hosts the ad blocker must never refuse */
+  adblock: true,                /* ads and trackers refused by name (blocklist.js) */
+  adblockAllow: [],             /* hosts no list may refuse */
+  blockSources: null,           /* which lists to fetch; null for blocklist.js's */
   /* Where each Chromium keeps its profile, cache and shared memory.
      NOT /tmp: in the relay's container that is a 100 MB tmpfs, two
      idle Chromiums took 78 MB of it, and a game filled the rest.
@@ -146,6 +147,10 @@ function renderPlan(want, threads, exists) {
    flag tried: GL_GUILTY_CONTEXT_RESET, and the GPU process exits), and
    Chromium then has no WebGL at all. That session comes back on llvmpipe. */
 const CARD_FAULT = /GPU process exited unexpectedly|context lost via EXT_robustness/;
+/* Sites already known to do that, plus any a session teaches it while
+   it runs (and browser.cardAvoid in the config): a session reaching one
+   moves to the processor first, instead of crashing into it. */
+const CARD_AVOID = ["smashkarts.io"];
 
 /* PROCESSES. A Pterodactyl container may have 512, and each thread is
    one. Measured on the relay: one game page and the spare, 349, because
@@ -227,11 +232,19 @@ function findChromium(configured) {
   return { path: null, tried };
 }
 
+function siteOf(url) {
+  try { return /^https?:/.test(url) ? new URL(url).hostname.toLowerCase() : ""; } catch (e) { return ""; }
+}
+
 class Engine {
   constructor(opts) {
     this.cfg = Object.assign({}, DEFAULTS, opts.config || {});
     this.log = opts.log || (() => {});
     this.filter = opts.filter || (() => ({ ok: true }));
+    /* Here rather than in start(): it outlives Chromium being parked,
+       and ADMIN can read and set it before anyone has browsed. */
+    this.lists = new Blocklist({ ads: this.cfg.adblock !== false, allow: this.cfg.adblockAllow, log: this.log,
+      dir: opts.blockDir || null, sources: this.cfg.blockSources || undefined });
 
     this.proc = null;
     this.cdp = null;
@@ -240,6 +253,7 @@ class Engine {
     this.render = renderPlan(this.cfg.render, this.cfg.renderThreads);
     this.fps = Math.max(5, this.cfg.maxFps | 0 || 30);
     this.softly = new Map();            /* key -> the address that broke the card */
+    this.cardAvoid = new Set(CARD_AVOID.concat(this.cfg.cardAvoid || []));
     /* SOUND (RUNNER_PLAN.md §23). One Chromium cannot give each person
        their own sound: every page in it plays to the same card. So with
        sound on, each session gets a Chromium of its own (a "host") on a
@@ -295,9 +309,11 @@ class Engine {
     }
     this.chromiumPath = found.path;
 
-    this.ads = new AdBlock({ enabled: this.cfg.adblock !== false, allow: this.cfg.adblockAllow });
-    this.log("INFO", "browser: ad blocker " + (this.ads.on ? "on — " + this.ads.source : "off (browser.adblock is false)"));
-    this.guard = new Guard({ log: this.log, dnsFilter: this.cfg.dnsFilter, filter: this.filter, ads: this.ads, ports: "browser" });
+    if (!this.listsStarted) {
+      this.listsStarted = true;
+      this.lists.start().catch((e) => this.log("WARN", "blocklist: " + e.message));
+    }
+    this.guard = new Guard({ log: this.log, dnsFilter: this.cfg.dnsFilter, filter: this.filter, lists: this.lists, ports: "browser" });
     this._sweepProfiles();
     this.guardPort = await this.guard.listen();
 
@@ -554,9 +570,22 @@ class Engine {
     const s = [...this.sessions.values()].find((x) => x.host === host);
     if (!s) return;
     this.log("WARN", "browser: " + s.who + "'s page broke the graphics card's driver; moving it to the processor: " + String(s.url).slice(0, 120));
+    const name = siteOf(s.url);
+    if (name) this.cardAvoid.add(name);
     this.softly.set(s.key, s.url);
     for (const v of [...s.viewers]) { try { if (v.onMove) { s.viewers.delete(v); v.onMove(); } } catch (e) {} }
     this.destroy(s.key, "made room for another session").catch(() => {});
+  }
+
+  /* Before the page draws anything, if it is one that is known to. */
+  _shyOfCard(s) {
+    const h = s.host;
+    if (!h || h.faulted || !h.render || h.render.mode !== "gpu") return false;
+    let name = siteOf(s.url);
+    while (name && !this.cardAvoid.has(name)) { const i = name.indexOf("."); name = i < 0 ? "" : name.slice(i + 1); }
+    if (!name) return false;
+    this._cardFault(h);
+    return true;
   }
 
   _dropHost(host) {
@@ -616,6 +645,7 @@ class Engine {
   stop() {
     clearInterval(this._sweep);
     clearInterval(this._guard);
+    this.lists.stop();
     this._teardown();
   }
 
@@ -911,6 +941,7 @@ class Engine {
         s.world = null;
         s.url = tab.url;
         push({ t: "nav", url: s.url });
+        this._shyOfCard(s);
       }
     });
     tab.page.on("Page.domContentEventFired", () => { if (on() && s.zoom !== 1) this._applyZoom(s); });
@@ -926,9 +957,15 @@ class Engine {
        answer — the filter refused it — is sitting in the guard. */
     tab.page.on("Page.frameNavigated", (p) => {
       if (p.frame && !p.frame.parentId && /^chrome-error:/.test(String(p.frame.url || ""))) {
-        const r = this.guard && this.guard.whyRefused();
+        const url = s.pendingNav || p.frame.unreachableUrl || "";
+        /* Asked of the lists by name first: ads are refused too quietly
+           to leave a reason behind, and a page that is itself on a list
+           should say so whatever else was refused just before. */
+        const listed = this.lists && this.lists.check(siteOf(url));
+        const r = listed ? { host: siteOf(url), kind: listed.cat, why: "that site is " + listed.why }
+          : (this.guard && this.guard.whyRefused());
         push({ t: "blocked",
-          url: s.pendingNav || p.frame.unreachableUrl || "",
+          url: url,
           host: r ? r.host : "",
           kind: r ? r.kind : "unreachable",
           why: r ? r.why : "that site could not be reached" });

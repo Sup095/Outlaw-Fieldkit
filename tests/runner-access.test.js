@@ -142,6 +142,21 @@ const MIN = 60000;
       ok("a guest's limit is a limit", q.sized(guest, "console").cpus === 1);
       q.meter.cpu = 70;
       ok("a busy machine: the tier's own room", q.sized(member, "console").cpus === 2);
+      {
+        const room = new Access({ settingsFile: path.join(TMP, "sized2.json"), read: () => ({ memTotalMb: 30000 }) });
+        room.meter.cpu = 10; room.meter.mem = 10;
+        ok("nothing promised yet: double", room.sized(member, "console", 0).memoryMb === 4096);
+        ok("promised nearly all the room there is: not doubled, however quiet it looks",
+          room.sized(member, "console", 20000).memoryMb === 2048);
+        ok("right at the edge it still fits", room.sized(member, "console", 30000 * 0.75 - 4096).memoryMb === 4096);
+        ok("the processor share is not the memory's problem", room.sized(member, "console", 20000).cpus === 4);
+        room.videoKbps(1000);
+        ok("the frame rate goes with the step", room.videoFps(30) === 30);
+        room.step = 2;
+        ok("and comes down with it", room.videoFps(30) === 15);
+        room.step = 1;
+        ok("to the browser's steps", room.videoFps(30) === 24);
+      }
     }
     const names = (r) => r.offer.concat(r.browser).map((e) => e.handle).join(",");
     let browserRoom = [];

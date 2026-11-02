@@ -28,8 +28,13 @@
 #       {"t":"b","b":1,"d":1}         mouse button 1-3 down (d 1) / up (d 0)
 #       {"t":"w","y":1}               wheel: positive is down
 #       {"t":"k","c":"KeyA","d":1}    a key by its physical code (KeyboardEvent.code)
-#       {"t":"rate","k":900}          a new video bitrate, kbit/s: a fresh
-#                                     encoder, starting with a keyframe
+#       {"t":"watch","on":false}      nobody is looking: stop grabbing and encoding
+#                                     (a window left running costs up to a core
+#                                     for pictures nobody receives); true starts
+#                                     again, with a keyframe
+#       {"t":"rate","k":900,"fps":24} a new video bitrate, kbit/s, and frame
+#                                     rate if given: a fresh encoder,
+#                                     starting with a keyframe
 #
 #  The exit code is the program's.
 # ============================================================
@@ -162,23 +167,26 @@ threading.Thread(target=pump, args=(prog.stderr, b"E"), daemon=True).start()
 # the encoding off the CPU almost entirely. It is tried once, on a
 # tiny test picture; if the card is not reachable from in here, the
 # CPU encoder is used and the run says so.
-GRAB = ["ffmpeg", "-nostdin", "-loglevel", "error",
-        "-f", "x11grab", "-draw_mouse", "0", "-framerate", str(FPS), "-video_size", "%dx%d" % (W, H),
-        "-i", DISPLAY]
+def grab(f):
+    return ["ffmpeg", "-nostdin", "-loglevel", "error",
+            "-f", "x11grab", "-draw_mouse", "0", "-framerate", str(f), "-video_size", "%dx%d" % (W, H),
+            "-i", DISPLAY]
 def rate(k):
     return ["-b:v", "%dk" % k, "-maxrate", "%dk" % k, "-bufsize", "%dk" % max(200, k // 2)]
-X264 = ["-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency",
-        "-profile:v", "baseline", "-pix_fmt", "yuv420p", "-threads", "2",
-        "-g", str(FPS * 2), "-bf", "0", "-x264-params", "aud=1:repeat-headers=1:scenecut=0"]
-NVENC = ["-c:v", "h264_nvenc", "-preset", "p1", "-tune", "ull", "-zerolatency", "1", "-delay", "0",
-         "-rc", "cbr", "-profile:v", "baseline",
-         "-g", str(FPS * 2), "-bf", "0", "-aud", "1", "-forced-idr", "1"]
+def x264(f):
+    return ["-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency",
+            "-profile:v", "baseline", "-pix_fmt", "yuv420p", "-threads", "2",
+            "-g", str(f * 2), "-bf", "0", "-x264-params", "aud=1:repeat-headers=1:scenecut=0"]
+def nvenc(f):
+    return ["-c:v", "h264_nvenc", "-preset", "p1", "-tune", "ull", "-zerolatency", "1", "-delay", "0",
+            "-rc", "cbr", "-profile:v", "baseline",
+            "-g", str(f * 2), "-bf", "0", "-aud", "1", "-forced-idr", "1"]
 
 
 def gpu_works():
     try:
         r = subprocess.run(["ffmpeg", "-nostdin", "-loglevel", "error", "-f", "lavfi", "-i", "color=s=256x144:r=30",
-                            "-frames:v", "2"] + NVENC + ["-f", "null", "-"],
+                            "-frames:v", "2"] + nvenc(FPS) + ["-f", "null", "-"],
                            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15)
         return r.returncode == 0
     except Exception:
@@ -192,32 +200,55 @@ if os.environ.get("FK_ENC") == "gpu":
     else:
         note("the graphics card's video encoder is not available, so the CPU is encoding this screen")
 def start_venc(k):
-    p = subprocess.Popen(GRAB + (NVENC if ENC == "gpu" else X264) + rate(k) + ["-flush_packets", "1", "-f", "h264", "-"],
+    p = subprocess.Popen(grab(fps) + (nvenc(fps) if ENC == "gpu" else x264(fps)) + rate(k) + ["-flush_packets", "1", "-f", "h264", "-"],
                          stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     helpers.append(p)
     return p
 
 
 kbps = KBPS
+fps = clamp(int(os.environ.get("FK_FPS_NOW", FPS)), 5, FPS)
 venc = start_venc(kbps)
 venc_lock = threading.Lock()
 
 
-# runnerd steps the bitrate down while the house upload is busy or
-# people are waiting, and back up later. A fresh encoder each time: its
-# first frame is a keyframe, so the panel picks up cleanly.
-def set_rate(k):
-    global venc, kbps
+# runnerd steps the bitrate and frame rate down while the house upload
+# is busy or people are waiting, and back up later. A fresh encoder each
+# time: its first frame is a keyframe, so the panel picks up cleanly.
+watching = True
+
+
+def set_rate(k, f=None):
+    global venc, kbps, fps
     k = clamp(k, 150, 8000)
+    f = clamp(f, 5, FPS) if f else fps
     with venc_lock:
-        if k == kbps:
+        if k == kbps and f == fps:
             return
         kbps = k
+        fps = f
+        if not watching:
+            return      # the next watch starts it at this rate
         old, venc = venc, start_venc(k)
     try:
         old.terminate()
     except Exception:
         pass
+
+
+def set_watch(on):
+    global venc, watching
+    with venc_lock:
+        if on == watching:
+            return
+        watching = on
+        old = venc
+        venc = start_venc(kbps) if on else None
+    if old is not None:
+        try:
+            old.terminate()
+        except Exception:
+            pass
 emit(b"S", json.dumps({"w": W, "h": H, "fps": FPS, "sound": sound, "enc": ENC}).encode())
 
 AUD = b"\x00\x00\x00\x01\x09"
@@ -237,10 +268,13 @@ def is_key(au):
 def video():
     while True:
         enc = venc
+        if enc is None:
+            time.sleep(0.2)      # nobody is watching
+            continue
         frames(enc)
         if enc is venc:
             break      # it stopped by itself; the main loop says why
-        # replaced by set_rate: read the new one
+        # replaced by set_rate or set_watch: read the new one
 
 
 def frames(enc):
@@ -358,7 +392,10 @@ except Exception as e:
 def act(m):
     t = m.get("t")
     if t == "rate":
-        set_rate(m.get("k", KBPS))
+        set_rate(m.get("k", KBPS), m.get("fps"))
+        return
+    if t == "watch":
+        set_watch(bool(m.get("on")))
         return
     if t == "in":
         prog.stdin.write(str(m.get("d", "")).encode())
@@ -421,8 +458,9 @@ signal.signal(signal.SIGTERM, stop)
 code = None
 while code is None:
     code = prog.poll()
-    if code is None and venc.poll() is not None:
-        note("the screen encoder stopped: " + venc.stderr.read()[-300:].decode("utf8", "replace"))
+    enc = venc      # None while nobody is watching; replaced on purpose by set_rate and set_watch
+    if code is None and enc is not None and enc.poll() is not None and enc is venc:
+        note("the screen encoder stopped: " + enc.stderr.read()[-300:].decode("utf8", "replace"))
         stop()
         try:
             code = prog.wait(timeout=3)

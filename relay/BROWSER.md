@@ -195,12 +195,12 @@ whole-machine reading from runnerd, so whatever one is not using is
 there for the other, and when both want the processors a page someone is
 looking at wins.
 
-**Pterodactyl's limit.** Wings allows a container 512 processes, each
-thread counts, and an idle Chromium is over 100. That is about two
-sessions. The browser now waits rather than crashing when it gets there.
-To raise it, set `container_pid_limit: 2048` under `docker:` in
-`/etc/pterodactyl/config.yml`, run `systemctl restart wings`, and restart
-the server.
+**Pterodactyl's limit.** Wings allows a container 512 processes by
+default, each thread counts, and an idle Chromium is over 100: about two
+sessions. The browser waits rather than crashes when it gets there. Set
+it to 2048 for this design: `container_pid_limit: 2048` under `docker:`
+in `/etc/pterodactyl/config.yml`, then `systemctl restart wings` and
+restart the server.
 
 ## A second machine: browser helpers
 
@@ -264,13 +264,31 @@ Chromium's tunnel error.
 `browse.blockHosts` and the downloaded blocklist apply here too — one
 list for both browsers.
 
-**Ads and trackers** are refused by name before a connection is made
-(`adblock.js`): a built-in list of the big ad networks, plus the
-StevenBlack hosts list (about 76,000 names) fetched when the image is
-built. A name is refused with everything under it, quietly. On a game
-site this was the difference between a crash and a game: each ad frame
-was its own Chromium process. `browser.adblock: false` turns it off;
-`browser.adblockAllow: ["name"]` lets one name through.
+**Ads, trackers, malware and adult sites** are refused by name before a
+connection is made (`blocklist.js`). Three lists from HaGeZi are fetched
+every 8 hours while the relay runs: Pro for ads and trackers, the medium
+threat list for malware, and NSFW for adult sites. Under them is the
+StevenBlack list built into the image and a short built-in list, so the
+first page is covered before any fetch has finished. The last good copy
+of each list is kept in `data/blocklists/`. A list that comes back with
+under 1,000 names, or under half of what it had, is refused and the old
+one stays. A name is refused with everything under it. An ad is refused
+quietly; a site you tried to open says why, and THIS IS WRONG tells an
+admin. On a game site, refusing ads was the difference between a crash
+and a game: each ad frame was its own Chromium process.
+
+The DNS filter above stays on as a second layer, and these lists are the
+same for everyone, admins included. ADMIN CENTER shows what was refused
+by site, never by person, and an admin can allow a site there for
+everyone at once. `browser.adblock: false` turns off the ads list only,
+`browser.adblockAllow: ["name"]` lets names through in the config, and
+`browser.blockSources` replaces the three lists with your own.
+RUNNER's programs are not on these lists: they have the DNS filter only.
+
+**Sites a graphics card cannot draw.** `browser.cardAvoid` lists sites
+that crash the card helper's Chromium (`smashkarts.io` is built in).
+Such a page moves to the processor before it starts. A site that faults
+the card is also learned at run time, until the helper restarts.
 
 **Search** goes to DuckDuckGo Lite with strict safe search
 (`browser.searchUrl`): small pages with no scripts.
@@ -298,8 +316,8 @@ The guard:
 - resolves every name itself, through the filtered resolver
 - refuses every private and reserved range, checking **all** answers for
   a name, not just the first
-- refuses any port other than 80, 443, 8080 and 8443
-- applies the relay's own block list
+- refuses ports under 1024 other than 80 and 443
+- applies the block lists above
 
 Verified by driving a real browser at it: `http://127.0.0.1:<relay>/vault`,
 `http://127.0.0.1:8080/` and `http://192.168.1.1:80/` are all refused.

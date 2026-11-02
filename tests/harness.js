@@ -100,6 +100,13 @@ function fakeElement(tag) {
       fns.slice().forEach((fn) => fn.call(this, ev));
       return true;
     },
+    insertBefore(child, ref) {
+      if (child && child.parentNode && child.parentNode.removeChild) child.parentNode.removeChild(child);
+      const i = ref ? this.children.indexOf(ref) : -1;
+      this.children.splice(i < 0 ? this.children.length : i, 0, child);
+      if (child) child.parentNode = this;
+      return child;
+    },
     querySelector(sel) { return descendants(this).find((n) => matches(n, sel)) || null; },
     querySelectorAll(sel) { return descendants(this).filter((n) => matches(n, sel)); },
     /* Node.contains: true for the node itself and any descendant.
@@ -210,7 +217,8 @@ function fakeDocument() {
     },
     get activeElement() { return fakeElement._active || null; },
     execCommand() { return false; },
-    addEventListener() {}
+    addEventListener() {},
+    removeEventListener() {}
   };
   doc.documentElement.style.setProperty = function (k, v) { this[k] = v; };
   return doc;

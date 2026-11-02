@@ -23,16 +23,16 @@ of this file is why.
 
 ---
 
-## The three tiers, so it is clear which one this is
+## The tiers, so it is clear which one this is
 
-| tier | what runs | where | needs |
-|---|---|---|---|
-| **1 — relay** | whatever LM Studio is serving | the PC at home | the relay reachable |
-| **2 — local** | WebLLM, in the tab | this machine's GPU | a model folder |
-| **3 — heuristics** | no model at all | here | nothing |
+| tier | ASK calls it | what runs | where | needs |
+|---|---|---|---|---|
+| **1 — relay** | YOUR HOME AI, or SERVER | LM Studio on the PC at home, or the small models from `runnerd/tiny-ai.sh` | the relay's side | the relay reachable; SERVER is for members |
+| **2 — local** | THIS BROWSER | WebLLM, in the tab | this machine's GPU | an installed model, or a model folder |
+| **3 — heuristics** | OFFLINE RULES | no model at all | here | nothing |
 
-Tier 1 will be faster and better than any tier-2 model, always. Tier 2
-is not an upgrade — it is the thing that answers when the relay does
+The PC at home will be faster and better than any tier-2 model, always.
+Tier 2 is not an upgrade — it is the thing that answers when the relay does
 not.
 
 ---

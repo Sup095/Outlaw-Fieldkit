@@ -327,10 +327,12 @@ function create(cfg, logFn) {
     }
     /* Windows' video follows the house upload (§22 point 5). */
     const k = access.videoKbps(screenCfg.kbps);
+    const f = access.videoFps(screenCfg.fps);
     if (k !== state.screenKbps) {
       if (state.screenKbps) log("INFO", "runnerd: windows' video " + (k < state.screenKbps ? "down" : "up") + " to " + k + " kbit/s");
       state.screenKbps = k;
-      for (const j of jobs.values()) if (j.screen && j.ctl && !j.ended) { j.kbps = k; j.ctl.write(JSON.stringify({ t: "rate", k: k }) + "\n"); }
+      state.screenFps = f;
+      for (const j of jobs.values()) if (j.screen && j.ctl && !j.ended) { j.kbps = k; j.ctl.write(JSON.stringify({ t: "rate", k: k, fps: f }) + "\n"); }
     }
     if (!access.line.length) return;
     const r = access.pump({ countsOk: countsOk,
@@ -435,8 +437,9 @@ function create(cfg, logFn) {
     const id = crypto.randomBytes(8).toString("hex");
     const staged = store.stage(s.owner, m.file, id);
     const job = { id: id, sid: s.sid, who: who, handle: s.handle, tier: s.tier, file: entry.id, name: entry.name,
-      dir: staged.dir, plan: plan, limits: access.sized(lim, runKind), startedAt: Date.now(), lastInput: Date.now(), lastOut: 0, warned: false, bytes: 0, why: null,
+      dir: staged.dir, plan: plan, limits: access.sized(lim, runKind, Array.from(jobs.values()).reduce((n, j) => n + (j.ended ? 0 : j.limits.memoryMb), 0)), startedAt: Date.now(), lastInput: Date.now(), lastOut: 0, warned: false, bytes: 0, why: null,
       kbps: wantScreen ? (state.screenKbps || screenCfg.kbps) : 0,
+      fps: wantScreen ? (state.screenFps || screenCfg.fps) : 0,
       sha256: entry.sha256, library: !!entry.library,
       save: save, wantNet: !!lim.internet, keep: !!lim.keepRunning,
       watchers: new Set([s]), tail: [], tailBytes: 0,
@@ -573,7 +576,11 @@ function create(cfg, logFn) {
     head[0] = kind; head[1] = key ? 1 : 0; head[2] = job.id.length;
     head.write(job.id, 3, "latin1");
     const pkt = Buffer.concat([head, data]);
-    for (const w of job.watchers) sendFrame(w, job.id, pkt, kind === 1, key);
+    for (const w of job.watchers) {
+      /* A panel that is hidden still hears the program. */
+      if (kind === 1 && w.away && w.away.has(job.id)) continue;
+      sendFrame(w, job.id, pkt, kind === 1, key);
+    }
   }
 
   function sendFrame(s, id, pkt, video, key) {
@@ -614,6 +621,19 @@ function create(cfg, logFn) {
 
   function tell(s, obj) { if (s.alive) { try { s.sock.send(JSON.stringify(obj)); } catch (e) {} } }
 
+  /* A window nobody is watching stops encoding (fk-screen.py): up to a
+     core of processor for pictures nobody receives. Nobody means no
+     panel open, or every panel hidden: a minimised window, a tab in
+     the background. Said only when it changes, and again when someone
+     looks, with a fresh keyframe. */
+  function watchScreen(j) {
+    if (!j.screen || !j.ctl || j.ended) return;
+    const on = Array.from(j.watchers).some((w) => !(w.away && w.away.has(j.id)));
+    if (j.vwatch === on) return;
+    j.vwatch = on;
+    j.ctl.write(JSON.stringify({ t: "watch", on: on }) + "\n");
+  }
+
   function endSession(s, why) {
     if (!s.alive) return;
     s.alive = false;
@@ -621,6 +641,7 @@ function create(cfg, logFn) {
     if (s.upload) { s.upload.h.abort(); s.upload = null; }
     for (const j of jobs.values()) {
       if (!j.watchers.delete(s)) continue;
+      watchScreen(j);
       if (j.watchers.size) continue;
       if (j.keep) log("INFO", `runnerd: job ${j.id} (${j.handle}) keeps running with nobody watching`);
       else j.stop("the connection closed");
@@ -668,6 +689,7 @@ function create(cfg, logFn) {
           jobs: Array.from(jobs.values()).filter((j) => mine(s, j)).map((j) => {
             if (m.t === "hello") {
               j.watchers.add(s);
+              watchScreen(j);
               /* Joining mid-stream: pictures start at the next keyframe. */
               if (j.screen) { if (!s.vskip) s.vskip = new Set(); s.vskip.add(j.id); }
             }
@@ -821,6 +843,16 @@ function create(cfg, logFn) {
         const lines = m.e.slice(0, UI_MAX).map((e) => cleanUi(e, j.screen)).filter(Boolean)
           .map((e) => JSON.stringify(e) + "\n").join("");
         if (lines) j.ctl.write(lines);
+        return;
+      }
+      case "look": {
+        /* The panel is showing this window, or has stopped showing it. */
+        const j = jobs.get(String(m.job));
+        if (!mine(s, j) || !j.screen || !j.watchers.has(s)) return;
+        if (!s.away) s.away = new Set();
+        if (m.on === false) s.away.add(j.id);
+        else if (s.away.delete(j.id)) { if (!s.vskip) s.vskip = new Set(); s.vskip.add(j.id); }
+        watchScreen(j);
         return;
       }
       case "kill": {

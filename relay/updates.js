@@ -331,5 +331,12 @@ async function route(req, res, url, helpers) {
 
 function stop() { if (timer) { clearInterval(timer); timer = null; } }
 
-module.exports = { init, route, mirror, stop, parseReleaseBody, LIMITS,
+/* For ADMIN CENTER. */
+function state() {
+  const cur = current();
+  return { serving: cur ? cur.rel.version : null, source: cur ? cur.source : null,
+    checkedAt: mirrorState.checkedAt, github: mirrorState.version, error: mirrorState.error };
+}
+
+module.exports = { state, init, route, mirror, stop, parseReleaseBody, LIMITS,
   _internals: { fileNamed, current, mirrorState, compareVersions } };

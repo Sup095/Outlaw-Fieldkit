@@ -72,7 +72,10 @@ const DEFAULTS = {
    steps down while the house upload is busy or anyone waits (§22
    point 5). The relay does the same for its browser (fairness.js). */
 const STEPS = [1, 0.67, 0.4];
+/* And its frame rate, stepping with it (the browser's are 30, 24, 15). */
+const FPS_STEPS = [1, 0.8, 0.5];
 const CALM_MS = 30000;
+const ROOM_PROMISED = 0.75;
 /* A console program counts as idle only when, besides no input and no
    output, it is using next to none of a processor: one that is quietly
    working is never ended for being quiet. */
@@ -94,6 +97,7 @@ function readProc() {
     const total = Number((/MemTotal:\s+(\d+)/.exec(m) || [])[1]);
     const avail = Number((/MemAvailable:\s+(\d+)/.exec(m) || [])[1]);
     if (total > 0 && avail >= 0) out.mem = Math.round((1 - avail / total) * 1000) / 10;
+    if (total > 0) out.memTotalMb = Math.round(total / 1024);
   } catch (e) {}
   return out;
 }
@@ -198,6 +202,9 @@ class Access {
     return Math.round(full * STEPS[this.step]);
   }
 
+  /* The frame rate that goes with the step videoKbps just chose. */
+  videoFps(full) { return Math.max(5, Math.round(full * FPS_STEPS[this.step])); }
+
   /* Upload as a share of the house line: this machine's, the relay's
      (its browser), and what the run would add. */
   upPct(extraKbps) {
@@ -242,11 +249,19 @@ class Access {
      stays under the browser's (1024) so that a page someone is looking
      at wins as soon as both want the same processors. A guest's stays
      as it is: that is a limit on a stranger, not a share. */
-  sized(limits, kind) {
+  sized(limits, kind, promisedMb) {
     const shares = kind === "screen" ? 768 : 384;
     if (limits.keepFiles === false) return Object.assign({}, limits, { shares: shares });
     const quiet = this.meter.cpu < 50 && this.meter.mem < 50;
-    return Object.assign({}, limits, { shares: shares, cpus: limits.cpus * (quiet ? 2 : 1), memoryMb: limits.memoryMb * (quiet ? 2 : 1) });
+    /* What is in use now says nothing about what running programs may
+       still grow to, and twelve members doubled would be promised more
+       than the machine has. So room is doubled only if everything
+       promised so far, this one doubled included, stays within
+       ROOM_PROMISED of the memory there is. */
+    const total = (this.read() || {}).memTotalMb;
+    const fits = !total || (promisedMb || 0) + limits.memoryMb * 2 <= total * ROOM_PROMISED;
+    const more = quiet && fits ? 2 : 1;
+    return Object.assign({}, limits, { shares: shares, cpus: limits.cpus * (quiet ? 2 : 1), memoryMb: limits.memoryMb * more });
   }
 
   /* ---- the line ---- */
@@ -444,4 +459,4 @@ class Access {
   }
 }
 
-module.exports = { Access, DEFAULTS, RANK, KINDS, NEEDS, STEPS, IDLE_CPU, readProc };
+module.exports = { FPS_STEPS, ROOM_PROMISED, Access, DEFAULTS, RANK, KINDS, NEEDS, STEPS, IDLE_CPU, readProc };

@@ -32,6 +32,9 @@ const { spawn } = require("child_process");
 const messaging = require("./messaging");
 const browse = require("./browse");
 const updates = require("./updates");
+const admin = require("./admin");
+const { Notices } = require("./notices");
+const probe = require("./probe");
 const browser = require("./browser-route");
 const runner = require("./runner");
 const { Fairness } = require("./fairness");
@@ -266,6 +269,7 @@ fs.mkdirSync(BLOBS_DIR, { recursive: true });
 
 /* ---- logging ------------------------------------------------- */
 function log(level, msg) {
+  admin.note(level, msg);
   const line = `${new Date().toISOString()} [${level}] ${msg}`;
   if (level === "ERROR") console.error(line);
   else console.log(line);
@@ -446,7 +450,7 @@ let usageDirty = false;
 
 /* The routes this relay actually has. A counter key is only ever
    one of these — see routeKey(). */
-const KNOWN_ROUTES = ["health", "status", "vault", "records", "blobs", "actions", "usage", "ai", "msg", "browser"];
+const KNOWN_ROUTES = ["health", "status", "vault", "records", "blobs", "actions", "usage", "ai", "msg", "browser", "admin", "notices", "probe"];
 
 /* A counter key must never be attacker-controlled.
 
@@ -1082,6 +1086,27 @@ function runAction(a) {
   });
 }
 
+/* ---- what everyone is told (notices.js) ------------------------ */
+let notices = null;
+
+function watchServices(bw, overflow) {
+  if (config.browser && config.browser.enabled) {
+    notices.watch("browser", () => (bw.status().available ? null :
+      { level: "warn", text: "BROWSER is not available right now. It comes back by itself." }));
+  }
+  if (overflow && overflow.any()) {
+    notices.watch("helpers", () => (overflow.view().some((h) => h.up) ? null :
+      { level: "info", text: "BROWSER has less room than usual right now, so you may have to wait for a turn." }));
+  }
+  if (config.runner && config.runner.enabled) {
+    notices.watch("runner", async () => {
+      const st = await runner.status();
+      return st.online ? null : { level: "warn", text: "RUNNER's server is offline right now. Your files are safe; it comes back by itself." };
+    });
+  }
+  notices.start();
+}
+
 /* ---- routes -------------------------------------------------- */
 /* Kept beside the router and served on a 404 and at boot. It is a
    hand-maintained list, which is a cost — but the thing it buys is
@@ -1107,7 +1132,9 @@ const ROUTES = [
   "GET  /runner/status", "POST /runner/ticket", "GET  /runner/pubkey",
   "WS   /browser/stream",
   "GET  /updates/latest", "GET  /updates/file", "GET  /updates/status",
-  "GET  /ai/tiny", "POST /ai/tiny/chat", "GET  /ai/engine.js", "GET  /topology"
+  "GET  /ai/tiny", "POST /ai/tiny/chat", "GET  /ai/engine.js", "GET  /topology",
+  "GET  /notices", "GET  /probe", "POST /probe/result", "GET  /admin/overview", "POST /admin/announce", "POST /admin/block",
+  "POST /admin/session", "POST /admin/report"
 ];
 
 async function route(req, res, url) {
@@ -1231,6 +1258,29 @@ async function route(req, res, url) {
     }
     const authorise = (r) => (checkAuth(r).ok ? "vault" : null);
     if (await updates.route(req, res, url, { send, readBody, clientIp, authorise })) return;
+  }
+
+  /* --- notices: public, as /browser/status is: what everyone is shown --- */
+  if (seg[0] === "notices" && method === "GET") {
+    return send(res, 200, { notices: notices ? notices.list() : [], at: Date.now() });
+  }
+
+  /* --- probe: a plain page that tries what a device allows --- */
+  if (seg[0] === "probe") {
+    if (!hit("probe:" + clientIp(req), config.rateLimit.updateMax)) {
+      return send(res, 429, { error: "slow down", detail: "too many requests" });
+    }
+    const sendRaw = (r, status, type, text, headers) => {
+      r.writeHead(status, Object.assign({ "Content-Type": type, "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" }, headers || {}));
+      r.end(text);
+    };
+    if (await probe.route(req, res, url, { send, readBody, sendRaw })) return;
+  }
+
+  if (seg[0] === "admin") {
+    const isAdmin = (r) => checkAuth(r).ok || ((messaging.whoami(r) || {}).tier === "admin");
+    const who = (r) => (checkAuth(r).ok ? "vault" : ((messaging.whoami(r) || {}).handle || null));
+    if (await admin.route(req, res, url, { send, readBody, who, isAdmin })) return;
   }
 
   /* --- health: public, deliberately says almost nothing --- */
@@ -2015,9 +2065,14 @@ server.listen(config.port, config.host, () => {
     config: config.browser,
     log: log,
     filter: (host) => browse.hostVerdict(host),
+    dataDir: DATA_DIR,
     fairness: fairness,
     overflow: overflow
   });
+  notices = new Notices({ file: path.join(DATA_DIR, "announcement.json"), log: log });
+  admin.init({ dataDir: DATA_DIR, engine: bw, overflow: overflow, fairness: fairness, runner: runner,
+    messaging: messaging, updates: updates, notices: notices, config: config, log: log });
+  watchServices(bw, overflow);
   topology.init({
     browser: () => Object.assign(bw.status(), overflow ? { helpers: overflow.view() } : {}),
     runner: () => runner.status(),
@@ -2079,6 +2134,7 @@ for (const sig of ["SIGINT", "SIGTERM"]) {
   process.on(sig, () => {
     log("INFO", `${sig} received, shutting down`);
     flushUsage();
+    messaging.flush();
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 3000).unref();
   });

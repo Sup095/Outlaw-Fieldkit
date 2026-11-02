@@ -23,7 +23,7 @@ const os = require("os");
 const net = require("net");
 const path = require("path");
 const { makeRunner } = require("./harness");
-const { AdBlock, CORE } = require("../relay/adblock");
+const { Blocklist, CORE } = require("../relay/blocklist");
 const { clean } = require("../relay/fetch-adblock");
 const { Guard } = require("../relay/guard");
 const { Engine, renderPlan } = require("../relay/browser-engine");
@@ -47,15 +47,15 @@ function connectVia(port, target) {
   {
     const list = path.join(TMP, "hosts.txt");
     fs.writeFileSync(list, "# a comment\n0.0.0.0 ads.example.com\n0.0.0.0 tracker.example.net # trailing\nbare.example.org\n127.0.0.1 localhost\n0.0.0.0 0.0.0.0\n");
-    const a = new AdBlock({ files: [list], allow: ["ok.ads.example.com"] });
+    const a = new Blocklist({ baseFiles: [list], allow: ["ok.ads.example.com"] });
+    await a.start();
     ok("a listed host is refused", a.match("ads.example.com"));
     ok("and anything under it", a.match("x.y.ads.example.com"));
     ok("but not its parent", !a.match("example.com") && !a.match("www.example.com"));
     ok("hosts-file and bare lines both count; localhost does not", a.match("tracker.example.net") && a.match("bare.example.org") && !a.match("localhost"));
     ok("an allowed host is never refused, even under a listed one", !a.match("ok.ads.example.com"));
-    ok("the big ad networks are refused with no list at all", new AdBlock({ files: [path.join(TMP, "none.txt")] }).match("securepubads.g.doubleclick.net") && CORE.length > 40);
-    ok("it says where its list came from", /names from the list/.test(a.source) && /built-in list only/.test(new AdBlock({ files: [] }).source));
-    ok("switched off, it refuses nothing", !new AdBlock({ enabled: false }).match("doubleclick.net"));
+    ok("the big ad networks are refused with no list at all", new Blocklist({ baseFiles: [path.join(TMP, "none.txt")] }).match("securepubads.g.doubleclick.net") && CORE.length > 40);
+    ok("switched off, it refuses nothing", !new Blocklist({ enabled: false }).match("doubleclick.net"));
     const names = clean("0.0.0.0 a.example.com\n127.0.0.1 b.example.com\n# 0.0.0.0 c.example.com\n1.2.3.4 evil.example.com\n0.0.0.0 localhost\nfe80::1 x.example.com\n");
     ok("the fetched list keeps only blocking lines with real names", JSON.stringify(names) === JSON.stringify(["a.example.com", "b.example.com"]), JSON.stringify(names));
   }
@@ -63,8 +63,8 @@ function connectVia(port, target) {
   section("the guard: ads, game ports, private addresses");
   {
     const logs = [];
-    const ads = new AdBlock({ files: [] });
-    const g = new Guard({ log: (l, m) => logs.push(m), dnsFilter: "off", ads: ads, ports: "browser" });
+    const ads = new Blocklist({ baseFiles: [] });
+    const g = new Guard({ log: (l, m) => logs.push(m), dnsFilter: "off", lists: ads, ports: "browser" });
     const port = await g.listen();
     const r1 = await connectVia(port, "googlesyndication.com:443");
     ok("an ad host is refused", /403/.test(r1), r1);
@@ -102,7 +102,7 @@ function connectVia(port, target) {
     ok("the image fetches the ad list and points profiles at the server's disk",
       /node fetch-adblock\.js/.test(docker) && /FK_BROWSER_TMP=\/home\/container/.test(docker));
     const bundle = fs.readFileSync(path.join(__dirname, "..", "tools", "make-deploy.js"), "utf8");
-    ok("and both files ship", /"adblock\.js"/.test(bundle) && /"fetch-adblock\.js"/.test(bundle));
+    ok("and both files ship", /"blocklist\.js"/.test(bundle) && /"fetch-adblock\.js"/.test(bundle));
     e.stop();
   }
 
@@ -211,6 +211,20 @@ function connectVia(port, target) {
     eng._cardFault(card);
     ok("a page that breaks the card: its panel reconnects, its page is remembered", moved.length === 1 && eng.softly.get("k") === tab.url && ended.includes("k"));
     ok("and it is said in the log", logs.some((m) => /broke the graphics card/.test(m)));
+    {
+      const name = new URL(tab.url).hostname;
+      ok("and the site is remembered, so the next session does not crash into it", !name || eng.cardAvoid.has(name));
+      eng.cardAvoid.add("example-breaks.test");
+      moved.length = 0;
+      const shy = { key: "k2", who: "w", url: "https://play.example-breaks.test/game", host: { render: { mode: "gpu" } }, viewers: new Set(), tabs: [] };
+      eng.sessions.set("k2", shy);
+      shy.viewers.add({ onMove: () => moved.push("k2") });
+      ok("a session reaching a known site leaves the card before anything is drawn", eng._shyOfCard(shy) === true && moved.length === 1 && eng.softly.has("k2"));
+      const fine = { key: "k3", who: "w", url: "https://fine.example/", host: { render: { mode: "gpu" } }, viewers: new Set(), tabs: [] };
+      ok("any other site stays on it", eng._shyOfCard(fine) === false);
+      const cpu = { key: "k4", who: "w", url: "https://play.example-breaks.test/", host: { render: { mode: "cpu" } }, viewers: new Set(), tabs: [] };
+      ok("and on the processor there is nothing to leave", eng._shyOfCard(cpu) === false);
+    }
     eng.stop();
   }
 

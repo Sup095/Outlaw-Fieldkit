@@ -10,7 +10,7 @@
    https://github.com/StevenBlack/hosts). Only lines that are a
    blocking address and a hostname are kept, so whatever else the
    download holds cannot reach the browser. If the download fails the
-   build still succeeds: adblock.js falls back to its built-in list.
+   build still succeeds: blocklist.js falls back to its built-in list.
 
      node fetch-adblock.js        writes adblock/hosts.txt
    ============================================================ */

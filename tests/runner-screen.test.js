@@ -194,7 +194,8 @@ const frame = (k, body) => { const b = Buffer.from(body), h = Buffer.alloc(5); h
     A.meter.upKbps = 18000;          /* 90% of 20 Mbit/s: past the members' line */
     app._internals.tickAccess(false);
     await until(() => /"t":"rate","k":160/.test(said(alice, id)), 5000);
-    ok("the running window is told its new bitrate (400 -> 160)", /got \{"t":"rate","k":160\}/.test(said(alice, id)));
+    ok("the running window is told its new bitrate (400 -> 160)", /got \{"t":"rate","k":160,/.test(said(alice, id)));
+    ok("and a lower frame rate with it", /"t":"rate","k":160,"fps":15/.test(said(alice, id)), said(alice, id).slice(-200));
     A.meter.upKbps = 0;              /* room to start one; the step holds for 30 s */
     const up = await alice.put("g2.py", "print(2)");
     const had = runs().length;
@@ -229,6 +230,37 @@ const frame = (k, body) => { const b = Buffer.from(body), h = Buffer.alloc(5); h
     await until(() => a2.frames.filter((f) => f.job === id && f.kind === 1).length > 12, 5000);
     const v = a2.frames.filter((f) => f.job === id && f.kind === 1);
     ok("pictures resume at a keyframe, not mid-stream", v.length > 12 && v[0].key === true);
+    await until(() => /"t":"watch","on":true/.test(said(a2, id)), 5000);
+    const told = said(a2, id);
+    ok("the window stopped encoding when nobody was watching, and started when she came back",
+      told.indexOf('"t":"watch","on":false') >= 0 && told.indexOf('"t":"watch","on":true') > told.indexOf('"t":"watch","on":false'), told.slice(-300));
+    /* A panel still connected but hidden: a minimised window, a tab in
+       the background. */
+    {
+      const lines = () => said(a2, id).split("got ").filter((l) => /"t":"watch"/.test(l)).length;
+      const before = lines();
+      a2.say({ t: "look", job: id, on: false });
+      await until(() => lines() === before + 1, 4000);
+      ok("a hidden panel stops the encoder", /"t":"watch","on":false\}\s*$/.test(said(a2, id).trim().split("\n").filter((l) => /watch/.test(l)).pop() + ""),
+        said(a2, id).slice(-200));
+      await new Promise((r) => setTimeout(r, 200));
+      const n = a2.frames.length;
+      a2.say({ t: "look", job: id, on: false });
+      await new Promise((r) => setTimeout(r, 200));
+      ok("and saying it twice changes nothing", lines() === before + 1);
+      const seen = a2.frames.slice(n).filter((f) => f.job === id && f.kind === 1).length;
+      ok("no pictures go to a hidden panel", seen === 0, String(seen));
+      a2.say({ t: "look", job: id, on: true });
+      await until(() => lines() === before + 2, 4000);
+      await until(() => a2.frames.slice(n).filter((f) => f.job === id && f.kind === 1).length > 2, 5000);
+      ok("looking again starts it, from a keyframe",
+        a2.frames.slice(n).filter((f) => f.job === id && f.kind === 1)[0].key === true);
+      const other = await as("mallory", "member");
+      other.say({ t: "look", job: id, on: false });
+      await new Promise((r) => setTimeout(r, 150));
+      ok("nobody else can stop your window's picture", lines() === before + 2);
+      await other.close();
+    }
     global.a2 = a2;
   }
   const a2 = global.a2;

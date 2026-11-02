@@ -130,6 +130,8 @@ class Overflow {
     this.log = opts.log || (() => {});
     this.now = opts.now || Date.now;
     this.keys = loadKeys(path.join(opts.dataDir, "browser"));
+    this.allow = [];
+    this.allowV = 1;
     this.helpers = [];
     (opts.urls || []).forEach((u, i) => {
       const p = parseUrl(typeof u === "string" ? u : u && u.url);
@@ -212,9 +214,14 @@ class Overflow {
     try {
       const s = await this.request(h, "GET", "/helper/state", { what: "state", step: this.step });
       if (!s || typeof s !== "object") throw new Error("the helper said nothing useful");
+      /* A helper that has restarted has lost it: said again whenever
+         its version is not this one. */
+      if ((s.allowV | 0) !== this.allowV) {
+        await this.request(h, "POST", "/helper/allow", { what: "allow" }, JSON.stringify({ allow: this.allow, v: this.allowV }));
+      }
       h.state = { ready: !!s.ready, free: Math.max(0, s.free | 0), max: s.max | 0,
         cpu: Number(s.cpu) || 0, mem: Number(s.mem) || 0, pids: Number(s.pids) || 0,
-        gpu: !!s.gpu, gpuMem: Number(s.gpuMem) || 0,
+        gpu: !!s.gpu, gpuMem: Number(s.gpuMem) || 0, blocked: s.blocked && typeof s.blocked === "object" ? s.blocked : {},
         sessions: Array.isArray(s.sessions) ? s.sessions.map(String).slice(0, 200) : [],
         kept: Array.isArray(s.kept) ? s.kept.map(String).slice(0, 200) : [] };
       h.at = this.now();
@@ -343,7 +350,14 @@ class Overflow {
 
   view() {
     return this.helpers.map((h) => ({ name: h.name, up: this.fresh(h), free: h.state ? h.state.free : 0,
-      sessions: h.state ? h.state.sessions.length : 0, gpu: !!(h.state && h.state.gpu) }));
+      sessions: h.state ? h.state.sessions.length : 0, gpu: !!(h.state && h.state.gpu),
+      who: h.state ? h.state.sessions.slice() : [], blocked: h.state ? h.state.blocked : {} }));
+  }
+
+  /* The names an admin has allowed (admin.js), for every helper's lists. */
+  setAllow(list) {
+    this.allow = list;
+    this.allowV = (this.allowV + 1) % 1000000 || 1;
   }
 }
 

@@ -403,7 +403,9 @@
         if (m.line) setLine(c, m.line);
         attachJobs(c, m);
         phase = "ready";
-        return render();
+        render();
+        if (!looking) tellLook(true);
+        return;
 
       case "renewed":
         if (m.tier !== c.tier) { c.tier = m.tier; render(); }
@@ -633,11 +635,35 @@
       (u.memLimitMb ? " of " + u.memLimitMb + " MB" : "");
   }
 
+  /* When each file was last run, on this computer, so what you use is at
+     the top. Which file and when, not its arguments: those stay in memory
+     (lastRun), since people type things into them. */
+  var RUNS_KEY = "fieldkit.runner.runs", RUNS_MAX = 50;
+  function ranAt() {
+    try {
+      var r = JSON.parse(localStorage.getItem(RUNS_KEY) || "{}");
+      return r && typeof r === "object" ? r : {};
+    } catch (e) { return {}; }
+  }
+  function noteRun(id) {
+    var r = ranAt();
+    r[id] = Date.now();
+    var ids = Object.keys(r).sort(function (a, b) { return r[b] - r[a]; });
+    ids.slice(RUNS_MAX).forEach(function (k) { delete r[k]; });
+    try { localStorage.setItem(RUNS_KEY, JSON.stringify(r)); } catch (e) { /* only the order is lost */ }
+  }
+  function usedFirst(list) {
+    var r = ranAt();
+    return list.slice().sort(function (a, b) { return (r[b.id] || 0) - (r[a.id] || 0); });
+  }
+
   /* The file inside a zip that was run last, per zip, on this computer. */
   function zipLast(id, entry) {
     var k = "fieldkit.runner.zipEntry." + id;
     try { if (entry) localStorage.setItem(k, entry); return localStorage.getItem(k) || ""; } catch (e) { return ""; }
   }
+
+  var lastRun = null;
 
   async function run(f, argText, screen, entry) {
     var c = conn;
@@ -664,6 +690,8 @@
     }
     zipPick = null;
     if (entry) zipLast(f.id, entry);
+    noteRun(f.id);
+    lastRun = { f: f, args: argText, screen: !!screen, entry: entry };
     var out = await ask(c, ref, { t: "run", ref: ref, file: f.id, args: args, screen: !!screen, entry: entry || undefined });
     if (out.t === "error") return ui.toast(String(out.why).toUpperCase(), "fail");
     if (out.queued) {
@@ -916,7 +944,15 @@
 
     var files = el("div", { class: "rn-files" });
     if (!c.files.length) files.appendChild(el("div", { class: "rn-none", text: "NO FILES YET" }));
-    c.files.forEach(function (f) {
+    var again = lastRun && !Object.keys(c.jobs).length ? c.files.concat(c.library || []).filter(function (f) { return f.id === lastRun.f.id; })[0] : null;
+    if (again) {
+      var was = lastRun;
+      files.appendChild(el("div", { class: "rn-again" }, [
+        el("span", { class: "rn-name", text: "last: " + again.name + (was.args ? " " + was.args : ""), title: again.name }),
+        ui.button("RUN AGAIN", function () { run(again, was.args, was.screen, was.entry); }, { primary: true })
+      ]));
+    }
+    usedFirst(c.files).forEach(function (f) {
       var o = rowOpts(f, [ui.button("DELETE", function () {
         if (window.confirm("Delete " + f.name + " from the run server?")) say({ t: "rm", file: f.id });
       }, { danger: true })]);
@@ -940,7 +976,7 @@
     var lib = null;
     if ((c.library || []).length) {
       lib = el("div", { class: "rn-files rn-lib" }, [el("div", { class: "rn-lib-h", text: "SHARED LIBRARY" })]);
-      c.library.forEach(function (f) {
+      usedFirst(c.library).forEach(function (f) {
         /* An admin's card says what it is and how PLAY starts it. */
         var card = f.card || null;
         var canPlay = card && (!card.window || c.screens);
@@ -1059,6 +1095,33 @@
     var data = b.subarray(3 + len);
     if (b[0] === 1) p.video(data, (b[1] & 1) === 1);
     else if (b[0] === 2) p.audio(data);
+  }
+
+  /* A minimised window or a tab in the background: the server stops
+     encoding what nobody here can see (sound keeps coming). */
+  var looking = true;
+  function canSee() {
+    if (document.hidden) return false;
+    var r = nodes.root && nodes.root.getBoundingClientRect ? nodes.root.getBoundingClientRect() : null;
+    return !r || (r.width > 1 && r.height > 1);
+  }
+  function tellLook(force) {
+    var on = canSee();
+    if (on === looking && !force) return;
+    looking = on;
+    if (!conn) return;
+    Object.keys(players).forEach(function (id) {
+      if (!players[id].ended) say({ t: "look", job: id, on: on });
+    });
+  }
+
+  var offLook = null;
+  function onLookChange(root) {
+    function now() { tellLook(); }
+    document.addEventListener("visibilitychange", now);
+    var ro = window.ResizeObserver ? new ResizeObserver(now) : null;
+    if (ro) ro.observe(root);
+    return function () { document.removeEventListener("visibilitychange", now); if (ro) ro.disconnect(); };
   }
 
   function dropPlayers() {
@@ -1697,6 +1760,8 @@
       injectCSS();
       nodes.root = el("div", { class: "rn-root" });
       host.appendChild(nodes.root);
+      looking = true;
+      offLook = onLookChange(nodes.root);
       phase = "checking";
       render();
       refresh(alive);
@@ -1707,6 +1772,7 @@
          what deletes their sandbox, so it must not be left open by a
          panel nobody can see. */
       stopRetry();
+      if (offLook) { offLook(); offLook = null; }
       closeConn();
       dropPlayers();
       if (alive && alive.end) alive.end();

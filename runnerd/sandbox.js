@@ -398,7 +398,7 @@ class DockerDriver {
     if (job.plan.screen) {
       /* The screen's size, speed and sound, read by fk-screen. */
       const sc = Object.assign({}, SCREEN, this.cfg.screen || {});
-      a.push("--env", "FK_W=" + (sc.width | 0), "--env", "FK_H=" + (sc.height | 0), "--env", "FK_FPS=" + (sc.fps | 0),
+      a.push("--env", "FK_W=" + (sc.width | 0), "--env", "FK_H=" + (sc.height | 0), "--env", "FK_FPS=" + (sc.fps | 0), "--env", "FK_FPS_NOW=" + ((job.fps || sc.fps) | 0),
         "--env", "FK_KBPS=" + ((job.kbps || sc.kbps) | 0), "--env", "FK_SOUND=" + (sc.sound ? 1 : 0));
     }
     if (job.gpu) {

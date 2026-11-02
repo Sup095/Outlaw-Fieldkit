@@ -186,6 +186,23 @@ const until = async (fn, ms) => { const end = Date.now() + (ms || 3000); while (
     ok("its ✕ closes it", sent("tab-close").slice(-1)[0].id === "B");
     ws.say({ t: "tabs", active: "A", tabs: [{ id: "A", url: "https://a.test/", title: "Page A" }] });
     ok("one tab: no strip", strip.style.display === "none");
+    click(button("↩TAB"));
+    const back = sent("tab-new").slice(-1)[0];
+    ok("↩TAB opens what was closed", back && back.url === "https://b.test/", JSON.stringify(back));
+    ok("and with nothing left to reopen it goes away", button("↩TAB").style.display === "none");
+  }
+
+  section("a blank tab shows what you keep");
+  {
+    const home = byClass("br-home")[0];
+    ws.say({ t: "nav", url: "about:blank" });
+    ok("a blank page shows the start page", home.style.display === "");
+    ok("drawn here: no video needed for it", /Type an address above/.test(text()) || all(home).length > 0);
+    ws.say({ t: "nav", url: "https://a.test/" });
+    ok("any real page hides it", home.style.display === "none");
+    ws.say({ t: "nav", url: "" });
+    ok("and an empty address counts as blank", home.style.display === "");
+    ws.say({ t: "nav", url: "https://a.test/" });
   }
 
   section("the pointer");

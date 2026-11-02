@@ -243,6 +243,10 @@ const remount = () => { def.unmount(); host = fakeElement("div"); def.mount(host
     await until(() => /two ran in b/.test(text()));
     ok("choosing one runs it, from its own folder", /two ran in b/.test(text()), text().slice(-200));
     ok("and the question goes away", byClass("rn-zip").length === 0);
+    await until(() => !!button("RUN AGAIN"));
+    ok("when it has finished, RUN AGAIN is there, with the same choice", !!button("RUN AGAIN"), text().slice(-300));
+    ok("arguments are not written down: only which file and when",
+      /^\{("[^"]+":\d+,?)+\}$/.test(localStorage.getItem("fieldkit.runner.runs")), localStorage.getItem("fieldkit.runner.runs"));
     fire(button("RUN"), "click");
     await until(() => byClass("rn-zip").length === 1);
     const firstPick = byClass("rn-zip")[0] && all(byClass("rn-zip")[0]).find((n) => n.tagName === "BUTTON");

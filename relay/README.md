@@ -1,9 +1,15 @@
 # FieldKit Relay
 
-Encrypted blob store + AI proxy. Runs in a Pterodactyl container.
+The server half of FieldKit: encrypted storage and sync, accounts and messages,
+the streamed browser, RUNNER's tickets, signed updates, an AI proxy, and ADMIN
+CENTER's data. Runs in a Pterodactyl container or plain Docker.
 
 **Zero npm dependencies** — pure Node `http`. No `npm install`, no `node_modules`,
-nothing to break when the container restarts.
+nothing to break when the container restarts. The streamed browser needs Chromium
+and ffmpeg, which are in the Docker image (`docker/`).
+
+This page covers the relay itself. The browser is in [`BROWSER.md`](BROWSER.md),
+and every setting is explained in `config.example.json`.
 
 ## What it can and cannot do
 
@@ -23,9 +29,10 @@ Mutating Bastion actions (kill-switch, restarts) live at `POST /actions` and are
 
 ## Setup
 
-1. Upload `server.js`, `start.js`, `fetch-tailscale.js`, `fetch-cloudflared.js`,
-   `config.example.json`, `CONNECTIVITY.md`, `cloudflared.example.yml`,
-   `LARGE-FILES.md` and this README to the container.
+1. Run `node tools/make-deploy.js` on your PC and upload what it puts in
+   `deploy/relay-upload/` to the container. That is every file the relay needs
+   and nothing else, with your `config.json`. (The Docker image carries the
+   same files; see `BROWSER.md`.)
 
    `start.js` is the Pterodactyl **MAIN_FILE** if you are using either side-car —
    the Cloudflare Tunnel (CONNECTIVITY.md) or Tailscale-in-container (below).
@@ -36,10 +43,8 @@ Mutating Bastion actions (kill-switch, restarts) live at `POST /actions` and are
    Linux binaries and verify them; you upload the results. There is no way to
    fetch them from the container, because a Pterodactyl console is one process's
    stdout rather than a shell.
-2. Copy the example config and edit it:
-   ```
-   cp config.example.json config.json
-   ```
+2. Your settings go in `relay/config.local.json` on your PC; `node build.js`
+   merges it over `config.example.json` and writes `config.json`.
 3. Set `provisionToken` to a long random string. Generate one with:
    ```
    node -e "console.log(require('crypto').randomBytes(24).toString('base64url'))"
@@ -79,6 +84,18 @@ but there is no reason to leave it sitting in browser storage.
 | GET | `/actions` | tailnet + bearer | list the whitelist |
 | POST | `/actions` | tailnet + bearer | run one, body is `{ id }` and nothing else |
 | GET | `/usage` | bearer | counters — never content |
+| GET | `/notices` | none | what everyone is being told; nothing private |
+| GET | `/probe` | none | a plain page that tries what a device allows; ADMIN CENTER shows the answers |
+| GET | `/admin/overview` | admin account | everything ADMIN CENTER shows |
+| POST | `/admin/announce`, `/admin/block`, `/admin/session` | admin account | tell everyone, the allow list, end a browser session |
+| POST | `/admin/report` | any account | "this site was blocked by mistake" |
+| | `/msg/*` | account | accounts and messages; the relay stores only ciphertext |
+| | `/browser/*`, `/browse/*` | ticket | the streamed browser, and the old proxy behind it |
+| GET/POST | `/runner/status`, `/runner/ticket`, `/runner/pubkey` | see `runner.js` | RUNNER's tickets; the run server fetches the key |
+| GET | `/updates/*` | none | a checked copy of the latest signed release |
+| GET/POST | `/ai/tiny`, `/ai/tiny/chat`, `/ai/engine.js` | account | the small models, and the engine for browser models |
+
+A 404 lists every route, and so does the boot log.
 
 ## Blobs — encrypted file storage
 
@@ -211,7 +228,7 @@ checks it.
 
 ## Verified behaviour
 
-Covered by tests run against a live instance during development:
+Covered by tests run against a live instance (`node tests/run.js`):
 
 - provisioning refuses a missing, wrong, or replayed token
 - unauthenticated, wrong-token, and malformed-bearer requests are all rejected
@@ -258,9 +275,6 @@ Blobs, same method:
   created either
 - usage counts blob routes by shape (`/blobs/:x`), never by key
 - an empty body is a 400; POST and PATCH do not fall through to another handler
-
-58 checks in `test-actions.js` and 40 in `test-blobs.js`, against live relay
-processes.
 
 ## Tailscale inside the container (optional)
 

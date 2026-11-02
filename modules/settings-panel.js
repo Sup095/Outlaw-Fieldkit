@@ -94,6 +94,28 @@
     fr.readAsDataURL(file);
   }
 
+  function easyPanel() {
+    var look = function () { ui.applyLook(ctx.settings); };
+    var size = el("select", { class: "fk-input sp-select" });
+    [[100, "NORMAL"], [115, "LARGER"], [130, "LARGE"], [150, "LARGEST"]].forEach(function (o) {
+      var opt = el("option", { value: String(o[0]), text: o[1] });
+      if (Number(ctx.settings.get("textSize")) === o[0]) opt.selected = true;
+      size.appendChild(opt);
+    });
+    size.addEventListener("change", function () {
+      ctx.settings.set("textSize", Number(size.value));
+      look();
+    });
+    return ui.panel("EASIER TO SEE", [
+      el("label", { class: "sp-toggle" }, [el("span", {}, [
+        el("span", { class: "sp-toggle-label", text: "TEXT SIZE" }),
+        el("span", { class: "sp-toggle-note", text: "everything inside windows, and the icons" })
+      ]), size]),
+      toggle("HIGHER CONTRAST", "contrast", "brighter text and lines on black", look),
+      toggle("LESS MOTION", "calm", "no animation or fading", look)
+    ]);
+  }
+
   function toggle(label, key, note, onChange) {
     var input = el("input", { type: "checkbox" });
     input.checked = !!ctx.settings.get(key);
@@ -502,6 +524,7 @@
             Math.round(WALLPAPER_CAP / 1024) + " KB because settings live in browser storage." }),
           fileInput
         ]),
+        easyPanel(),
         ui.panel("EFFECTS", [
           toggle("CRT SCANLINES", "crt", "overlay + subtle flicker", function (on) {
             document.body.classList.toggle("crt", on);

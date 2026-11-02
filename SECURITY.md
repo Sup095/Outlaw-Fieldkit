@@ -33,6 +33,11 @@ These are deliberate, and documented in the README:
 - The relay sees record metadata (id, type, update time) and who messages whom.
 - The streamed browser's pages run on the relay, so the relay's owner can see
   the addresses visited. It is not an anonymity tool.
+- OUTPOST has no vault, so BROWSER's bookmarks and history there are kept
+  unencrypted in that computer's browser storage. BROWSER says so.
+- ADMIN CENTER lists the sites the block lists refused, by site and not by
+  person. A report that a block was wrong does carry the name of the account
+  that sent it.
 - A relay that is taken over can withhold an update, but cannot forge one.
 
 ## Supported versions

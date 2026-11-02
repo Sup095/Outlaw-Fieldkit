@@ -584,14 +584,22 @@
      before they are synced, so the relay keeps them and cannot read
      them. Bookmarks are a record each; history is one record of the
      last HIST_MAX pages, saved at most every 20 s. With the vault
-     locked there are none, and nothing is remembered anywhere. */
+     locked there are none, and nothing is remembered anywhere.
+     OUTPOST has no vault: its store is plain IndexedDB on this computer
+     (core/store-outpost.js), and placeNote() says so. */
   var BM = "browser-bookmark", HIST = "browser-history", HIST_ID = "browser-history", HIST_MAX = 500;
+  var HOME_MAX = 12, CLOSED_MAX = 10;
   var places = { marks: [], hist: [], off: false, loaded: false, timer: null };
   function placeStore() {
     var st = FieldKit.service("store");
     return st && st.isUnlocked && st.isUnlocked() ? st : null;
   }
+  function placeNote() {
+    var st = FieldKit.service("store");
+    return st && st.hasVault && st.hasVault() ? "encrypted in your vault" : "on this computer, not encrypted";
+  }
   function keepable(u) { return /^https?:\/\//i.test(String(u || "")); }
+  function siteOf(u) { try { return new URL(u).hostname.replace(/^www\./, ""); } catch (e) { return u; } }
   async function loadPlaces() {
     var st = placeStore();
     if (!st) { places.marks = []; places.hist = []; places.loaded = false; return false; }
@@ -691,7 +699,7 @@
     var addr = el("input", { class: "br-addr", type: "text",
       placeholder: "address, or something to search for" });
     var stat = el("div", { class: "br-status", text: "connecting…" });
-    var canvas = el("canvas", { class: "br-canvas" });
+    var canvas = el("canvas", { class: "br-canvas", "data-fk-keys": "1" });
 
     function cmd(o) {
       if (live && live.sock && live.sock.readyState === 1) live.sock.send(JSON.stringify(o));
@@ -766,7 +774,7 @@
           el("button", { class: "br-tab-t", type: "button", text: label,
             onclick: function () { cmd({ t: "tab", id: t.id }); canvas.focus(); } }),
           el("button", { class: "br-tab-x", type: "button", text: "✕", title: "close this tab",
-            onclick: function () { cmd({ t: "tab-close", id: t.id }); } })
+            onclick: function () { keepClosed(t.url); cmd({ t: "tab-close", id: t.id }); } })
         ]));
       });
     }
@@ -889,7 +897,7 @@
       "sw-resize", "zoom-in", "zoom-out", "copy", "cell", "context-menu", "all-scroll", "vertical-text", "none"];
 
     /* ---- bookmarks and history ---- */
-    var star = btn("☆", "bookmark this page (kept encrypted in your vault)", function () {
+    var star = btn("☆", "bookmark this page (kept " + placeNote() + ")", function () {
       var u = live && live.url, t = live && live.title;
       if (!placeStore()) { stat.textContent = "unlock the vault to keep bookmarks"; stat.className = "br-status warn"; return; }
       toggleMark(u, t).then(function (on) {
@@ -924,6 +932,35 @@
     });
     placeQ.addEventListener("input", function () { drawPlaces(); });
     function openPlace(u) { placesBar.style.display = "none"; cmd({ t: "nav", url: u }); canvas.focus(); }
+    /* A blank tab shows what you keep and where you have been. Drawn
+       here and not by the relay, so it costs no video. */
+    var home = el("div", { class: "br-home", style: { display: "none" } });
+    function homeRow(name, rows) {
+      if (!rows.length) return;
+      home.appendChild(el("div", { class: "br-home-h", text: name }));
+      home.appendChild(el("div", { class: "br-home-r" }, rows.map(function (p) {
+        return el("button", { class: "br-home-t", type: "button", title: p.url, text: p.title || shorten(p.url),
+          onclick: function () { openPlace(p.url); } });
+      })));
+    }
+    function drawHome() {
+      var blank = !!live && typeof live.url === "string" && (!live.url || live.url === "about:blank");
+      home.style.display = blank ? "" : "none";
+      if (!blank) return;
+      ui.clear(home);
+      var sites = {}, recent = [];
+      places.hist.forEach(function (h) {
+        var site = siteOf(h.u);
+        if (recent.length >= HOME_MAX || sites[site]) return;
+        sites[site] = true;
+        recent.push({ url: h.u, title: h.t });
+      });
+      homeRow("BOOKMARKS", places.marks.slice(0, HOME_MAX));
+      homeRow("RECENT", recent);
+      if (!home.firstChild) home.appendChild(el("div", { class: "br-home-n", text: placeStore()
+        ? "Type an address above. Sites you visit and bookmark will show here."
+        : "Type an address above." }));
+    }
     function drawPlaces() {
       ui.clear(placeHead); ui.clear(placeList);
       var tabBtn = function (k, label) {
@@ -937,7 +974,7 @@
         var keep = el("input", { type: "checkbox" });
         keep.checked = !places.off;
         keep.addEventListener("change", function () { places.off = !keep.checked; saveHist(); });
-        placeHead.appendChild(el("label", { class: "br-places-keep", title: "remember the pages you visit, encrypted in your vault" },
+        placeHead.appendChild(el("label", { class: "br-places-keep", title: "remember the pages you visit, " + placeNote() },
           [keep, document.createTextNode(" keep")]));
         placeHead.appendChild(btn("CLEAR", "forget every page in your history", function () {
           if (ctx.confirm && !ctx.confirm("Forget your browsing history?")) return;
@@ -975,7 +1012,7 @@
       placesBar.style.display = "";
       (places.loaded ? Promise.resolve() : loadPlaces().catch(function () {})).then(function () { drawPlaces(); placeQ.focus(); });
     }
-    loadPlaces().then(drawStar).catch(function () {});
+    loadPlaces().then(function () { drawStar(); drawHome(); }).catch(function () {});
 
     var usageBar = el("div", { class: "br-places br-usage" });
     usageBar.style.display = "none";
@@ -1086,22 +1123,58 @@
       else moreClose();
     });
 
+    /* A button and not Ctrl+Shift+T: Chrome keeps that key for itself. */
+    var closedTabs = [];
+    var reopenBtn = btn("↩TAB", "open the tab you last closed", function () {
+      var u = closedTabs.pop();
+      reopenBtn.style.display = closedTabs.length ? "" : "none";
+      if (u) cmd({ t: "tab-new", url: u });
+    });
+    reopenBtn.style.display = "none";
+    function keepClosed(url) {
+      if (!keepable(url)) return;
+      closedTabs.push(url);
+      if (closedTabs.length > CLOSED_MAX) closedTabs.shift();
+      reopenBtn.style.display = "";
+    }
+
     var bar = el("div", { class: "br-toolbar" }, [
       back, fwd, reload, addr, star,
       btn("GO", "open that address", go),
-      btn("PLACES", "bookmarks and history, kept encrypted in your vault", placesOpen),
+      btn("PLACES", "bookmarks and history, kept " + placeNote(), placesOpen),
       btn("+TAB", "a new tab (what is in the address bar, or a blank page)", function () {
         var v = addr.value.trim();
         cmd({ t: "tab-new", url: v && v !== (live && live.url) ? v : "" });
       }),
+      reopenBtn,
       soundBtn,
       moreBtn
     ]);
 
-    var wrap = el("div", { class: "br-canvas-wrap" }, [canvas]);
+    var wrap = el("div", { class: "br-canvas-wrap" }, [canvas, home]);
     host.appendChild(el("div", { class: "br-wrap" }, [
-      tabStrip, bar, moreBar, findBar, placesBar, usageBar, suggest, notes, wrap, stat, buildNote(status)
+      tabStrip, bar, moreBar, findBar, placesBar, usageBar, suggest, notes, wrap, stat, buildNote(true)
     ]));
+
+    /* A site a list refused can be wrong. One click tells the admins. */
+    function showBlocked(m) {
+      if (!m.host || !/^(ads|adult|malware)$/.test(m.kind || "")) return;
+      var msg = FieldKit.service("messages");
+      if (!msg || !msg.adminApi || !msg.signedIn || !msg.signedIn()) return;
+      ui.clear(notes);
+      var row = el("div", { class: "br-ask" }, [
+        el("span", { class: "br-ask-t warn", text: m.host + " was not opened: " + m.why }),
+        btn("THIS IS WRONG", "tell the admins this site should not be blocked", function () {
+          msg.adminApi("POST", "/admin/report", { host: m.host, kind: m.kind }).then(function () {
+            ui.clear(notes);
+            stat.textContent = "the admins have been told";
+            stat.className = "br-status ok";
+          }).catch(function (e) { stat.textContent = e.message; stat.className = "br-status bad"; });
+        }),
+        btn("✕", "close this", function () { ui.clear(notes); })
+      ]);
+      notes.appendChild(row);
+    }
 
     /* ---- the stream ---- */
     var g = canvas.getContext("2d", { alpha: false });
@@ -1365,6 +1438,7 @@
           if (live) live.url = m.url || "";
           if (document.activeElement !== addr) addr.value = m.url || "";
           drawStar();
+          drawHome();
         } else if (m.t === "loaded") {
           if (document.activeElement !== addr) addr.value = m.url || "";
           if (live) { live.url = m.url || live.url; live.title = m.title || ""; }
@@ -1378,6 +1452,7 @@
         } else if (m.t === "blocked") {
           stat.textContent = "not opened: " + m.why;
           stat.className = "br-status warn";
+          showBlocked(m);
         } else if (m.t === "dialog") {
           var d = m.dialog || {};
           var answer = d.type === "prompt"
@@ -1801,8 +1876,34 @@
     "Do not sign in to anything private: all sites here share one origin. " +
     "Not anonymity: your relay sees every address.";
 
-  function buildNote() {
-    nodes.noteBody = el("div", { class: "br-note-body", text: NOTE_FULL });
+  /* The same note for the streamed browser, which is a different
+     thing: a real Chromium, so sites keep their own origins and
+     WebSockets work. For a while it showed the proxy's note, which
+     warned about things that were not true of it and left out the
+     ones that were. */
+  var LIVE_FULL =
+    "This is a real Chromium running on your relay; what you see is a video " +
+    "of it. Sites keep their own origins, so one cannot read what another " +
+    "stored, and live pages, WebSockets and games work. " +
+    "This is NOT anonymity: your relay sees every address you ask for, and " +
+    "whoever runs it could see what you do here, so only sign in where you " +
+    "would trust them with it. The network you are on sees a connection to " +
+    "your relay for the whole session; it hides what you read from the local " +
+    "network, and it does not hide you from anyone else. " +
+    "Sign-ins last as long as your session; a member's are kept in the relay's " +
+    "memory for up to 12 hours, and a guest's are thrown away when they leave. " +
+    "Files you download or upload pass through the relay. Sound is off until " +
+    "you press SOUND. Ads, trackers, malware and adult sites are refused, for " +
+    "everyone. A page that is too heavy for the server can be opened on this " +
+    "device instead, under the ⋯ menu; that page then goes straight from this " +
+    "computer to the site.";
+
+  var LIVE_SHORT =
+    "Only sign in where you would trust the relay's owner: not anonymity, " +
+    "your relay sees every address.";
+
+  function buildNote(streamed) {
+    nodes.noteBody = el("div", { class: "br-note-body", text: streamed ? LIVE_FULL : NOTE_FULL });
     nodes.noteToggle = el("button", {
       class: "br-note-toggle", type: "button",
       text: noteOpen ? "LESS ▾" : "WHAT THIS CANNOT DO ▸",
@@ -1810,7 +1911,7 @@
     });
     nodes.note = el("div", { class: "br-note" + (noteOpen ? " open" : "") }, [
       el("div", { class: "br-note-line" }, [
-        el("span", { class: "br-note-short", text: NOTE_SHORT }),
+        el("span", { class: "br-note-short", text: streamed ? LIVE_SHORT : NOTE_SHORT }),
         nodes.noteToggle
       ]),
       nodes.noteBody
@@ -1923,7 +2024,20 @@
       } },
 
       { name: "IT SAYS WHAT IT IS NOT", critical: false, run: async function () {
-        if (!nodes.frame) throw new Error("SKIPPED — no relay configured");
+        if (!nodes.frame) {
+          /* The streamed panel has no frame: it has its own note. */
+          var live_ = nodes.note ? nodes.note.textContent : "";
+          if (!live_) throw new Error("SKIPPED — no panel open");
+          [[/NOT anonymity/, "that it is not anonymity"],
+           [/relay sees every address/i, "that the relay sees every address"],
+           [/real Chromium/, "what it is"],
+           [/12 hours/, "how long sign-ins are kept"],
+           [/SOUND/, "that sound starts off"]].forEach(function (p) {
+            if (!p[0].test(live_)) throw new Error("it does not say " + p[1]);
+          });
+          if (/share one origin|shares one origin/i.test(live_)) throw new Error("it carries the proxy's warning, which is not true here");
+          return "the streamed panel says what is true of a streamed browser";
+        }
         var note = nodes.frame.parentNode &&
           nodes.frame.parentNode.querySelector(".br-note");
         /* textContent, so a collapsed note still counts — the words
@@ -2047,6 +2161,13 @@
       ".br-canvas-wrap{flex:1;min-height:0;position:relative;",
       "  border:1px solid var(--line);background:#0c100e;overflow:hidden}",
       ".br-canvas{display:block;width:100%;height:100%;outline:none;cursor:default}",
+      ".br-home{position:absolute;inset:0;overflow-y:auto;padding:14px 18px;background:var(--bg)}",
+      ".br-home-h{font-size:10px;letter-spacing:.18em;color:var(--fg-dimmer);margin:10px 0 6px}",
+      ".br-home-r{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px}",
+      ".br-home-t{font:inherit;font-size:11px;text-align:left;padding:7px 8px;background:var(--panel);color:var(--fg);",
+      "  border:1px solid var(--line);cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
+      ".br-home-t:hover{border-color:var(--accent);color:var(--accent)}",
+      ".br-home-n{font-size:11px;color:var(--fg-dim);padding-top:30px;text-align:center}",
       ".br-canvas:focus{outline:1px solid var(--accent);outline-offset:-1px}",
       ".br-addr{flex:1;min-width:0;font:inherit;font-size:11px;background:#0c100e;",
       "  color:var(--fg);border:1px solid var(--line);padding:3px 6px}",

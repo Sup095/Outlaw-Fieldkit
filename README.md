@@ -24,6 +24,7 @@ says plainly that it is not.
 > - `https://tool.outlawfieldkit.com`
 > - `https://save.outlawfieldkit.com`
 > - `https://learn.outlawfieldkit.com`
+> - `https://edu.outlawfieldkit.com`
 >
 > (`run.outlawfieldkit.com` is RUNNER's own server, not a relay address;
 > RUNNER finds it by itself.) If the whole domain is ever blocked, a new one
@@ -41,6 +42,7 @@ says plainly that it is not.
 - [Running your own server](#running-your-own-server)
 - [Building from source](#building-from-source)
 - [Repository layout](#repository-layout)
+- [Roadmap](#roadmap)
 - [Reporting bugs and security issues](#reporting-bugs-and-security-issues)
 - [Contributing](#contributing)
 - [License](#license)
@@ -53,8 +55,8 @@ Each release has three files. Put them in the same folder.
 
 | File | What it is |
 |---|---|
-| `OUTPOST-STANDALONE.html` | **The one most people want.** Messages, the streamed browser, RUNNER and the small tools. No vault. |
-| `FIELDKIT-STANDALONE.html` | The full build, for the people who run the relay: everything in OUTPOST plus the encrypted vault and the admin tools. |
+| `OUTPOST-STANDALONE.html` | **The one most people want.** Messages, the streamed browser, RUNNER, ASK and the small tools. No vault. |
+| `FIELDKIT-STANDALONE.html` | The full build, for the people who run the relay: everything in OUTPOST plus the encrypted vault and the tools for running a relay. |
 | `PREFLIGHT.html` | **A check to run first** on a computer you do not know. It opens nothing and stores nothing. It says what it finds, then opens either build. |
 
 **What PREFLIGHT checks.** On this computer and in this browser:
@@ -75,11 +77,12 @@ The two builds are made from the same tree, every time.
 | | **OUTPOST** | **FIELDKIT** |
 |---|---|---|
 | For | Anyone with an account on a relay | The people who run the relay |
-| Messages, browser, RUNNER | ✓ | ✓ |
-| Small tools (QR codes, diff, game math, guestbook) | ✓ | ✓ |
-| Encrypted vault: notes, files, task board, decisions, logs | ✗ | ✓ |
+| MESSAGES, BROWSER, RUNNER, ASK | ✓ | ✓ |
+| Small tools (QR CODE, GAME MATH) | ✓ | ✓ |
 | RELAY LINK (relay addresses) and UPDATE (signed updates) | ✓ | ✓ |
-| Server admin panels, AI chat, terminal | ✗ | ✓ |
+| ADMIN CENTER, for an admin signed in on a relay | ✓ | ✓ |
+| Encrypted vault: NOTES, FILES, TASK BOARD, backups | ✗ | ✓ |
+| TOPOLOGY, and for admins the terminal and CritterScript | ✗ | ✓ |
 
 OUTPOST is limited by **absence**, not by a setting: the vault's code
 (`core/crypto.js`, `core/store.js` and the transports) is not in its bundle,
@@ -92,9 +95,13 @@ so there is nothing on that drive that could open a vault.
 **The desktop.** A search bar across the top: type anywhere and press Enter
 to open the first match. *Your apps* fills with what you use most, and *all
 apps* is grouped as ONLINE, FILES, TOOLS and SYSTEM. If anything needs you, it
-says so under the search bar. Ctrl+K searches apps and records. Themes, a CRT
-mode, and a lock screen. The whole thing is 21 apps, and the manual has a page
-for each.
+says so under the search bar. Ctrl+K searches apps and records, and Ctrl+/
+lists the keys. Windows open where you left them, snap to the sides of the
+screen, and can come back after a reload. A line at the top says when a service
+is down and clears itself when it is back; ◉ in the taskbar keeps what you
+missed. Themes, a CRT mode, a lock screen, and settings for bigger text, higher
+contrast and less motion. FIELDKIT has 18 apps and OUTPOST 12, and the manual
+covers them all.
 
 **MESSAGES.** End-to-end encrypted chat with the people on your relay. New
 accounts wait for a moderator's approval. Tiers: guest, member, admin.
@@ -106,8 +113,11 @@ when video is not available. It has:
 - downloads, saved to this device or encrypted into FILES;
 - a page's "choose file" opening your own file picker;
 - touch: drag to scroll, tap, pinch to zoom;
-- bookmarks and history kept encrypted in your vault;
-- a DNS content filter, set by the relay's owner;
+- a new-tab page of your bookmarks and recent sites;
+- bookmarks and history, encrypted in your vault in FIELDKIT, and kept
+  unencrypted on that computer in OUTPOST, which has no vault;
+- ads, trackers, malware and adult sites refused for everyone, from lists that
+  refresh themselves, with a DNS filter behind them set by the relay's owner;
 - a warm start: pointing at its tile starts it before you click.
 
 Guests get a throwaway session; members' sign-ins can be kept for a while.
@@ -122,9 +132,15 @@ with your keyboard and mouse sent back.
   in it.
 - A zip is unpacked inside the sandbox; you choose which program in it to
   start.
+- What you run most stays at the top, and RUN AGAIN repeats the last one.
 - Admins get a library of shared programs with cards (a title, a line about
   it, and a PLAY button), punishments, a bin, power readings and a
   fair-access line.
+
+**ADMIN CENTER.** One page for admins: what is up, who is waiting for approval,
+who is in the browser, what was blocked and any report that a block was wrong, a
+line to tell everyone something, and recent warnings and errors. Nothing typed by
+anyone passes through it, and blocked sites are counted by site, not by person.
 
 **ASK.** Questions answered by the best thing it can reach, and every reply
 says which: a model on your own PC, the server's small models (members only),
@@ -187,8 +203,10 @@ CHECKS, then open a build from its buttons.
 ```
 
 The relay knows who you are. The run server only believes a ticket the relay
-signed (Ed25519), and fetches the relay's public key by itself. No upload,
-output or video for RUNNER passes through the relay.
+signed (Ed25519), and fetches the relay's public key by itself. With
+`runner.innerUrl` set, the relay passes RUNNER's connection through to the run
+server over the tailnet without reading it, so RUNNER answers on every address
+the relay does; without it, the panel connects to the run server directly.
 
 ---
 
@@ -218,7 +236,9 @@ output or video for RUNNER passes through the relay.
   you visit**. Only sign in to sites you would trust that person with.
 - All sites in a session share one browser profile.
 - The browser cannot reach the relay's own API or any private address; every
-  request goes through a guard proxy.
+  request goes through a guard proxy, which also applies the block lists.
+- The block lists apply to everyone, admins included. An admin can allow a
+  site for everyone; a site blocked by mistake can be reported from the panel.
 
 **RUNNER.**
 - Every job runs in its own container, under gVisor where it is installed,
@@ -345,7 +365,7 @@ cover:
 They run on Windows and Linux; CI runs them on every push.
 
 `tools/` has the release signer, the deploy-bundle maker, a blocklist
-fetcher and the WebLLM bundler.
+fetcher, the GitHub snapshot tool and the WebLLM bundler.
 
 ## Repository layout
 
@@ -365,6 +385,50 @@ Comments in the source often cite sections like `FIELDKIT_PROJECT.md §14.18`
 or `RUNNER_PLAN.md §22`. Those are the project's internal design logs. They
 are not published here, because they are full of the specifics of one
 person's own machines.
+
+---
+
+## Roadmap
+
+What is planned, in order, and what each step waits on. Nothing here is in a
+release until it is built, tested and running.
+
+**Done in 0.6.0.** Ads, trackers, malware and adult sites blocked in BROWSER for
+everyone, from lists that refresh themselves (checked against real game sites:
+the games still start). A line at the top when a service is down, which clears
+itself. ADMIN CENTER. Windows that remember where they were and snap. A new-tab
+page, drafts in MESSAGES, RUN AGAIN, text size, contrast and less motion. A
+read-only disk for the graphics-card browser helper. `/probe`, a page that says
+what a device allows.
+
+**Next: a lighter BROWSER ("lens").** Today every page runs on the server and is
+sent as video, about 11 MB a minute while it moves. Lens would run the page in
+your own browser instead, through a proxy, so a page costs what it weighs and
+nothing more while you read it. It would be a second mode beside the streamed
+browser, which stays, both as the fallback and for anyone who prefers it.
+- *Tested:* [Scramjet](https://github.com/MercuryWorkshop/scramjet) with a Wisp
+  connection opened 15 of 20 sites, including CrazyGames, Poki, Krunker,
+  Scratch, YouTube and sign-in pages, at 1-19 MB a page. Google search, Reddit
+  and Unsplash refused it.
+- *Built in it:* the same block lists, checked as each connection opens; private
+  addresses refused; a spending cap on its own meter; a notice to everyone when
+  it falls back to the streamed browser, which clears itself when it is back.
+- *Waits on:* whether school-managed Chromebooks allow the service worker it
+  needs (`/probe` answers that), and a small rented server near Austin with a
+  monthly ceiling, so it does not use the home connection.
+- *Then:* a cache for pages you open twice, which the test showed would roughly
+  halve what a second visit costs.
+
+**After that.**
+- Sound in BROWSER without one Chromium per session (it is the biggest memory
+  cost now).
+- PLAY: web games served as files from your own relay, and RUN HERE: small
+  Python scripts and old formats (Flash, DOS) run on your own computer instead of
+  the server.
+- Games drawn on the graphics card inside RUNNER's sandbox. This needs a newer
+  card (Turing or later); the current one cannot do it under gVisor.
+- The old proxy browser (`relay/browse.js`) goes once lens replaces it as the
+  fallback.
 
 ---
 

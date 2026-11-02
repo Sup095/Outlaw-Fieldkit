@@ -12,8 +12,8 @@
 # Only approved accounts are sent here: the relay decides, and the helper
 # refuses a guest as well. The card is not behind gVisor (the K2200 cannot
 # be), so what stands between a page and the driver is Chromium, no root, no
-# capabilities and no new privileges. To stop using the card, run "stop":
-# sessions go back to the relay and the Pterodactyl helper.
+# capabilities, no new privileges and a read-only disk. To stop using the card,
+# run "stop": sessions go back to the relay and the Pterodactyl helper.
 #
 # The port is on this machine's tailnet address only: nobody but the relay
 # should reach it, and it believes nothing the relay did not sign.
@@ -38,7 +38,7 @@ ADDR="$(tailscale ip -4 2>/dev/null | head -1)"
 
 docker rm -f "$NAME" >/dev/null 2>&1 || true
 docker run -d --name "$NAME" --restart unless-stopped \
-  --gpus all -e NVIDIA_DRIVER_CAPABILITIES=all \
+  --gpus all -e NVIDIA_DRIVER_CAPABILITIES=graphics,video,utility --read-only \
   --user 999:999 --group-add video --cap-drop ALL --security-opt no-new-privileges \
   --memory 14g --pids-limit 4096 --cpu-shares 1024 \
   --tmpfs /home/container:rw,exec,size=512m,uid=999,gid=999 --tmpfs /tmp:rw,size=1g,mode=1777 --shm-size 6g \

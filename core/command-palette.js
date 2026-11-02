@@ -64,6 +64,19 @@
           ui.toast("SELF-TEST: " + report.passed + "/" + report.results.length + " PASS" +
             (report.failed ? ", " + report.failed + " FAIL" : ""), report.criticalFailed ? "fail" : "ok");
         } },
+      { title: "KEYBOARD SHORTCUTS", icon: "⌨", sub: "everything you can press (Ctrl+/)", run: function () {
+          if (shell) shell.showKeys();
+        } },
+      { title: "WHAT'S NEW", icon: "✦", sub: "what the last updates changed", run: function () {
+          if (shell) shell.showWhatsNew();
+        } },
+      { title: "REOPEN LAST WINDOWS", icon: "▣", sub: "what was open when this page last closed", run: function () {
+          if (shell && !shell.reopen()) ui.toast("NOTHING TO REOPEN", "info");
+        } },
+      { title: "WHAT HAPPENED", icon: "◉", sub: "messages you may have missed", run: function () {
+          var n = FieldKit.service("notices");
+          if (n) n.togglePanel();
+        } },
       { title: "CLOSE ALL WINDOWS", icon: "✕", sub: "clear the desktop", run: function () {
           if (!shell) return;
           shell.openWindows().slice().forEach(function (id) { shell.close(id); });

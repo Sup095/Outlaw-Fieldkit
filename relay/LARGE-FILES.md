@@ -13,17 +13,16 @@ describes turned out to be worth building after all.
 | Chunking, sealing, manifests, verify, orphan GC | `core/files.js` |
 | The panel, and the advice about what belongs where | `modules/vault-files.js` |
 | Raw-byte seal/open (`sealRaw`/`openRaw`) | `core/crypto.js` |
-| 48 checks on the chunking, 40 against a live relay | `tests/files.test.js`, `test-blobs.js` |
+| The tests | `tests/files.test.js`, and against a live relay in the suite |
 
 Chunks are 4 MB of plaintext by default, each sealed under its own random IV and
 uploaded as raw bytes — no base64, no JSON, no 2 MB ceiling. Peak memory is roughly
 one chunk regardless of file size, so a 500 MB `.blend` costs what a 5 MB one does.
 
 **The recommendation at the bottom of this document has not changed.** Git is still
-the right tool for a Godot project, and `modules/git-console.js` exists to make that
-easy from a machine with no terminal. The blob store is for what Git is bad at:
+the right tool for a Godot project. The blob store is for what Git is bad at:
 large binaries you want encrypted and reachable, reference material, and parking a
-file while you decide what to do with it. `VAULT FILES` says so at the moment you
+file while you decide what to do with it. FILES says so at the moment you
 pick a file, which is the only moment anyone reads advice.
 
 **One gap worth knowing before relying on it:** manifests are records and ride along

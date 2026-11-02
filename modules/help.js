@@ -82,9 +82,13 @@
         { rows: [
           ["just type", "on the desktop: find an app; Enter opens the first hit"],
           ["Ctrl+K", "search apps, notes, records and actions"],
+          ["Ctrl+/", "the keys, listed"],
           ["Ctrl+L", "screen lock, if a PIN is set"],
-          ["Escape", "close a dialog or overlay"]
+          ["Escape", "close a dialog, a folder or the window you are in"],
+          ["Ctrl+Shift+arrows", "left and right snap a window, up maximises, down minimises"]
         ] },
+        { note: "Esc does nothing to a window while you are typing in a field, or using a " +
+                "page in BROWSER or a program in RUNNER. Those need it for themselves." },
         { h: "THE DESKTOP" },
         "The search bar finds any app by its name or by what it does (\"chat\", \"backup\", " +
         "\"run a program\"). You do not have to click it: typing anywhere on the desktop " +
@@ -99,6 +103,32 @@
     },
 
     {
+      id: "desktop",
+      title: "WINDOWS, AND WHAT THE DESKTOP TELLS YOU",
+      tag: "basics",
+      body: [
+        { h: "WINDOWS" },
+        "A window opens where you last left it. Drag its title bar to the left or right " +
+        "edge to give it half the screen, or to the top to maximise it. Double-clicking the " +
+        "title bar maximises it too. After a reload, the desktop offers to open again what " +
+        "you had open; it does not do it by itself, because BROWSER and RUNNER each start " +
+        "something on the server.",
+        { h: "THE LINE AT THE TOP" },
+        "If BROWSER or RUNNER is down, or an admin has something to say, a line appears at " +
+        "the top for everyone. It goes away by itself when it stops being true, whether " +
+        "or not you saw it. ✕ hides it for you until it happens again.",
+        { h: "THE ◉ IN THE TASKBAR" },
+        "Every message FieldKit has shown you since this page opened, with the time, " +
+        "because a message at the bottom of the screen is gone in a few seconds. The number " +
+        "is how many you have not looked at. It stays on this machine and goes with the page.",
+        { h: "WHAT'S NEW" },
+        "After an update the desktop offers a list of what changed. Ctrl+K and WHAT'S NEW " +
+        "shows it any time.",
+        { see: ["keys", "app-system"] }
+      ]
+    },
+
+    {
       id: "app-browser",
       title: "BROWSER",
       tag: "apps",
@@ -107,6 +137,14 @@
         "Websites see the server, not your computer, and your sign-ins stay on the server.",
         "Type an address or a search in the bar. Sign in to MESSAGES and it remembers your " +
         "sign-ins; as a guest it keeps nothing.",
+        "A new tab shows your bookmarks and the sites you were last on. ↩TAB appears once " +
+        "you have closed a tab, and opens it again. PLACES lists them all. In FIELDKIT they " +
+        "are encrypted in your vault. OUTPOST has no vault, so there they sit on this " +
+        "computer unencrypted; the box under PLACES stops it keeping history.",
+        { h: "WHAT IS BLOCKED" },
+        "Ads, trackers, malware and adult sites are refused for everyone, from lists that " +
+        "refresh themselves. If a site was blocked by mistake, press THIS IS WRONG on the " +
+        "note: an admin sees which site, and can allow it for everyone.",
         { h: "IF YOU ARE ASKED TO WAIT" },
         "There is one line for BROWSER and RUNNER, and it shows your place. Your turn " +
         "comes up by itself; you can leave it open in the background. Who gets in depends " +
@@ -154,6 +192,9 @@
         "sign in, and it shows under NEW. Under your last message it says WAITING, then " +
         "DELIVERED, then READ. While you are signed in, new messages reach you with this " +
         "window closed too.",
+        "What you are typing stays with its conversation while you look at another one. " +
+        "It is held in memory only, so it goes when you sign out or close the page. The " +
+        "box at the top of a conversation finds words in it.",
         { rows: [
           ["guest", "chat. BROWSER and RUNNER forget everything when you leave."],
           ["member", "sign-ins and RUNNER files that stay, and the server's AI models"],
@@ -177,6 +218,8 @@
           "Choose a file, or a .zip of a whole program.",
           "Press RUN. If it is busy you join the line; your turn starts by itself."
         ] },
+        "What you run most recently stays at the top, and RUN AGAIN repeats the last one " +
+        "with the same arguments.",
         "A program runs in a sealed box: it cannot see the server's files, other people's " +
         "programs or your computer. It gets a limited share of the machine and a time limit.",
         { note: "A guest's files go when they leave. A member's stay until nobody has " +
@@ -251,7 +294,7 @@
       tag: "apps",
       body: [
         { rows: [
-          ["SETTINGS", "theme, wallpaper, sound. Folded inside: backup, password, lock."],
+          ["SETTINGS", "theme, text size, contrast. Inside: backup, password, lock."],
           ["UPDATE", "checks for a new signed version and installs it"],
           ["RELAY LINK", "the relay's address. LINK DOCTOR, inside, finds what is wrong."],
           ["DIAGNOSTICS", "checks this copy, the relay and, under SERVERS, the machines"]
@@ -259,6 +302,30 @@
         "An update replaces the file on your drive, so a browser may ask where to save it. " +
         "It is checked against a signature before anything is touched.",
         { see: ["recovery", "network", "fixing"] }
+      ]
+    },
+
+    {
+      id: "app-admin",
+      title: "ADMIN CENTER (ADMINS)",
+      tag: "apps",
+      body: [
+        "One page that says whether everything is all right. It refreshes itself while it " +
+        "is open, and only admins can see it.",
+        { rows: [
+          ["SERVICES", "the relay, BROWSER and its helpers, RUNNER and updates"],
+          ["PEOPLE", "approve who is waiting, and end a browser session"],
+          ["TELL EVERYONE", "a line at the top for everyone, for as long as you choose"],
+          ["BLOCKING", "what was refused, reports of wrong blocks, and the allow list"],
+          ["WHAT DEVICES ALLOW", "the answers from /probe, a page anyone can open"],
+          ["WHAT WENT WRONG LATELY", "warnings and errors since the relay started"]
+        ] },
+        "ALLOW takes effect for everyone at once, on every browser machine. COPY A REPORT " +
+        "puts a summary on the clipboard for asking for help; no message or page address " +
+        "is in it.",
+        { note: "The blocking counts are by site and never by person. RUNNER's own admin " +
+                "(its files and the line) stays in RUNNER." },
+        { see: ["app-messages", "app-runner"] }
       ]
     },
 

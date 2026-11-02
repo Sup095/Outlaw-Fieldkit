@@ -34,6 +34,10 @@
   var moderators = [];         // handles, from the relay's own config
   var messages = {};           // convId -> [{ from, at, text, ok }]
   var openConv = null;
+  /* What you were typing and looking for, per conversation. In memory
+     only: a draft is plaintext, and this file keeps no plaintext on the
+     machine. It is here because the thread is redrawn on every message. */
+  var drafts = {}, finding = {};
   var cursor = 0;
   var stamp = -1;              // when the relay last said the list changed
   var polling = false, stopPolling = false;
@@ -160,6 +164,8 @@
     convKeys = {};
     conversations = [];
     messages = {};
+    drafts = {};
+    finding = {};
     openConv = null;
     cursor = 0;
     stamp = -1;
@@ -562,6 +568,7 @@
 
   function renderThread() {
     if (!nodes.thread) return;
+    var had = document.activeElement, typing = had && had.classList && had.classList.contains("mg-send");
     ui.clear(nodes.thread);
     var conv = conversations.filter(function (c) { return c.id === openConv; })[0];
     if (!conv) {
@@ -569,32 +576,51 @@
       return;
     }
 
+    var find = el("input", { class: "mg-input mg-find", type: "text", placeholder: "find in here" });
+    find.value = finding[conv.id] || "";
     var head = el("div", { class: "mg-head" }, [
-      el("span", { text: conv.members.join(", ") }),
+      el("span", { class: "mg-who", text: conv.members.join(", ") }),
+      find,
       el("span", { class: "mg-epoch", text: "key #" + (conv.keyEpoch || 1) })
     ]);
 
-    var body = el("div", { class: "mg-msgs" });
+    var body = el("div", { class: "mg-msgs" }), rows = [];
     (messages[conv.id] || []).forEach(function (m) {
-      body.appendChild(el("div", { class: "mg-msg" + (m.from === session.handle ? " mine" : "") +
+      var row = el("div", { class: "mg-msg" + (m.from === session.handle ? " mine" : "") +
         (m.ok ? "" : " bad") }, [
         el("span", { class: "mg-from", text: m.from }),
         el("span", { class: "mg-text", text: m.text }),
         el("span", { class: "mg-at", text: String(m.at || "").slice(11, 16) })
-      ]));
+      ]);
+      rows.push({ node: row, hay: (m.from + " " + m.text).toLowerCase() });
+      body.appendChild(row);
     });
+    function narrow() {
+      var q = find.value.trim().toLowerCase();
+      finding[conv.id] = find.value;
+      rows.forEach(function (r) { r.node.style.display = !q || r.hay.indexOf(q) >= 0 ? "" : "none"; });
+    }
+    find.addEventListener("input", narrow);
+    narrow();
 
     var state = receipt(conv);
     if (state) body.appendChild(el("div", { class: "mg-receipt", text: state }));
 
     var input = el("input", { class: "mg-input mg-send", type: "text",
       placeholder: "message" });
+    input.value = drafts[conv.id] || "";
+    input.addEventListener("input", function () { drafts[conv.id] = input.value; });
     async function fire() {
       var t = input.value.trim();
       if (!t) return;
       input.value = "";
+      delete drafts[conv.id];
       try { await send(conv, t); }
-      catch (e) { ui.toast("NOT SENT — " + e.message, "fail"); input.value = t; }
+      catch (e) {
+        ui.toast("NOT SENT — " + e.message, "fail");
+        input.value = t;
+        drafts[conv.id] = t;
+      }
     }
     input.addEventListener("keydown", function (e) { if (e.key === "Enter") fire(); });
 
@@ -608,6 +634,7 @@
       ui.button("ROTATE KEY", function () { promptRotate(conv); })
     ]));
     body.scrollTop = body.scrollHeight;
+    if (typing) input.focus();
   }
 
   /* There is no ui.modal — the shared widget set stops at buttons and
@@ -1096,6 +1123,13 @@
       if (!session) throw new Error("not signed in to MESSAGES");
       return api("POST", "/browser/ticket");
     },
+    /* ADMIN CENTER, and saying a block was wrong. Only these routes:
+       the session token stays in this module. */
+    adminApi: async function (method, path, body) {
+      if (!session) throw new Error("sign in to MESSAGES first");
+      if (!/^\/(admin\/|msg\/people$|msg\/role$)/.test(String(path))) throw new Error("not an admin route");
+      return api(method, path, body);
+    },
     /* The browser's USAGE readout; the relay answers admins only. */
     browserUsage: async function () {
       if (!session) throw new Error("not signed in to MESSAGES");
@@ -1160,6 +1194,8 @@
       ".mg-head{display:flex;justify-content:space-between;font-size:10px;color:var(--fg-dim);",
       "  padding:4px 6px;border-bottom:1px solid var(--line)}",
       ".mg-epoch{color:var(--fg-dimmer)}",
+      ".mg-who{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
+      ".mg-find{flex:0 1 120px;min-width:50px;margin:0 8px;padding:1px 4px;font-size:10px}",
       ".mg-msgs{flex:1;overflow:auto;padding:6px;display:flex;flex-direction:column;gap:5px}",
       ".mg-msg{display:grid;grid-template-columns:90px 1fr 44px;gap:8px;font-size:11px;",
       "  align-items:baseline}",

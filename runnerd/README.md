@@ -10,7 +10,7 @@ The plan is `RUNNER_PLAN.md`; this is how to set it up and what was built.
 | Part | Where | What it does |
 |---|---|---|
 | **RUNNER panel** | FieldKit and OUTPOST | Checks the file, hashes it, uploads it, shows the output. |
-| **Relay** (`relay/runner.js`) | Bastion 1 | Says whether the run server is up, and signs a one-minute ticket saying who you are and what tier. No file ever passes through it. |
+| **Relay** (`relay/runner.js`) | Bastion 1 | Says whether the run server is up, and signs a one-minute ticket saying who you are and what tier. With `runner.innerUrl` it also passes RUNNER's connection through to here unread, so RUNNER answers on the relay's address. It keeps none of it. |
 | **runnerd** (this folder) | Bastion 2 | Believes the ticket, runs the file in a sandbox, streams the output. |
 
 Three tiers, decided by the relay from the MESSAGES account:
@@ -21,7 +21,7 @@ Three tiers, decided by the relay from the MESSAGES account:
 | Per file / total | 32 MB / 64 MB | 1 GB / 5 GB | 4 GB / 20 GB |
 | Per run | 2 minutes, 512 MB RAM, 1 core | 30 minutes, 2 GB, 2 cores | 2 hours, 4 GB, 2 cores |
 | At once | 1 | 2 | 4 |
-| GPU | Never | No: the K2200 is too old for gVisor's GPU layer, so windows are encoded on the processor | Same |
+| GPU | Never | Not for drawing. Windows are encoded on the card only where setup.sh found that works from inside gVisor | Same |
 
 A lost connection is noticed within about 20 seconds; a closed panel at once.
 The numbers live in `limits.js` and can be changed per tier in the settings file.
@@ -32,7 +32,7 @@ The numbers live in `limits.js` and can be changed per tier in the settings file
 
 Everything uploaded is treated as hostile. A job gets:
 
-- **no network at all**
+- **no network at all** as a guest (a member's job has the filtered web below)
 - a **read-only** filesystem, with a small in-memory scratch folder
 - **no privileges** and no way to gain any; it runs as "nobody"
 - hard limits on memory, CPU, processes, time and output
@@ -176,7 +176,7 @@ cd /srv/fieldkit/app && sudo docker compose -f runnerd/compose.yml up -d egress
 
 ## Programs with a window (phase 6)
 
-**RUN IN WINDOW** (members and admins) runs the file on a virtual screen
+**WINDOW** (members and admins) runs the file on a virtual screen
 and streams it into the panel: the picture as H.264, the sound as Opus,
 and the mouse and keyboard back. Python with tkinter or pygame-style
 windows, Linux programs, and Windows programs through Wine all work;
@@ -186,10 +186,13 @@ Godot's Compatibility renderer.
 - It is the same sandbox as every other job, gVisor included. The
   screen, sound card and encoder run *inside* it, next to the program
   (`image-screen/fk-screen.py`), so nothing new runs outside it.
-- Two screens at once on the whole machine (`machine.maxScreens`).
+- Four screens at once on the whole machine (`machine.maxScreens`),
+  and fewer when the machine's load or upload says so.
 - 1280×720, 30 frames a second, about 1.5 Mbit/s per viewer
   (`screen` in runnerd.json). The server never passes on more than
-  twice that, whatever the box writes.
+  twice that, whatever the box writes. When the upload is busy, the
+  bit rate and then the frame rate step down, and a window nobody can
+  see sends no picture and stops encoding.
 - **Cost:** about one CPU core per screen when the CPU encodes, about a
   fifth of one when the graphics card does (measured on Bastion 2).
 - **The graphics card** encodes members' screens when setup.sh found

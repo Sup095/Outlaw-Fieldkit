@@ -158,9 +158,10 @@ class Guard {
     /* How refusals name things. The relay's browser by default. */
     this.words = Object.assign({ place: "relay", who: "this browser" }, opts.words || {});
     this.filter = opts.filter || (() => ({ ok: true }));
-    /* Ads and trackers (adblock.js): refused without a log line each,
-       because a page asks for dozens a second. Counted instead. */
-    this.ads = opts.ads || null;
+    /* What no one may open (blocklist.js). Ads and trackers are refused
+       without a log line each, because a page asks for dozens a second:
+       they are counted instead. */
+    this.lists = opts.lists || null;
     /* Which ports may be opened. "web" (the default, RUNNER's jobs):
        80, 443, 8080, 8443. "browser": those, and any port from 1024 up,
        because games keep their servers there (Photon, which many web
@@ -254,9 +255,14 @@ class Guard {
       return { ok: false, why, kind };
     };
 
-    if (this.ads && this.ads.match(host)) {
+    const listed = this.lists && this.lists.match(host);
+    if (listed && listed.cat === "ads") {
       this.stats.refusedAds++;
       return { ok: false, why: "an ad or tracker (the browser's ad blocker)", kind: "ads", quiet: true };
+    }
+    if (listed) {
+      this.stats.refusedFilter++;
+      return no(listed.cat, "that site is " + listed.why);
     }
     const verdict = this.filter(host);
     if (!verdict.ok) {

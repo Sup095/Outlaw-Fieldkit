@@ -35,7 +35,7 @@
   "_finishedHours": "How long the result of a program that ended while nobody was watching waits to be shown.",
 
   "machine": {},
-  "_machine": "Whole-machine ceilings: maxJobs (6), maxGuestJobs (2), maxSessions (24), maxGuestSessions (8), maxScreens (2).",
+  "_machine": "Whole-machine ceilings: maxJobs (12), maxGuestJobs (4), maxSessions (24), maxGuestSessions (8), maxScreens (4). LOAD AND THE LINE decides who gets in below these.",
   "powerFile": "/run/fieldkit/power.json",
   "_powerFile": "Where fk-power's readings are, inside runnerd's container (the host's /srv/fieldkit/run, mounted read-only). fk-power is a small root service setup.sh installs, because the processor's energy counter is root-only. The price per kWh and the estimate for the parts nobody measures are set in ADMIN -> POWER, not here."
 }

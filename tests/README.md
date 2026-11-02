@@ -19,13 +19,12 @@ counting as zero failures.
 ## What lives here and what does not
 
 These suites cover **logic**: cryptography, encoders, state machines,
-isolation boundaries. They run with a hand-rolled fake DOM and no
-dependencies, because the drive carries none.
+isolation boundaries, and the panels themselves, which mount against a
+hand-rolled fake DOM (`harness.js`) with no dependencies, because the
+drive carries none.
 
-Two kinds of verification deliberately live **outside** the drive:
+One kind of verification deliberately lives **outside** the drive:
 
-- **DOM integration** (mounting real modules, focus, event wiring) needs
-  `jsdom`, installed in a scratch directory only.
 - **The QR cross-check** compares `core/qr.js` module-for-module against
   the independent `qrcode` npm package across every version and version
   boundary. Worth re-running after any change to `core/qr.js`:

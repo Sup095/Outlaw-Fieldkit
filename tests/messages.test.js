@@ -338,10 +338,23 @@ let bob, mod;
     byClass("mg-conv")[0].click();
     await until(() => byClass("mg-send").length > 0, 3000);
 
+    /* The thread is drawn again on every message. */
+    const typed = byClass("mg-send")[0];
+    typed.value = "half a thought";
+    typed.dispatchEvent({ type: "input", target: typed });
+    byClass("mg-conv")[0].click();
+    ok("a draft survives the thread being drawn again", byClass("mg-send")[0].value === "half a thought");
+    ok("and it is not written down anywhere",
+      !Object.keys(localStorage._data || {}).some((k) => /half a thought/.test(localStorage.getItem(k) || "")));
+
     byClass("mg-send")[0].value = "the relay must not be able to read this";
     button("SEND").click();
     const sent = await until(() => relay.msgs.length === 1, 5000);
     ok("the message reached the relay", sent);
+
+    ok("sending clears the draft", byClass("mg-send")[0].value === "");
+    byClass("mg-conv")[0].click();
+    ok("and it stays cleared", byClass("mg-send")[0].value === "");
 
     const stored = relay.msgs[0];
     ok("what it stored is not the message",

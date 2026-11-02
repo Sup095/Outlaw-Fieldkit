@@ -3,7 +3,9 @@
 This assumes you have the files and a domain on Cloudflare, and nothing
 else set up. It goes in order. Each part says what it is for, so if
 something breaks you know which part to look at rather than starting
-over.
+over. It covers the drive, the relay and the tunnel; the streamed browser,
+RUNNER and the AI models come after, and the
+[README](README.md#running-your-own-server) lists them in order.
 
 There are **three places** and each has one job. Almost every confusing
 failure comes from doing something in the wrong one:
@@ -106,8 +108,8 @@ what it cannot see, and what it cannot see is most of a computer.
 ### 1.4 Open FieldKit
 
 Open `E:\FieldKit\FIELDKIT.html` in Chrome. You should get the boot
-screen, then a desktop with the modules grouped down the left side —
-PROJECT, NOTES, VAULT, RELAY, TOOLS, SYSTEM.
+screen, then a desktop with a search bar across the top and the apps in
+four folders: ONLINE, FILES, TOOLS and SYSTEM.
 
 If instead you get MODULE LOAD FAILURE, open
 `FIELDKIT-STANDALONE.html` from the same folder. That one is a single
@@ -131,19 +133,15 @@ no code path where the plaintext exists on that machine.
 
 ### 2.1 Upload the files
 
-Into `/home/container/` on the Pterodactyl server:
+On your PC:
 
+```bash
+node tools/make-deploy.js
 ```
-server.js
-start.js
-fetch-tailscale.js
-fetch-cloudflared.js
-config.example.json
-CONNECTIVITY.md
-LARGE-FILES.md
-README.md
-cloudflared.example.yml
-```
+
+Upload everything it puts in `deploy/relay-upload/` into
+`/home/container/` on the Pterodactyl server. That is every file the relay
+needs and nothing else.
 
 Set **MAIN_FILE** to `start.js`. `start.js` starts the side-cars (the
 tunnel, and Tailscale if you use it) and then hands over to
@@ -152,9 +150,10 @@ neither.
 
 ### 2.2 Make config.json
 
-Copy `config.example.json` to `config.json` and edit it. The example
-file is heavily commented — every `"_name"` key is a note about the
-key below it, and the relay ignores them.
+On your PC, copy `relay/config.example.json` to `relay/config.local.json`
+and edit it, then run `node build.js`, which writes `relay/config.json` to
+upload. The example file is heavily commented — every `"_name"` key is a
+note about the key below it, and the relay ignores them.
 
 The three things you must change:
 
@@ -200,7 +199,7 @@ before the relay existed. Both end in the same place.
 
 **If you have not created a vault yet** — open FieldKit, and at the
 `NO VAULT ON THIS TRANSPORT` screen set a password. Before doing that,
-open **RELAY** → **RELAY LINK**, enter the relay URL and the provision
+open **RELAY LINK**, enter the relay URL and the provision
 token, press SAVE, and reload. The vault is then created directly on
 the relay.
 
@@ -208,7 +207,7 @@ the relay.
 RELAY LINK is a module and modules only exist once a vault does, so
 the first vault anyone creates is always local-only:
 
-1. **RELAY** → **RELAY LINK**
+1. Open **RELAY LINK**
 2. Enter the relay URL and the provision token
 3. Press **PROVISION THIS VAULT ON THE RELAY**
 
@@ -373,7 +372,7 @@ at all.
 ### 3.7 Point FieldKit at the new address
 
 **RELAY LINK** → `https://relay.yourdomain.com`, no port. Then
-**RELAY** → **LINK DOCTOR**, which probes the connection and names the
+**LINK DOCTOR**, inside RELAY LINK, which probes the connection and names the
 specific failure if there is one, rather than leaving you guessing
 between "blocked", "refused" and "something else answered".
 
@@ -396,8 +395,8 @@ so records carry an author and you can tell who wrote what.
 **The password is the whole thing.** There is no reset, no recovery
 email, no support. If both of you forget it, the data is gone — that
 is what "the relay cannot read it" means in practice. Write it down
-somewhere physical, and make a recovery key (**VAULT** → **SAVE
-CODES**) before you have anything you would miss.
+somewhere physical, and keep the recovery key shown when the vault was
+made: it is shown once.
 
 ---
 
@@ -447,12 +446,12 @@ So the trust lives in a **key**, not in the server:
         │                                                        │
         │ node build.js --release                                │
         ▼                                                        │
-  release/                     upload by hand                    │
+  release/                     a GitHub release, or by hand      │
    release.json  ──────────────────────────►  data/updates/      │
    FIELDKIT-STANDALONE.html                        │             │
    OUTPOST-STANDALONE.html                         │             │
                                                    ▼             ▼
-                                          UPDATER downloads, then verifies
+                                          UPDATE downloads, then verifies
                                           the signature against the key it
                                           already had. No match, no update.
 ```
@@ -478,7 +477,7 @@ Two files come out:
   the relay anything.
 
 It prints a fingerprint. **Write it down somewhere that is not the
-drive.** UPDATER displays the fingerprint of whatever signed a release,
+drive.** UPDATE displays the fingerprint of whatever signed a release,
 and comparing it to what you wrote down is the one check that does not
 pass through the relay.
 
@@ -504,16 +503,23 @@ You get a `release/` folder:
 ```
 release/
   release.json                 version, notes, per-file size + sha256, signature
+  BODY.md                      the notes for a GitHub release, with that record in them
   FIELDKIT-STANDALONE.html
   OUTPOST-STANDALONE.html
+  PREFLIGHT.html
 ```
 
-Upload **the contents of `release/`** into the relay's `data/updates/`
-— same as any other Pterodactyl file upload. Then in `config.json`:
+There are two ways to publish it. Either make a GitHub release with those three
+HTML files and `BODY.md` as its notes, and set `updates.githubRepo` so the relay
+keeps a checked copy for networks that block GitHub:
 
 ```json
-"updates": { "enabled": true }
+"updates": { "enabled": true, "githubRepo": "you/your-repo" }
 ```
+
+Or upload **the contents of `release/`** into the relay's `data/updates/`,
+the same as any other Pterodactyl file upload, with `updates.enabled` on.
+Where it has both, the newer wins.
 
 The notes are deliberately **outside** the signature. They are prose
 for a human, they change nothing about what gets installed, and the
@@ -523,14 +529,15 @@ client must never decide anything from them.
 
 On the machine being updated:
 
-1. **SYSTEM → UPDATER → CHECK.**
+1. Open **UPDATE** and press **CHECK FOR AN UPDATE**. It asks GitHub
+   first and the relay second.
 2. It downloads, re-hashes each file against a number that was *inside*
    the signature, and checks the signature against the key built into
-   the running app.
+   the running app. A network that blocks both can use FROM GITHUB on
+   another connection, then CHECK A DOWNLOADED FILE.
 3. Only if all of that passes does it say **VERIFIED** and offer the
    file. Compare the fingerprint it shows to the one you wrote down.
-4. Save the downloaded `FIELDKIT-STANDALONE.html` **over** the one on
-   the drive.
+4. Save the downloaded file **over** the one on the drive.
 
 Then close the tab and reopen it. That is the whole install.
 
@@ -543,7 +550,7 @@ ends with you saving one file over another, and that only works because
 the update **is** one file.
 
 Which is also the limit: `--release` ships the **standalone builds
-only**, not the 74-file payload. New models, new vendor files, or
+only**, not the separate files on a drive. New models, new vendor files, or
 anything outside the two HTML files still needs
 
 ```bash
@@ -562,9 +569,8 @@ changed", not "the drive changed".
   shown, labelled, and warned about rather than hidden. A relay
   offering a step backwards is either a stale upload or a rollback
   attempt, and either way the answer is to say which.
-- Vault token only. A messaging session is not enough, and OUTPOST
-  cannot fetch updates — the 401 says so out loud rather than failing
-  vaguely.
+- Anyone can ask, with no sign-in. The builds are public anyway, and
+  OUTPOST has no vault token and needs updates too.
 
 ---
 
@@ -573,12 +579,14 @@ changed", not "the drive changed".
 Start with the app, not the terminal — on the Chromebook there is no
 terminal, and the app is built to diagnose itself.
 
-- **TOOLS → TERMINAL**, then type `setup`. It reads live state and
+- **TERMINAL** (admins), then type `setup`. It reads live state and
   tells you which step you are actually on and the single next thing
   to do.
 - `doctor` in the same place runs the quick self-test.
-- **RELAY → LINK DOCTOR** for anything network-shaped.
-- **SYSTEM → DIAGNOSTICS** → FULL SYSTEM EXERCISE for the deep pass.
+- **LINK DOCTOR**, inside RELAY LINK, for anything network-shaped.
+- **DIAGNOSTICS** → FULL SYSTEM EXERCISE for the deep pass.
+- **ADMIN CENTER**, for an admin signed in on the relay: what is up, and
+  recent warnings and errors.
 
 A few failures and what they actually mean:
 

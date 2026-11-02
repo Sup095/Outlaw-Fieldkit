@@ -121,6 +121,7 @@
       document.body.appendChild(el("div", { id: "fk-toasts" }));
     var t = el("div", { class: "fk-toast lvl-" + (level || "info"), text: message });
     host.appendChild(t);
+    if (window.FieldKit) window.FieldKit.emit("ui:toast", { text: message, level: level || "info" });
     setTimeout(function () {
       t.classList.add("out");
       setTimeout(function () { if (t.parentNode) t.parentNode.removeChild(t); }, 400);
@@ -246,6 +247,18 @@
     return host;
   }
 
+  /* Bigger text, higher contrast and less motion, read at boot and
+     whenever SETTINGS changes one. Zoom and not font sizes, since
+     everything in here is sized in pixels; on what is inside windows and
+     not the page, so dragging one still follows the pointer. */
+  function applyLook(settings) {
+    if (!settings || !document.body) return;
+    var pct = Number(settings.get("textSize")) || 100;
+    if (document.body.style && document.body.style.setProperty) document.body.style.setProperty("--fk-zoom", String(pct / 100));
+    document.body.classList.toggle("fk-contrast", !!settings.get("contrast"));
+    document.body.classList.toggle("fk-calm", !!settings.get("calm"));
+  }
+
   /* ---- stylesheet --------------------------------------------- */
   var CSS = `
 :root{
@@ -273,7 +286,25 @@ button,input,textarea,select{font:inherit;color:inherit}
   background-color:var(--bg);background-size:cover;background-position:center}
 #fk-desktop.has-wallpaper::after{content:"";position:absolute;inset:0;
   background:linear-gradient(180deg,rgba(10,12,11,.55),rgba(10,12,11,.8));pointer-events:none}
-#fk-windows{position:absolute;inset:0 0 30px 0}
+#fk-windows{position:absolute;inset:var(--fk-notices,0px) 0 30px 0}
+#fk-notices{position:absolute;left:0;right:0;top:0;z-index:7000;display:flex;flex-direction:column}
+.fk-notice{display:flex;align-items:center;gap:8px;height:26px;box-sizing:border-box;padding:0 10px;font-size:11px;
+  border-bottom:1px solid var(--line2);background:#12160f;color:var(--fg)}
+.fk-notice.lvl-warn{color:var(--warn);border-color:var(--warn)}
+.fk-notice.lvl-fail{color:var(--fail);border-color:var(--fail)}
+.fk-notice .t{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fk-notice .x{background:none;border:0;color:inherit;font:inherit;cursor:pointer;padding:0 3px}
+#fk-desktop.has-notices #fk-icons{margin-top:var(--fk-notices,0px)}
+.fk-bell.on{color:var(--accent);border-color:var(--accent)}
+.fk-bell-panel{position:absolute;right:8px;bottom:36px;z-index:7000;width:340px;max-width:calc(100% - 16px);max-height:60%;overflow-y:auto;
+  background:var(--panel);border:1px solid var(--line2);padding:6px 8px;font-size:11px}
+.fk-bell-panel .h{display:flex;gap:6px;align-items:center;margin-bottom:5px}
+.fk-bell-panel .h span{flex:1;font-size:10px;letter-spacing:.16em;color:var(--accent)}
+.fk-bell-panel .r{display:flex;gap:8px;padding:2px 0;border-bottom:1px solid var(--line)}
+.fk-bell-panel .w{flex:0 0 auto;color:var(--fg-dimmer)}
+.fk-bell-panel .m{min-width:0;overflow-wrap:anywhere}
+.fk-bell-panel .lvl-warn .m{color:var(--warn)}.fk-bell-panel .lvl-fail .m{color:var(--fail)}.fk-bell-panel .lvl-ok .m{color:var(--pass)}
+.fk-bell-panel .n{color:var(--fg-dimmer)}
 
 /* ---- launcher ----
    Full-size tiles, and groups as folders you click into.
@@ -404,6 +435,24 @@ button,input,textarea,select{font:inherit;color:inherit}
 .fk-attn-row.fail{border-color:var(--fail);color:var(--fail)}
 .fk-attn-t{flex:1;min-width:0}
 .fk-attn-x{background:none;border:0;color:inherit;font:inherit;cursor:pointer;padding:0 3px}
+
+.fk-attn-row.calm{border-color:var(--line2);color:var(--fg-dim)}
+#fk-sheet{position:absolute;inset:0;z-index:7500;display:flex;align-items:center;justify-content:center}
+.fk-sheet-back{position:absolute;inset:0;background:rgba(0,0,0,.55)}
+.fk-sheet-box{position:relative;width:560px;max-width:calc(100% - 24px);max-height:80%;overflow-y:auto;
+  background:var(--panel);border:1px solid var(--line2);padding:10px 14px}
+.fk-sheet-h{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.fk-sheet-h span{flex:1;font-size:11px;letter-spacing:.2em;color:var(--accent)}
+.fk-sheet-sub{font-size:10px;letter-spacing:.16em;color:var(--fg-dimmer);margin-top:8px}
+.fk-sheet-li{font-size:12px;line-height:1.55;padding:3px 0 3px 14px;text-indent:-14px}
+.fk-sheet-li::before{content:"· ";color:var(--accent)}
+.fk-sheet-key{display:flex;gap:12px;font-size:12px;padding:3px 0;border-bottom:1px solid var(--line)}
+.fk-sheet-key .k{flex:0 0 46%;color:var(--accent)}
+.fk-sheet-key .v{min-width:0;color:var(--fg)}
+body.fk-contrast{--fg:#f2f6f2;--fg-dim:#c8d2ca;--fg-dimmer:#a4b0a6;--line:#55615a;--line2:#7a887f;--bg:#000;--panel:#050706;--panel2:#0b0e0c}
+body.fk-calm *,body.fk-calm *::before,body.fk-calm *::after{animation:none!important;transition:none!important}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+.fk-win-body,#fk-icons,.fk-sheet-box{zoom:var(--fk-zoom,1)}
 
 /* ---- windows ---- */
 .fk-win{position:absolute;min-width:280px;min-height:150px;display:flex;flex-direction:column;
@@ -608,6 +657,7 @@ body.crt #fk-desktop{animation:fk-flicker 5s infinite}
   FieldKit.provide("ui", {
     THEMES: THEMES,
     applyTheme: applyTheme,
+    applyLook: applyLook,
     currentTheme: function () { return currentTheme; },
     el: el,
     clear: clear,

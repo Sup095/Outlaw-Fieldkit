@@ -888,6 +888,23 @@
         if (!applied) throw new Error("wallpaper did not apply");
         return "set and restored";
       }),
+      check("A NOTICE CLEARS ITSELF", false, async function () {
+        var notices = svc("notices");
+        if (!notices) throw new Error("SKIPPED: no notices here");
+        var was = notices.list();
+        sb.onCleanup(function () { notices.apply(was); });
+        notices.apply(was.concat([{ id: "selftest", since: Date.now(), level: "info", text: "A TEST NOTICE" }]));
+        if (notices.list().length !== was.length + 1) throw new Error("the notice did not show");
+        notices.apply(was);
+        if (notices.list().some(function (n) { return n.id === "selftest"; })) throw new Error("the notice stayed");
+        return "shown and gone as soon as the relay stopped saying it";
+      }),
+      check("WHAT'S NEW IS CURRENT", false, async function () {
+        var wn = svc("whatsNew");
+        if (!wn) throw new Error("SKIPPED: not in this build");
+        if (wn.latest().v !== FieldKit.VERSION) throw new Error("it stops at " + wn.latest().v + ", and this is " + FieldKit.VERSION);
+        return wn.latest().items.length + " notes for " + FieldKit.VERSION;
+      }),
       check("WINDOW LIFECYCLE", true, async function () {
         var shell = svc("shell");
         if (!shell || !shell.desktop()) throw new Error("desktop not built");

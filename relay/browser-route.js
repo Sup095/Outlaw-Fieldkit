@@ -98,7 +98,7 @@ function init(opts) {
   cfg = Object.assign({ enabled: false, searchUrl: "https://lite.duckduckgo.com/lite/?kp=1&q=" },
     opts.config || {});
   log = opts.log || (() => {});
-  engine = new Engine({ config: cfg, log, filter: opts.filter });
+  engine = new Engine({ config: cfg, log, filter: opts.filter, blockDir: opts.dataDir ? require("path").join(opts.dataDir, "blocklists") : null });
   /* The browser as video (RUNNER_PLAN.md §23) when the image has
      ffmpeg and the setting is not off. Without it, pictures as before. */
   engine.videoBin = cfg.video === false ? null : findFfmpeg(cfg.ffmpeg);

@@ -16,6 +16,9 @@
 
   var desktop, iconLayer, shelves, winLayer, taskbar, taskList, tray;
   var windows = new Map();     // moduleId -> window record
+  /* Where each app's window was left, and which were open: this machine's
+     business, like the usage counts, so localStorage and not the vault. */
+  var GEO_KEY = "fieldkit.windows.v1", OPEN_KEY = "fieldkit.open.v1", SEEN_KEY = "fieldkit.seenVersion";
   var zTop = 10;
   var focused = null;
   var cascade = 0;
@@ -28,7 +31,8 @@
        never takes the text being typed with it. */
     shelves = el("div", { class: "fk-shelves" });
     attn = el("div", { class: "fk-attn" });
-    iconLayer = el("div", { id: "fk-icons" }, [buildSearch(), attn, shelves]);
+    offers = el("div", { class: "fk-attn" });
+    iconLayer = el("div", { id: "fk-icons" }, [buildSearch(), offers, attn, shelves]);
     winLayer = el("div", { id: "fk-windows" });
     taskList = el("div", { id: "fk-tasks" });
     tray = el("div", { id: "fk-tray" });
@@ -41,6 +45,12 @@
     root.appendChild(desktop);
 
     buildTray();
+    var notices = FieldKit.service("notices");
+    if (notices) notices.attach(desktop, tray);
+    offerRestore();
+    offerWhatsNew();
+    FieldKit.on("shell:resize", function (e) { if (!e || !e.id) refit(); });
+    window.addEventListener("resize", refit);
     refreshIcons();
 
     FieldKit.on("module:registered", refreshIcons);
@@ -73,6 +83,105 @@
       ]);
       attn.appendChild(row);
     });
+  }
+
+  /* ---- things to offer once ---------------------------------- */
+  var offers;
+
+  function offer(text, label, go) {
+    var row = el("div", { class: "fk-attn-row calm" }, [
+      el("span", { class: "fk-attn-t", text: text }),
+      el("button", { class: "fk-task", type: "button", text: label,
+        onclick: function () { if (row.parentNode) row.parentNode.removeChild(row); go(); } }),
+      el("button", { class: "fk-attn-x", type: "button", text: "✕", title: "no thanks",
+        onclick: function () { if (row.parentNode) row.parentNode.removeChild(row); } })
+    ]);
+    offers.appendChild(row);
+  }
+
+  /* What was open when the page last closed. Offered, not done: BROWSER
+     and RUNNER each start something on the server when they open. */
+  function lastOpen() {
+    try {
+      var l = JSON.parse(localStorage.getItem(OPEN_KEY) || "[]");
+      return Array.isArray(l) ? l.filter(function (id) { return typeof id === "string"; }) : [];
+    } catch (e) { return []; }
+  }
+
+  function noteOpen() {
+    try { localStorage.setItem(OPEN_KEY, JSON.stringify(Array.from(windows.keys()))); } catch (e) {}
+  }
+
+  var wasOpen = [];
+  function reopen() {
+    var ids = wasOpen.slice();
+    ids.forEach(function (id) { if (FieldKit.module(id)) open(id); });
+    return ids.length;
+  }
+
+  function offerRestore() {
+    wasOpen = lastOpen();
+    if (!wasOpen.length) return;
+    var names = wasOpen.map(function (id) { var m = FieldKit.module(id); return m ? m.title : null; }).filter(Boolean);
+    if (names.length) offer("Open again: " + names.join(", "), "REOPEN", reopen);
+  }
+
+  /* After an update, once. Nothing on a first run: it is all new then. */
+  function offerWhatsNew() {
+    var wn = FieldKit.service("whatsNew");
+    if (!wn) return;
+    var seen = null;
+    try { seen = localStorage.getItem(SEEN_KEY); localStorage.setItem(SEEN_KEY, FieldKit.VERSION); } catch (e) { return; }
+    if (seen && seen !== FieldKit.VERSION) offer("Updated to " + FieldKit.VERSION + ".", "WHAT'S NEW", showWhatsNew);
+  }
+
+  /* A sheet over the desktop, for reading. */
+  function sheet(title, kids) {
+    var old = document.getElementById("fk-sheet");
+    if (old && old.parentNode) old.parentNode.removeChild(old);
+    var host = el("div", { id: "fk-sheet" });
+    function done() { if (host.parentNode) host.parentNode.removeChild(host); }
+    host.appendChild(el("div", { class: "fk-sheet-back", onclick: done }));
+    host.appendChild(el("div", { class: "fk-sheet-box" }, [
+      el("div", { class: "fk-sheet-h" }, [
+        el("span", { text: title }),
+        el("button", { class: "fk-task", type: "button", text: "CLOSE", onclick: done })
+      ])
+    ].concat(kids)));
+    desktop.appendChild(host);
+    return host;
+  }
+
+  function showWhatsNew() {
+    var wn = FieldKit.service("whatsNew");
+    if (!wn) return;
+    var kids = [];
+    wn.notes().slice(0, 4).forEach(function (n) {
+      kids.push(el("div", { class: "fk-sheet-sub", text: n.v }));
+      n.items.forEach(function (i) { kids.push(el("div", { class: "fk-sheet-li", text: i })); });
+    });
+    sheet("WHAT'S NEW", kids);
+  }
+
+  var KEYS = [
+    ["Type on the desktop", "find an app; Enter opens it"],
+    ["Ctrl+K", "search apps, notes and actions"],
+    ["Ctrl+/", "this list"],
+    ["Ctrl+L", "lock the screen, if a PIN is set"],
+    ["Esc", "close a folder or the window you are in, but not from a page or a program"],
+    ["Ctrl+Shift+Left / Right", "snap the window to half the screen"],
+    ["Ctrl+Shift+Up", "maximise, or restore"],
+    ["Ctrl+Shift+Down", "minimise"],
+    ["Double-click a title bar", "maximise, or restore"],
+    ["Drag a title bar to an edge", "snap to that side; the top edge maximises"],
+    ["In BROWSER: Ctrl+F, Ctrl+L, F5", "find, address bar, reload"],
+    ["In BROWSER: Ctrl and + or -", "zoom"]
+  ];
+
+  function showKeys() {
+    sheet("KEYBOARD", KEYS.map(function (k) {
+      return el("div", { class: "fk-sheet-key" }, [el("span", { class: "k", text: k[0] }), el("span", { class: "v", text: k[1] })]);
+    }));
   }
 
   /* Apps marked adminOnly exist only for an admin on the relay: to
@@ -539,7 +648,7 @@
   var APP_ORDER = ["browser", "messages", "runner", "ai-chat",
     "vault-files", "scratchpad", "task-board", "topology", "relay-config", "relay-link",
     "game-math", "qr-gen", "terminal", "critter-ref",
-    "settings-panel", "settings-outpost", "updater", "help", "selftest-panel"];
+    "admin-center", "settings-panel", "settings-outpost", "updater", "help", "selftest-panel"];
   var DEAD_FOLDER = "DID NOT LOAD";
   var FOLDER_PREVIEW = 4;      // glyphs shown on the folder tile
   var openFolder = null;       // name of the folder panel on screen
@@ -793,6 +902,14 @@
     }
     cascade++;
 
+    var kept = readGeo()[id];
+    if (kept && room.height) {
+      w = Math.min(Math.max(MIN_W, kept.w | 0), room.width);
+      h = Math.min(Math.max(MIN_H, kept.h | 0), room.height - 8);
+      x = Math.max(Math.min(0, KEEP_VISIBLE - w), Math.min(kept.x | 0, room.width - KEEP_VISIBLE));
+      y = Math.max(0, Math.min(kept.y | 0, room.height - 30));
+    }
+
     var body = el("div", { class: "fk-win-body" });
     var title = el("span", { class: "fk-win-title", text: mod.title });
     var bar = el("div", { class: "fk-win-bar" }, [
@@ -834,12 +951,18 @@
     var rec = { id: id, mod: mod, node: node, body: body, bar: bar };
     windows.set(id, rec);
 
+    bar.addEventListener("dblclick", function (e) {
+      if (e.target.classList && e.target.classList.contains("fk-win-btn")) return;
+      toggleMaximise(id);
+    });
     makeDraggable(rec, bar);
     grips.forEach(function (g) { makeResizable(rec, g, g.getAttribute("data-edge")); });
     node.addEventListener("mousedown", function () { focus(id); });
 
     addTask(rec);
     focus(id);
+    noteOpen();
+    if (kept && kept.max) toggleMaximise(id);
 
     /* Mount inside a guard — a broken module gets a dead window,
        not a dead desktop. */
@@ -879,6 +1002,7 @@
     if (rec.node.parentNode) rec.node.parentNode.removeChild(rec.node);
     if (rec.task && rec.task.parentNode) rec.task.parentNode.removeChild(rec.task);
     windows.delete(id);
+    noteOpen();
     if (focused === id) { focused = null; keysToWindow = false; }
     FieldKit.emit("shell:close", { id: id });
   }
@@ -1003,7 +1127,69 @@
       if (c.nx === null) return;                      // a click, not a drag
       rec.node.style.left = c.nx + "px";
       rec.node.style.top = c.ny + "px";
+      var r = winLayer.getBoundingClientRect ? winLayer.getBoundingClientRect() : { left: 0, right: winLayer.clientWidth, top: 0 };
+      /* Past the edge is not at the edge: a window nearly as wide as a
+         Chromebook is pushed left by a pointer that has left the desktop. */
+      var x = ev.clientX, y = ev.clientY;
+      if (x >= r.left && x <= r.left + SNAP_EDGE) snap(rec.id, "left");
+      else if (x <= r.right && x >= r.right - SNAP_EDGE) snap(rec.id, "right");
+      else if (y >= r.top && y <= r.top + SNAP_EDGE) toggleMaximise(rec.id);
+      else { rec.prevBox = null; rec.snapped = null; saveGeo(rec); }
     });
+  }
+
+  /* Half the desktop. It remembers the box it replaced, as maximise does,
+     so the same keys bring it back. */
+  var SNAP_EDGE = 6;
+  function snap(id, side) {
+    var rec = windows.get(id);
+    if (!rec) return;
+    focus(id);
+    if (rec.node.classList.contains("maximized")) toggleMaximise(id);
+    if (!rec.prevBox) {
+      rec.prevBox = { left: rec.node.style.left, top: rec.node.style.top, width: rec.node.style.width, height: rec.node.style.height };
+    }
+    rec.snapped = side;
+    fillHalf(rec);
+    saveGeo(rec);
+    FieldKit.emit("shell:resize", { id: id });
+  }
+
+  function fillHalf(rec) {
+    var half = Math.round(winLayer.clientWidth / 2);
+    rec.node.style.left = (rec.snapped === "left" ? 0 : winLayer.clientWidth - half) + "px";
+    rec.node.style.top = "0px";
+    rec.node.style.width = half + "px";
+    rec.node.style.height = winLayer.clientHeight + "px";
+  }
+
+  /* The desktop changed size: the browser's window, or a notice line at
+     the top. A snapped window goes with it, or its bottom is under the
+     taskbar. */
+  function refit() {
+    if (!winLayer) return;
+    windows.forEach(function (rec) {
+      if (!rec.snapped || rec.node.classList.contains("maximized")) return;
+      fillHalf(rec);
+      FieldKit.emit("shell:resize", { id: rec.id });
+    });
+  }
+
+  function readGeo() {
+    try {
+      var g = JSON.parse(localStorage.getItem(GEO_KEY) || "{}");
+      return g && typeof g === "object" && !Array.isArray(g) ? g : {};
+    } catch (e) { return {}; }
+  }
+
+  function saveGeo(rec) {
+    try {
+      var g = readGeo(), n = rec.node;
+      var max = n.classList.contains("maximized"), box = max && rec.prevBox ? rec.prevBox : n.style;
+      g[rec.id] = { x: parseInt(box.left, 10) || 0, y: parseInt(box.top, 10) || 0,
+        w: parseInt(box.width, 10) || MIN_W, h: parseInt(box.height, 10) || MIN_H, max: max };
+      localStorage.setItem(GEO_KEY, JSON.stringify(g));
+    } catch (e) { /* a full quota must not stop a window moving */ }
   }
 
   /* edge is "se", "e", "s" or "w". West moves the left edge, which
@@ -1030,7 +1216,7 @@
         rec.node.style.width = w + "px";
         rec.node.style.left = Math.max(0, c.ox + (c.ow - w)) + "px";
       }
-    });
+    }, function () { rec.prevBox = null; rec.snapped = null; saveGeo(rec); });
   }
 
   var MIN_W = 280, MIN_H = 150;
@@ -1051,6 +1237,8 @@
       rec.node.style.top = p.top || "40px";
       rec.node.style.width = p.width || "620px";
       rec.node.style.height = p.height || "420px";
+      rec.prevBox = null;
+      rec.snapped = null;
     } else {
       rec.prevBox = {
         left: rec.node.style.left, top: rec.node.style.top,
@@ -1060,6 +1248,7 @@
       rec.node.style.left = ""; rec.node.style.top = "";
       rec.node.style.width = ""; rec.node.style.height = "";
     }
+    saveGeo(rec);
     FieldKit.emit("shell:resize", { id: id });
   }
 
@@ -1110,12 +1299,33 @@
   });
 
   /* ---- keyboard ----------------------------------------------- */
+  function keysBelongElsewhere(e) {
+    var t = e.target;
+    if (!t || t === window || t === document || t === document.body) return false;
+    var tag = String(t.tagName || "").toUpperCase();
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || t.isContentEditable) return true;
+    return !!(t.closest && t.closest("[data-fk-keys]"));
+  }
+
   function onKey(e) {
     /* An open folder is on top of everything and was opened last, so
        it is what Escape means — checked before the focused window,
        or Esc would close a window the user cannot currently see. */
     if (e.key === "Escape" && openFolder) { closeFolder(); return; }
+    var sh = document.getElementById("fk-sheet");
+    if (e.key === "Escape" && sh && sh.parentNode) { sh.parentNode.removeChild(sh); return; }
+    /* A page or a program takes its own keys, Esc above all: a game's
+       menu is on it, and a form field uses it to cancel. It closed
+       BROWSER, and the session with it. */
+    if (keysBelongElsewhere(e)) return;
     if (e.key === "Escape" && focused) { close(focused); return; }
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key === "/") { if (e.preventDefault) e.preventDefault(); showKeys(); return; }
+    if (e.ctrlKey && e.shiftKey && !e.altKey && focused) {
+      if (e.key === "ArrowLeft") { if (e.preventDefault) e.preventDefault(); snap(focused, "left"); return; }
+      if (e.key === "ArrowRight") { if (e.preventDefault) e.preventDefault(); snap(focused, "right"); return; }
+      if (e.key === "ArrowUp") { if (e.preventDefault) e.preventDefault(); toggleMaximise(focused); return; }
+      if (e.key === "ArrowDown") { if (e.preventDefault) e.preventDefault(); minimize(focused); return; }
+    }
     if (typedOnDesktop(e)) {
       if (e.preventDefault) e.preventDefault();
       closeFolder();
@@ -1153,6 +1363,10 @@
        the whole screen, and the button for that belongs next to the
        address bar, not only in the title bar. */
     maximize: toggleMaximise,
+    snap: snap,
+    reopen: reopen,
+    showKeys: showKeys,
+    showWhatsNew: showWhatsNew,
     fullscreen: toggleFullscreen,
     isFullscreen: function () {
       return !!(document.fullscreenElement || document.webkitFullscreenElement);

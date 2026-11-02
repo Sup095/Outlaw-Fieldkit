@@ -14,6 +14,9 @@
   var DEFAULTS = {
     theme: "amber",
     crt: false,
+    textSize: 100,           // percent of the normal size, on this machine
+    contrast: false,
+    calm: false,             // no animation
     sound: false,
     askServerModel: "",      // which of the relay's small models ASK uses
     perfMode: "auto",        // auto | on | off

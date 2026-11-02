@@ -131,8 +131,9 @@ function start(opts) {
 
   if (!relayKey.base) log("ERROR", "helper: helper.relayUrl is empty, so no pass can ever be checked — set it to the relay's https address");
   browse.init({ dataDir: config.dataDir, config: config.browse, log: log });
-  const engine = browserRoute.init({ config: config.browser, log: log, filter: (host) => browse.hostVerdict(host) });
+  const engine = browserRoute.init({ config: config.browser, log: log, filter: (host) => browse.hostVerdict(host), dataDir: config.dataDir });
   meter.sessions = () => engine.sessions.size;
+  let allowV = 0;
   const onCard = engine.render.mode === "gpu";
   const card = onCard ? cardMeter() : () => 0;
   log("INFO", "helper: pages are drawn " + (onCard ? "on the graphics card; guests are not sent here" : engine.render.mode === "cpu" ? "on the processor (llvmpipe)" : "the old way (SwiftShader)"));
@@ -182,8 +183,15 @@ function start(opts) {
         const st = engine.status();
         return send(res, 200, { ready: !!st.available, free: Math.max(0, engine.cfg.maxSessions - engine.sessions.size),
           max: engine.cfg.maxSessions, cpu: m.avg === null ? m.cpu : m.avg, mem: m.mem, pids: m.pids,
-          gpu: onCard, gpuMem: card(),
+          gpu: onCard, gpuMem: card(), blocked: engine.lists.view().blocked, allowV: allowV,
           sessions: Array.from(engine.sessions.keys()), kept: Array.from(engine.kept.keys()) });
+      }
+      if (p === "/helper/allow" && req.method === "POST") {
+        if (!await passOf(req, "allow")) return send(res, 401, { error: "no pass" });
+        const b = await readBody(req);
+        engine.lists.setAllow(Array.isArray(b.allow) ? b.allow : []);
+        allowV = b.v | 0;
+        return send(res, 200, { ok: true });
       }
       if (p === "/helper/usage" && req.method === "GET") {
         if (!await passOf(req, "usage")) return send(res, 401, { error: "no pass" });
