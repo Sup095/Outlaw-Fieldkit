@@ -182,6 +182,13 @@
     "maxBusy": 2,
     "models": []
   },
+  "_modelMirror": "GET A TINY MODEL on a network that blocks Hugging Face: the page asks the relay for the same file (relay/model-mirror.js). Only the models the in-browser engine lists, and their libraries on GitHub; nothing else is fetched. Each file is kept in data/model-cache once it arrives whole, so Hugging Face is asked once per file, and the oldest go when the cache passes cacheGB. The bytes go out under uploadCapMbps like everything else.",
+  "modelMirror": {
+    "enabled": true,
+    "cacheGB": 8,
+    "maxBusy": 4,
+    "perIp": 2
+  },
   "_updates": "Signed releases (FIELDKIT_PROJECT.md 14.4, 14.43). This relay NEVER signs anything and holds no key: `node build.js --release` signs on the SSD, and the client checks the signature against a public key built into the client itself, so a relay that is taken over can withhold an update or serve a stale one but cannot forge one. With githubRepo set, the relay fetches the latest GitHub release every mirrorEveryMin minutes, keeps each file only if its hash matches the signed record in the release notes, and serves the copy: the fallback for networks that block GitHub, and how a page gets the bytes to check. A release/ folder uploaded into data/updates/ still works; the newer of the two is served. Public: the builds are public anyway, and OUTPOST needs them.",
   "updates": {
     "enabled": true,

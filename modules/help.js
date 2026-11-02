@@ -159,7 +159,8 @@
         { h: "WHAT IS BLOCKED" },
         "Ads, trackers, malware and adult sites are refused for everyone, from lists that " +
         "refresh themselves. If a site was blocked by mistake, press THIS IS WRONG on the " +
-        "note: an admin sees which site, and can allow it for everyone.",
+        "note: an admin sees which site, and can allow it for everyone. A site that says it " +
+        "does not exist really does not: it was looked up a second time without the filter.",
         { h: "IF YOU ARE ASKED TO WAIT" },
         "There is one line for BROWSER and RUNNER, and it shows your place. Your turn " +
         "comes up by itself; you can leave it open in the background. Who gets in depends " +
@@ -318,7 +319,8 @@
           ["DIAGNOSTICS", "checks this copy, the relay and, under SERVERS, the machines"]
         ] },
         "An update replaces the file on your drive, so a browser may ask where to save it. " +
-        "It is checked against a signature before anything is touched.",
+        "It is checked against a signature before anything is touched. At start, a popup " +
+        "says when a newer signed version is out; TELL ME ABOUT UPDATES in SETTINGS turns it off.",
         { see: ["recovery", "network", "fixing"] }
       ]
     },
@@ -530,8 +532,9 @@
         "The boot screen checks the hops separately, so you can see which half broke.",
         { h: "MODELS IN THE BROWSER" },
         "Nothing to set up on the server beyond the relay itself, which hands the page the " +
-        "engine. Models come from Hugging Face, so a network that blocks it needs a model " +
-        "folder from a drive instead (MODELS.md, and USE A MODEL FOLDER FROM THIS DRIVE in ASK).",
+        "engine. Models come from Hugging Face; on a network that blocks it they come " +
+        "through the relay instead, which is slower. A model folder from a drive works too " +
+        "(MODELS.md, and USE A MODEL FOLDER FROM THIS DRIVE in ASK).",
         { note: "With none of these, ASK falls back to built-in rules. They are not a " +
                 "language model, and every reply says which answered." },
         { see: ["app-ask", "network"] }

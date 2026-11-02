@@ -244,6 +244,14 @@
         var have = await inst.installed();
         return have.length + " installed" + (inst.gpu() ? "" : ", but this browser has no WebGPU to run them");
       }),
+      /* GET A TINY MODEL's way round a network that blocks Hugging Face. */
+      check("MODELS THROUGH THE RELAY", false, async function () {
+        var l = await getJson(relayBase() + "/ai/mirror?u=" +
+          encodeURIComponent("https://huggingface.co/api/models/mlc-ai/SmolLM2-135M-Instruct-q0f16-MLC"), 15000);
+        if (!l) throw new Error("SKIPPED — this relay is too old to pass models on");
+        if (!Array.isArray(l.siblings)) throw new Error(l.error || "the relay did not pass the model list on");
+        return "the relay can fetch models where Hugging Face is blocked";
+      }),
       check("NETWORK REPORT", false, async function () {
         var t = await getJson(relayBase() + "/topology");
         if (!t) throw new Error("SKIPPED — this relay is too old to report");

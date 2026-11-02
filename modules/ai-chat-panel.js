@@ -125,8 +125,9 @@
   async function installModel(m) {
     var guard = alive;
     try {
-      await FieldKit.need("aiInstall").install(m, function (part, name) {
-        if (guard()) say("Installing " + m.id + ": " + Math.round(part * 100) + "% " + (name || ""));
+      await FieldKit.need("aiInstall").install(m, function (part, name, viaRelay) {
+        if (guard()) say("Installing " + m.id + ": " + Math.round(part * 100) + "% " + (name || "") +
+          (viaRelay ? " (through your relay, as this network blocks Hugging Face: slower)" : ""));
       });
       if (!guard()) return;
       say("Installed. Press USE.");

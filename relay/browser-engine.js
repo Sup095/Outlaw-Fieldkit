@@ -965,7 +965,7 @@ class Engine {
            should say so whatever else was refused just before. */
         const listed = this.lists && this.lists.check(siteOf(url));
         const r = listed ? { host: siteOf(url), kind: listed.cat, why: "that site is " + listed.why }
-          : (this.guard && this.guard.whyRefused());
+          : (this.guard && this.guard.whyRefused(null, siteOf(url)));
         push({ t: "blocked",
           url: url,
           host: r ? r.host : "",
@@ -1463,7 +1463,7 @@ class Engine {
     /* Page.navigate reports some failures inline rather than by
        rendering an error page, so both routes have to be covered. */
     if (r && r.errorText && r.errorText !== "net::ERR_ABORTED") {
-      const why = this.guard && this.guard.whyRefused();
+      const why = this.guard && this.guard.whyRefused(null, siteOf(target));
       for (const v of s.viewers) {
         try {
           v.onEvent({ t: "blocked", url: target, host: why ? why.host : "",

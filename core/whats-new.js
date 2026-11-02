@@ -10,6 +10,13 @@
   "use strict";
 
   var NOTES = [
+    { v: "0.7.1", items: [
+      "When a newer version is out, a popup says so at start, with a button to get it. TELL ME ABOUT UPDATES in SETTINGS turns it off.",
+      "GET A TINY MODEL works on a network that blocks Hugging Face: the model comes through your relay instead.",
+      "BROWSER no longer blames the content filter for a site that does not exist; it checks a second time without the filter and says which it was.",
+      "YouTube's video and picture servers can never be blocked by a list by mistake, and a site an admin allows now gets past the DNS filter too.",
+      "If the content filter's servers stop answering, a second filter of the same kind takes over, so pages do not all fail at once."
+    ] },
     { v: "0.7.0", items: [
       "FieldKit's servers now have a hard ceiling on what they send, 12 Mbit/s unless an admin changes it, so the rest of the house's upload stays free.",
       "Right-click an app to pin it to YOUR APPS, where it stays put, or to read how it works. On a touch screen, hold it.",

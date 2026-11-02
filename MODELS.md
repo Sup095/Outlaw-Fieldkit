@@ -1,11 +1,13 @@
 # Getting a model for ASK
 
 **The easy way:** open ASK, then MODELS, press GET A TINY MODEL and INSTALL
-the smallest. It goes into this browser and works offline from then on. The
-server's own small models are `runnerd/tiny-ai.sh`, for members. The rest of
-this file is for bringing a model on a drive, for a network that blocks
-Hugging Face or a machine with no storage to spare: ASK → MODELS → USE A MODEL
-FOLDER FROM THIS DRIVE.
+the smallest. It goes into this browser and works offline from then on. On a
+network that blocks Hugging Face (a school, say) the same button fetches it
+through your relay instead (`relay/model-mirror.js`): slower, because it
+comes out of the house's upload, but nothing to carry. The server's own small
+models are `runnerd/tiny-ai.sh`, for members. The rest of this file is for
+bringing a model on a drive, for a machine with no relay or no storage to
+spare: ASK → MODELS → USE A MODEL FOLDER FROM THIS DRIVE.
 
 "AI LOCAL" below is that folder panel. It is **tier 2**: the model that runs inside the browser tab, on
 the machine in front of you, with no network at all. It exists for when

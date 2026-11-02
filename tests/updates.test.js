@@ -251,6 +251,30 @@ const ctx = { settings, ui: FieldKit.need("ui"), version: "0.1.0",
       routes["api.github.com/repos/"] = { tag_name: "v9.9.9", body: build.releaseBody(forged), assets: [] };
       t = await clickCheck();
       ok("a record edited on GitHub is refused", /NO UPDATE OFFERED/.test(t) && /SIGNATURE DOES NOT MATCH/.test(t), t.slice(0, 300));
+
+      /* At start: a popup for a newer signed release, and only that. */
+      const desk = fakeElement("div");
+      const opened = [];
+      if (!FieldKit.service("shell")) FieldKit.provide("shell", { desktop: () => desk, open: (id) => opened.push(id) });
+      const upc = FieldKit.need("updateCheck");
+      const popText = () => { const t = []; (function walk(x) { (x.children || []).forEach((c) => { if (c && c.nodeType !== 3) { t.push(String(c.textContent || "")); walk(c); } }); })(desk); return t.join(" | "); };
+      routes = { "relay.example/updates/latest": rel };
+      let pop = await upc.startCheck();
+      ok("at start, a newer signed release puts up a popup", !!pop && /UPDATE AVAILABLE/.test(popText()) && /9\.9\.9 is out/.test(popText()), popText().slice(0, 200));
+      ok("it offers GET IT, LATER and SKIP THIS VERSION", /GET IT/.test(popText()) && /LATER/.test(popText()) && /SKIP THIS VERSION/.test(popText()));
+      const popBtn = (re) => { const b = []; (function walk(x) { (x.children || []).forEach((c) => { if (c && c.nodeType !== 3) { b.push(c); walk(c); } }); })(desk); return b.find((e) => e.tagName === "BUTTON" && re.test(e.textContent)); };
+      popBtn(/GET IT/).click();
+      ok("GET IT opens UPDATE and closes the popup", opened[0] === "updater" && !/UPDATE AVAILABLE/.test(popText()));
+      pop = await upc.startCheck();
+      popBtn(/SKIP THIS VERSION/).click();
+      ok("a skipped version is not announced again", (await upc.startCheck()) === null);
+      localStorage.removeItem("fieldkit.update.skip");
+      routes = { "relay.example/updates/latest": forged };
+      ok("a release whose signature fails is never announced", (await upc.startCheck()) === null && !/UPDATE AVAILABLE/.test(popText()));
+      settings.set("updateCheckAtStart", false);
+      routes = { "relay.example/updates/latest": rel };
+      ok("and with TELL ME ABOUT UPDATES off, nothing is asked", (await upc.startCheck()) === null);
+      settings.set("updateCheckAtStart", true);
       routes = {};
 
       /* One byte of the signature flipped. Same release, same key,

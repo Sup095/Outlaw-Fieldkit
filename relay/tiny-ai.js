@@ -113,4 +113,4 @@ async function route(req, res, url, kit) {
 
 const models = () => (cfg.enabled ? cfg.models.map((m) => ({ id: m.id, name: m.name || m.id })) : []);
 
-module.exports = { init, route, models, LIMITS, _internals: { asking, cleanMessages } };
+module.exports = { init, route, models, enginePaths, LIMITS, _internals: { asking, cleanMessages } };

@@ -118,6 +118,44 @@ const ASK = { model: "big", messages: [{ role: "user", content: "hi" }] };
     ok("no carriage returns for a deploy to strip", !engine.includes(13));
   }
 
+  section("a network that blocks Hugging Face gets the model through the relay");
+  {
+    const FK = bootstrap(["core/kernel.js", "core/settings.js", "core/ai-install.js"]);
+    const inst = FK.need("aiInstall");
+    const asked = [];
+    let hfBlocked = true;
+    global.fetch = async (u) => {
+      asked.push(String(u));
+      if (/^https:\/\/huggingface\.co\//.test(u)) {
+        if (hfBlocked) throw new TypeError("Failed to fetch");
+        return { ok: true, status: 200 };
+      }
+      if (/\/ai\/mirror\?u=/.test(u)) return { ok: true, status: 200, via: "relay" };
+      throw new TypeError("Failed to fetch");
+    };
+    const HF = "https://huggingface.co/mlc-ai/Tiny/resolve/main/";
+    let threw = null;
+    try { await inst.fetchModelFile(HF + "a.bin", { relay: false }); } catch (e) { threw = e.message; }
+    ok("blocked and no relay: says to add one", /no relay to fetch it through/.test(threw || ""), threw);
+    FK.need("settings").set("relayUrl", "https://relay.example/");
+    const how = { relay: false };
+    const r = await inst.fetchModelFile(HF + "a.bin", how);
+    ok("blocked: the same file through the relay", r.via === "relay" && how.relay === true &&
+      asked[asked.length - 1] === "https://relay.example/ai/mirror?u=" + encodeURIComponent(HF + "a.bin"), asked[asked.length - 1]);
+    asked.length = 0;
+    await inst.fetchModelFile(HF + "b.bin", how);
+    ok("and the rest of the model straight to the relay, without waiting on the block again",
+      asked.length === 1 && /\/ai\/mirror/.test(asked[0]));
+    hfBlocked = false;
+    asked.length = 0;
+    const d = await inst.fetchModelFile(HF + "c.bin", { relay: false });
+    ok("where Hugging Face is open, it is used directly and the relay's upload is spared",
+      asked.length === 1 && asked[0] === HF + "c.bin" && d.via !== "relay");
+    const src = fs.readFileSync(path.join(ROOT, "core", "ai-install.js"), "utf8");
+    ok("a file is kept only at the size Hugging Face lists", /blobs=true/.test(src) && /arrived at the wrong size/.test(src));
+    delete global.fetch;
+  }
+
   section("what the relay tells TOPOLOGY");
   {
     const topology = require("../relay/topology.js");

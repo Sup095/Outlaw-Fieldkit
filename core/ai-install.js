@@ -107,22 +107,51 @@
 
   function installed() { return tx("models", "readonly", function (st) { return st.getAll(); }); }
 
+  /* Hugging Face first; if this network will not let it through (a
+     school that blocks it, or the CDN it redirects to), the same file
+     through the relay (relay/model-mirror.js), and from then on the
+     relay for the rest of this model, rather than waiting on a block
+     for every file. "how" says which it used. */
+  async function fetchModelFile(url, how) {
+    var why = "";
+    if (!how.relay) {
+      try {
+        var r = await fetch(url, { cache: "no-store" });
+        if (r.ok) return r;
+        why = "answered " + r.status;
+      } catch (e) { why = "could not be reached from this network"; }
+      if (!relayBase()) throw new Error("Hugging Face " + why + ", and there is no relay to fetch it through: add one in RELAY LINK");
+      how.relay = true;
+    }
+    var m = await fetch(relayBase() + "/ai/mirror?u=" + encodeURIComponent(url), { cache: "no-store" });
+    if (m.ok) return m;
+    var j = null;
+    try { j = await m.json(); } catch (e) { /* not json */ }
+    throw new Error((why ? "Hugging Face " + why + ", and through the relay: " : "through the relay: ") +
+      ((j && j.error) || "answered " + m.status));
+  }
+
   async function install(model, onProgress) {
     var repo = String(model.url).replace(HF, "").replace(/\/?(resolve\/main\/?)?$/, "");
-    var res = await fetch(HF + "api/models/" + repo, { cache: "no-store" });
-    if (!res.ok) throw new Error("Hugging Face would not list that model (" + res.status + ")");
-    var names = ((await res.json()).siblings || []).map(function (s) { return s.rfilename; })
-      .filter(function (n) { return !SKIP.test(n); });
-    var files = names.map(function (n) { return { name: n, url: HF + repo + "/resolve/main/" + n }; });
-    files.push({ name: "model.wasm", url: model.lib });
+    var how = { relay: false };
+    var res = await fetchModelFile(HF + "api/models/" + repo + "?blobs=true", how);
+    var sibs = ((await res.json()).siblings || []).filter(function (s) { return !SKIP.test(s.rfilename); });
+    var files = sibs.map(function (s) {
+      return { name: s.rfilename, url: HF + repo + "/resolve/main/" + s.rfilename, size: typeof s.size === "number" ? s.size : null };
+    });
+    files.push({ name: "model.wasm", url: model.lib, size: null });
 
     if (navigator.storage && navigator.storage.persist) { try { await navigator.storage.persist(); } catch (e) {} }
     var size = 0;
     for (var i = 0; i < files.length; i++) {
-      if (onProgress) onProgress(i / files.length, files[i].name);
-      var r = await fetch(files[i].url);
-      if (!r.ok) throw new Error("could not fetch " + files[i].name + " (" + r.status + "): a network may be blocking it");
+      if (onProgress) onProgress(i / files.length, files[i].name, how.relay);
+      var r = await fetchModelFile(files[i].url, how);
       var blob = await r.blob();
+      /* A filter's "blocked" page is a whole answer too, so a file is
+         kept only at the size Hugging Face lists for it. */
+      if (files[i].size != null && blob.size !== files[i].size) {
+        throw new Error(files[i].name + " arrived at the wrong size: a network may be replacing it. Nothing was installed.");
+      }
       size += blob.size;
       await putFile(model.id + "/" + files[i].name, blob);
     }
@@ -167,6 +196,7 @@
   FieldKit.provide("aiInstall", {
     ENGINE_SHA256: ENGINE_SHA256,
     gpu: function () { return !!(navigator.gpu && navigator.gpu.requestAdapter); },
-    catalogue: catalogue, installed: installed, install: install, remove: remove, use: use
+    catalogue: catalogue, installed: installed, install: install, remove: remove, use: use,
+    fetchModelFile: fetchModelFile
   });
 })(window.FieldKit);

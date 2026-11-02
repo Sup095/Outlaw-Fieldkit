@@ -49,7 +49,7 @@
     "relayUrls",       // spare addresses for the same relay (core/relay-choice.js)
     "displayName",     // who you are on a shared vault
     "theme", "crt", "textSize", "contrast", "calm", "sound", "wallpaper", "bootFlavor",
-    "perfMode", "clock24",
+    "perfMode", "clock24", "updateCheckAtStart",
     "pullSeconds", "autoLockMinutes",
     "backupReminderDays", "autoSnapshotMinutes", "autoSnapshotKeep",
     "msgHandle"        // messaging account name. The secret is NOT here.

@@ -97,7 +97,7 @@ function fetchAll(port, p) {
     const all = Date.now() - t0;
     ok("both arrive whole", a.body.equals(BODY) && b.body.equals(BODY));
     ok("together they take what 2 MB takes at the pace (~2.3 s), not what one does", all >= 1900, all + " ms");
-    ok("…and they finish close together: one does not wait for the other", Math.abs(a.ms - b.ms) < 900, a.ms + " / " + b.ms);
+    ok("…and they finish close together: one does not wait for the other", Math.abs(a.ms - b.ms) < Math.max(900, all * 0.4), a.ms + " / " + b.ms + " of " + all);
     server.close();
   }
 

@@ -204,7 +204,7 @@ function once(sock, event) {
   {
     const p = guard.DNS_PRESETS;
     ok("adult is the default and blocks porn plus malware",
-      p.adult && p.adult.servers.length === 2 && /adult/i.test(p.adult.name));
+      p.adult && p.adult.servers.length === 4 && /adult/i.test(p.adult.name));
     ok("family is offered for stricter filtering", !!p.family);
     ok("security is offered for malware only, without content filtering", !!p.security);
     ok("system means no filtering, and says so", p.system.servers === null);

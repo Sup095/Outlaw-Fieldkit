@@ -25,7 +25,7 @@
      which file you opened. Writing a relay URL from here would mean
      the limited build could reconfigure the real one. */
   var OWNED = ["theme", "crt", "textSize", "contrast", "calm", "sound", "perfMode",
-    "wallpaper", "bootFlavor", "displayName", "clock24"];
+    "wallpaper", "bootFlavor", "displayName", "clock24", "updateCheckAtStart"];
 
   function set(key, value) {
     if (OWNED.indexOf(key) < 0) {
@@ -238,6 +238,7 @@
         ui.panel("BEHAVIOUR", [
           toggle("sound", "SOUND", "clicks and confirmations"),
           toggle("bootFlavor", "BOOT QUOTES", "a line on the way in"),
+          toggle("updateCheckAtStart", "TELL ME ABOUT UPDATES", "at start, a popup when a newer signed release is out"),
           row("YOUR NAME", "shown on anything you sign", name)
         ]),
         ui.panel("THIS DRIVE", [

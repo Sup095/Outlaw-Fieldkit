@@ -40,6 +40,7 @@ const runner = require("./runner");
 const { Fairness } = require("./fairness");
 const { UpCap, Rate, paceFor, RESERVE_KBPS } = require("./upcap");
 const tinyAi = require("./tiny-ai");
+const modelMirror = require("./model-mirror");
 const topology = require("./topology");
 const { Overflow } = require("./overflow");
 
@@ -1133,7 +1134,7 @@ const ROUTES = [
   "GET  /runner/status", "POST /runner/ticket", "GET  /runner/pubkey",
   "WS   /browser/stream",
   "GET  /updates/latest", "GET  /updates/file", "GET  /updates/status",
-  "GET  /ai/tiny", "POST /ai/tiny/chat", "GET  /ai/engine.js", "GET  /topology",
+  "GET  /ai/tiny", "POST /ai/tiny/chat", "GET  /ai/engine.js", "GET  /ai/mirror", "GET  /topology",
   "GET  /notices", "GET  /probe", "POST /probe/result", "GET  /admin/overview", "POST /admin/announce", "POST /admin/block",
   "POST /admin/session", "POST /admin/report"
 ];
@@ -1238,11 +1239,13 @@ async function route(req, res, url) {
 
   /* The small models and the in-browser engine: by account or public,
      unlike the vault's /ai/chat below (relay/tiny-ai.js). */
-  if (seg[0] === "ai" && (seg[1] === "tiny" || seg[1] === "engine.js")) {
+  if (seg[0] === "ai" && (seg[1] === "tiny" || seg[1] === "engine.js" || seg[1] === "mirror")) {
     if (!hit("tiny:" + clientIp(req), config.rateLimit.runnerMax)) {
       return send(res, 429, { error: "slow down", detail: "too many AI requests" });
     }
     if (await tinyAi.route(req, res, url, { send, readBody })) return;
+    /* A tiny model's files, for a network that blocks Hugging Face. */
+    if (await modelMirror.route(req, res, url, { send, clientIp })) return;
   }
 
   if (seg[0] === "topology" && !seg[1] && method === "GET") {
@@ -2052,6 +2055,7 @@ server.listen(config.port, config.host, () => {
   const ta = tinyAi.init({ config: config.tinyAi, log: log, upstream: upstreamRequest,
     whoami: (r) => messaging.whoami(r) });
   if (ta.enabled) log("INFO", "tiny-ai: " + ta.models + " model(s) for members");
+  modelMirror.init({ dataDir: DATA_DIR, config: config.modelMirror, log: log, engineFiles: tinyAi.enginePaths });
 
   const rn = runner.init({ dataDir: DATA_DIR, config: config.runner || {}, log: log,
     whoami: (r) => messaging.whoami(r) });

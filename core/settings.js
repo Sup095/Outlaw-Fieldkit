@@ -23,6 +23,7 @@
     wallpaper: null,
     bootFlavor: true,
     clock24: true,           // the taskbar clock: 24-hour, or 12 with AM/PM
+    updateCheckAtStart: true, // look for a newer signed release at start, and say so (modules/updater.js)
     relayUrl: "",
     relayUrls: [],           // other addresses for a relay, tried when relayUrl does not answer (core/relay-choice.js)
     relayAskAtBoot: true,    // show the address and offer to change it before connecting

@@ -519,7 +519,8 @@
             document.body.classList.toggle("crt", on);
           }),
           toggle("SOUND", "sound", "terminal beeps, off by default"),
-          toggle("BOOT FLAVOUR TEXT", "bootFlavor", "random line on each launch")
+          toggle("BOOT FLAVOUR TEXT", "bootFlavor", "random line on each launch"),
+          toggle("TELL ME ABOUT UPDATES", "updateCheckAtStart", "at start, a popup when a newer signed release is out")
         ]),
         ui.panel("PERFORMANCE", [
           el("label", { class: "fk-field" }, [

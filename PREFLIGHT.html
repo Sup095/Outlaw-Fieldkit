@@ -196,7 +196,7 @@ var driveChecked = false, relayChecked = false, ranAuto = false;
 var manifestInfo = null;
 /* The FieldKit version this page was written for; a test keeps it
    equal to core/kernel.js, so it is updated with every release. */
-var FOR_VERSION = "0.7.0";
+var FOR_VERSION = "0.7.1";
 /* Next to the drive's files (FIELDKIT.html, core/...), or next to the
    downloaded single-file builds. Decided by whether core/kernel.js loads. */
 var layout = "unknown";
@@ -961,6 +961,18 @@ async function checkServices(G, base) {
   } else {
     rec(G, "server AI models", "INFO", t.v ? "none on this relay" : "this relay does not offer them");
   }
+  /* GET A TINY MODEL (0.7.1) falls back to the relay where a network
+     blocks Hugging Face. Asked of the relay only, like everything here:
+     the small file list of the smallest model, through /ai/mirror. */
+  var via = await guard(15000, async function () {
+    var res = await fetch(base + "/ai/mirror?u=" + encodeURIComponent("https://huggingface.co/api/models/mlc-ai/SmolLM2-135M-Instruct-q0f16-MLC"),
+      { cache: "no-store", mode: "cors" });
+    return res.status;
+  });
+  rec(G, "tiny models through the relay", via.v === 200 ? "PASS" : "INFO",
+    via.v === 200 ? "if this network blocks Hugging Face, GET A TINY MODEL comes through the relay instead (slower)"
+      : via.v === 404 ? "this relay predates it; GET A TINY MODEL needs Hugging Face to be open here"
+        : "the relay could not pass a model on (" + (via.v || errStr(via.e)) + "); a model folder on the drive still works (MODELS.md)");
   var w = await guard(9000, function () {
     return new Promise(function (resolve, reject) {
       var ws;

@@ -1158,7 +1158,7 @@
 
     /* A site a list refused can be wrong. One click tells the admins. */
     function showBlocked(m) {
-      if (!m.host || !/^(ads|adult|malware)$/.test(m.kind || "")) return;
+      if (!m.host || !/^(ads|adult|malware|filtered)$/.test(m.kind || "")) return;
       var msg = FieldKit.service("messages");
       if (!msg || !msg.adminApi || !msg.signedIn || !msg.signedIn()) return;
       ui.clear(notes);

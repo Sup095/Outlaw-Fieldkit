@@ -68,6 +68,19 @@ const CORE = [
   "hotjar.com", "mixpanel.com", "segment.io", "zemanta.com", "mgid.com", "propellerads.com", "popads.net", "exoclick.com"
 ];
 
+/* Never refused, by any list or by the DNS filter (guard.js asks
+   allows()). Each one only carries a big, ordinary site's own pages,
+   video, pictures or code, so refusing it never stops an ad: it only
+   breaks the site. A list that one day lists one of these by mistake
+   would break YouTube for everybody until an admin noticed; this
+   makes that impossible. Everything under each name is kept too. */
+const KEEP = [
+  "googlevideo.com", "ytimg.com", "ggpht.com", "www.youtube.com", "m.youtube.com", "youtubei.googleapis.com",
+  "youtube-nocookie.com", "gstatic.com", "wikipedia.org", "wikimedia.org", "github.com", "githubusercontent.com",
+  "githubassets.com", "jsdelivr.net", "cdnjs.cloudflare.com", "unpkg.com", "huggingface.co", "hf.co"
+];
+const KEEP_SET = new Set(KEEP);
+
 const WHY = {
   ads: "an ad or tracker",
   malware: "on a list of malware and scam sites",
@@ -205,15 +218,28 @@ class Blocklist {
     this.allow = next;
   }
 
+  /* An admin's ALLOW or KEEP covers this host, or a name it is under. */
+  allows(hostname) {
+    const h = String(hostname || "").toLowerCase().replace(/\.$/, "");
+    if (!h) return false;
+    for (let w = h; ; w = w.slice(w.indexOf(".") + 1)) {
+      if (this.allow.has(w) || KEEP_SET.has(w)) return true;
+      if (w.indexOf(".") < 0) return false;
+    }
+  }
+
+  /* A refusal that was not a list's (the DNS filter's), kept with the
+     rest so ADMIN CENTER shows it and an admin can ALLOW it. */
+  noteRefused(hostname, cat) {
+    this.recent.unshift({ host: String(hostname).slice(0, 120), cat: cat || "filter", at: this.now() });
+    if (this.recent.length > RECENT_MAX) this.recent.pop();
+  }
+
   /* What a host is, without counting it. null if it is not blocked. */
   check(hostname) {
     if (!this.on) return null;
     let h = String(hostname || "").toLowerCase().replace(/\.$/, "");
-    if (!h) return null;
-    for (let w = h; ; w = w.slice(w.indexOf(".") + 1)) {
-      if (this.allow.has(w)) return null;
-      if (w.indexOf(".") < 0) break;
-    }
+    if (!h || this.allows(h)) return null;
     for (;;) {
       const c = this.table.get(h);
       if (c) return { cat: NAMES[c], why: WHY[NAMES[c]], name: h };
@@ -336,4 +362,4 @@ class Blocklist {
   }
 }
 
-module.exports = { Blocklist, CORE, SOURCES, nameIn, Table, ALLOW_MAX };
+module.exports = { Blocklist, CORE, SOURCES, KEEP, nameIn, Table, ALLOW_MAX };

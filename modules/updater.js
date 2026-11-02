@@ -38,13 +38,20 @@
      the release notes; GitHub is asked first, the relay second. */
   var DEFAULT_REPO = "Sup095/Outlaw-Fieldkit";
 
+  /* The window's settings, or before it has opened (the check at
+     start) the same settings straight from the kernel. */
+  function setting(k) {
+    var st = ctx ? ctx.settings : FieldKit.service("settings");
+    return st ? st.get(k) : null;
+  }
+
   function relayBase() {
-    var u = String(ctx.settings.get("relayUrl") || "").trim();
+    var u = String(setting("relayUrl") || "").trim();
     return u ? u.replace(/\/+$/, "") : "";
   }
 
   function repo() {
-    var r = String(ctx.settings.get("updateRepo") || DEFAULT_REPO).trim();
+    var r = String(setting("updateRepo") || DEFAULT_REPO).trim();
     return /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(r) ? r : DEFAULT_REPO;
   }
 
@@ -208,7 +215,7 @@
 
   /* ---- the flow ---------------------------------------------------- */
   function currentVersion() {
-    return (ctx.version || FieldKit.VERSION || "unknown");
+    return ((ctx && ctx.version) || FieldKit.VERSION || "unknown");
   }
 
   /* Compares dotted numeric versions. Anything unparseable is
@@ -450,6 +457,90 @@
     nodes.root.appendChild(nodes.note);
   }
 
+  /* ---- at start: say so when there is something newer ----------------
+     So people know when to update without opening UPDATE to find out.
+     The same rule as the window: only a release whose signature has
+     been checked here is announced, so a relay cannot put up a false
+     "update available" any more than it can serve a false update.
+
+     The relay is asked first, every start: it is ours, and cheap.
+     GitHub only when there is no relay or it did not answer, and at
+     most every six hours, because a school's whole building shares
+     one address and GitHub allows that address 60 questions an hour. */
+  var SKIP_KEY = "fieldkit.update.skip";
+  var GH_KEY = "fieldkit.update.githubAt";
+  var GH_EVERY_MS = 6 * 3600000;
+  var START_DELAY_MS = 4000;
+
+  function store(k, v) {
+    try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { return null; }
+    return null;
+  }
+
+  /* Whether a release is worth a popup: newer than this copy, and not
+     the one somebody said to skip. Unparseable versions are not. */
+  function announceable(version, mine, skipped) {
+    if (!version || version === skipped) return false;
+    return compareVersions(mine, version) === -1;
+  }
+
+  async function newestVerified() {
+    if (relayBase()) {
+      try { return (await fromRelay()).rel; } catch (e) { /* GitHub below */ }
+    }
+    var last = Number(store(GH_KEY)) || 0;
+    if (Date.now() - last < GH_EVERY_MS) return null;
+    store(GH_KEY, String(Date.now()));
+    try { return (await fromGithub()).rel; } catch (e) { return null; }
+  }
+
+  var popNode = null;
+  function closePopup() {
+    if (popNode && popNode.parentNode) popNode.parentNode.removeChild(popNode);
+    popNode = null;
+  }
+
+  function popup(rel) {
+    var u = FieldKit.service("ui"), shell = FieldKit.service("shell");
+    var desk = shell && shell.desktop && shell.desktop();
+    if (!u || !desk) return null;
+    injectCSS();
+    closePopup();
+    var name = FieldKit.service("boot") && FieldKit.service("boot").OUTPOST ? "OUTPOST" : "FIELDKIT";
+    var notes = String(rel.notes || "").trim();
+    if (notes.length > 320) notes = notes.slice(0, 317).replace(/\s+\S*$/, "") + "…";
+    var box = u.el("div", { id: "up-pop", class: "up-pop", role: "dialog", "aria-label": "update available" }, [
+      u.el("div", { class: "up-pop-h", text: "UPDATE AVAILABLE" }),
+      u.el("div", { class: "up-pop-v", text: name + " " + rel.version + " is out. You have " + currentVersion() + "." }),
+      notes ? u.el("div", { class: "up-pop-n", text: notes }) : null,
+      u.el("div", { class: "up-pop-p", text: "Signature checked. UPDATE downloads it; then copy it over the old file on your drive." }),
+      u.el("div", { class: "up-pop-b" }, [
+        u.button("GET IT", function () { closePopup(); if (shell.open) shell.open("updater"); }, { primary: true }),
+        u.button("LATER", closePopup),
+        u.button("SKIP THIS VERSION", function () { store(SKIP_KEY, rel.version); closePopup(); })
+      ])
+    ].filter(Boolean));
+    desk.appendChild(box);
+    popNode = box;
+    return box;
+  }
+
+  async function startCheck() {
+    if (setting("updateCheckAtStart") === false || typeof fetch !== "function") return null;
+    var rel = await newestVerified();
+    if (!rel || !announceable(rel.version, currentVersion(), store(SKIP_KEY))) return null;
+    /* Also in ◉, for whoever closed the popup without reading it. */
+    var u = FieldKit.service("ui");
+    if (u && u.toast) u.toast("UPDATE AVAILABLE — " + rel.version, "ok");
+    return popup(rel);
+  }
+
+  FieldKit.on("boot:done", function () {
+    setTimeout(function () { startCheck().catch(function () { /* says nothing: there is no news */ }); }, START_DELAY_MS);
+  });
+
+  FieldKit.provide("updateCheck", { startCheck: startCheck, announceable: announceable, popup: popup, close: closePopup });
+
   /* ---- selfcheck ------------------------------------------------------ */
   function selfcheck() {
     return [
@@ -521,6 +612,17 @@
         return "numeric compare, and it says so when it cannot tell";
       } },
 
+      { name: "AT START, ONLY A NEWER RELEASE IS ANNOUNCED", critical: false, run: async function () {
+        if (!announceable("0.8.0", "0.7.0", null)) throw new Error("a newer release would not be announced");
+        if (announceable("0.7.0", "0.7.0", null)) throw new Error("the version already running would be announced");
+        if (announceable("0.6.0", "0.7.0", null)) throw new Error("an older release would be announced");
+        if (announceable("0.8.0", "0.7.0", "0.8.0")) throw new Error("a skipped release would be announced");
+        if (String(startCheck).indexOf("newestVerified") < 0 || String(newestVerified).indexOf("fromRelay") < 0) {
+          throw new Error("the popup does not come from a checked release");
+        }
+        return "newer, verified and not skipped, or nothing";
+      } },
+
       { name: "NOTHING IS SAVED BEFORE IT IS VERIFIED", critical: true, run: async function () {
         var src = String(download) + String(fetchFile);
         var save = src.indexOf("ui.download");
@@ -587,7 +689,18 @@
       ".up-file-h{color:var(--fg-dimmer)}",
       ".up-file.mine{border-color:var(--accent)}",
       ".up-okbox{border:1px solid var(--pass);padding:10px;font-size:10px;color:var(--pass);line-height:1.6}",
-      ".up-root{overflow:auto;height:100%}"
+      ".up-root{overflow:auto;height:100%}",
+      ".up-pop{position:absolute;right:16px;bottom:52px;z-index:7200;width:min(380px,calc(100% - 32px));",
+      "  background:var(--bg);border:1px solid var(--accent);box-shadow:0 8px 28px rgba(0,0,0,.45);",
+      "  padding:14px;display:flex;flex-direction:column;gap:8px;animation:up-in .18s ease-out}",
+      ".up-pop-h{font-size:12px;letter-spacing:.2em;color:var(--accent)}",
+      ".up-pop-v{font-size:12px;color:var(--fg)}",
+      ".up-pop-n{font-size:10px;color:var(--fg-dim);line-height:1.6;border-left:2px solid var(--line2);padding-left:8px;",
+      "  max-height:120px;overflow:auto;white-space:pre-line}",
+      ".up-pop-p{font-size:10px;color:var(--fg-dimmer);line-height:1.5}",
+      ".up-pop-b{display:flex;gap:6px;flex-wrap:wrap}",
+      "@keyframes up-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}",
+      "@media (prefers-reduced-motion:reduce){.up-pop{animation:none}}"
     ].join("\n");
     document.head.appendChild(s);
   }
