@@ -148,10 +148,19 @@
       title: "BROWSER",
       tag: "apps",
       body: [
-        "A real web browser running on the server, shown in this window as video. " +
-        "Websites see the server, not your computer, and your sign-ins stay on the server.",
-        "Type an address or a search in the bar. Sign in to MESSAGES and it remembers your " +
-        "sign-ins; as a guest it keeps nothing.",
+        "BROWSER has two modes, and picks the lighter one by itself when the relay has it.",
+        { rows: [
+          ["BROWSER · LIGHT", "pages run in your own browser, through FieldKit's lens server"],
+          ["FULL MODE", "a real browser on the server, shown as video; YouTube plays"]
+        ] },
+        "In the lighter mode, the address bar and back and forward are in the page. ★ keeps a " +
+        "bookmark, PLACES opens bookmarks and history, and TAB opens the page in a tab of its " +
+        "own. YouTube opens in FULL MODE by itself: it will not play for a rented server. " +
+        "Every site in the lighter mode shares one origin, so do not sign in to anything " +
+        "private there; use FULL MODE. If the lighter mode does not load on a network, " +
+        "BROWSER moves to FULL MODE by itself. FULL MODE is remembered; LIGHT MODE under ⋯ goes back.",
+        "In FULL MODE, type an address or a search in the bar. Sign in to MESSAGES and it " +
+        "remembers your sign-ins; as a guest it keeps nothing.",
         "A new tab shows your bookmarks and the sites you were last on. ↩TAB appears once " +
         "you have closed a tab, and opens it again. PLACES lists them all. In FIELDKIT they " +
         "are encrypted in your vault. OUTPOST has no vault, so there they sit on this " +
@@ -333,7 +342,7 @@
         "One page that says whether everything is all right. It refreshes itself while it " +
         "is open, and only admins can see it.",
         { rows: [
-          ["SERVICES", "the relay, BROWSER, RUNNER, updates, and the upload"],
+          ["SERVICES", "the relay, BROWSER and its lighter mode, RUNNER, updates, the upload"],
           ["PEOPLE", "approve who is waiting, and end a browser session"],
           ["TELL EVERYONE", "a line at the top for everyone, for as long as you choose"],
           ["BLOCKING", "what was refused, reports of wrong blocks, and the allow list"],

@@ -193,10 +193,25 @@ FieldKit.provide("transportRelay", {
     const body = file
       .slice(file.indexOf("(function (FieldKit)"), file.indexOf("function selfcheck()"))
       .replace(/\/\*[\s\S]*?\*\//g, "");
+    /* The light mode talks to its page by postMessage, and checks a
+       message came from that frame: contentWindow for those two, never
+       to read anything. */
     ok("and nothing reaches into the frame's document",
-      !/contentWindow|contentDocument/.test(body));
+      !/contentDocument|contentWindow\s*\.\s*(?!postMessage\b)\w/.test(body),
+      (body.match(/.{0,40}(contentDocument|contentWindow\s*\.\s*(?!postMessage\b)\w).{0,20}/) || [])[0]);
     ok("nor builds a page url, which is the toolbar's job now",
       !/\/browse\/p\//.test(body), (body.match(/.{0,40}\/browse\/p\/.{0,40}/) || [])[0]);
+
+    /* The light mode (lens): what it may and may not do. */
+    const lensPart = body.slice(body.indexOf("function renderLens"), body.indexOf("function render(host)"));
+    ok("light mode: messages go only to the lens page's origin", /postMessage\(m, origin\)/.test(lensPart) && !/postMessage\([^)]*"\*"/.test(lensPart));
+    ok("…and only messages from that frame and that origin are heard", /e\.source !== frame\.contentWindow \|\| e\.origin !== origin/.test(lensPart));
+    ok("…its frame cannot move FieldKit (no allow-top-navigation)", /sandbox: SANDBOX\.concat\(\["allow-downloads"\]\)/.test(lensPart) && !/top-navigation/.test(lensPart));
+    ok("…the pass goes in the fragment, never the query", /lens\.page \+ "#p=" \+ encodeURIComponent\(lens\.pass\)/.test(lensPart) && !/\?p=|[?&]pass=/.test(lensPart));
+    ok("…an expired pass is renewed, and a stopped lens falls back to the full mode", /m\.t === "expired"/.test(lensPart) && /renderLive\(host, liveInfo, view\.url\)/.test(lensPart));
+    ok("…a site lens cannot play goes to the full mode at that address", /m\.t === "stream"/.test(lensPart));
+    ok("…the listener goes when the panel does", /removeEventListener\("message", lensView\.onMsg\)/.test(body) && /closeLive\(\);\s*closeLens\(\);/.test(body));
+    ok("FULL MODE is remembered, and LIGHT MODE goes back", /setModePref\("full"\)/.test(body) && /setModePref\("light"\)/.test(body));
 
     /* What IS here: starting over, and the engine diagnostic, both
        of which are about the session rather than about a page. */

@@ -108,7 +108,12 @@ covers them all.
 **MESSAGES.** End-to-end encrypted chat with the people on your relay. New
 accounts wait for a moderator's approval. Tiers: guest, member, admin.
 
-**BROWSER.** A real Chromium running on the relay, streamed to the panel as
+**BROWSER** has two modes. The **lighter mode** (0.8.0, when the relay has a
+[lens](lens/README.md) server set up) runs each page in your own browser through
+[Scramjet](https://github.com/MercuryWorkshop/scramjet), and only its bytes pass
+through a small rented server that applies the same block lists. A page costs
+what it weighs. YouTube, which will not play for a rented server, and anything
+you sign in to go to the **full mode**: a real Chromium running on the relay, streamed to the panel as
 H.264 video and decoded in hardware with WebCodecs, falling back to pictures
 when video is not available. It has:
 - tabs, back/forward, find, zoom, and copy and paste both ways;
@@ -283,6 +288,7 @@ Everything after the relay is optional, and each step works without the next.
 | 4. Streamed browser | BROWSER | the Docker image, [`relay/BROWSER.md`](relay/BROWSER.md) |
 | 5. Run server | RUNNER, on a second Linux machine | `runnerd/setup.sh`, [below](#running-your-own-run-server-runner) |
 | 6. Small AI models | ASK for your members | `sh runnerd/tiny-ai.sh`, [below](#small-ai-models) |
+| Optional: a lens server | BROWSER's lighter mode, off your home connection | a small rented Linux server, `lens/setup.sh`, [`lens/README.md`](lens/README.md) |
 | Optional: a graphics card | smooth games in BROWSER | `sh runnerd/browser-card.sh`, [`relay/BROWSER.md`](relay/BROWSER.md#a-graphics-card) |
 | 7. A big AI model | ASK with your own PC | LM Studio and `aiTargets`, [`MODELS.md`](MODELS.md) |
 | 8. Accounts | who may use what | `messaging` in the config: `moderators`, `requireApproval` |
@@ -383,6 +389,7 @@ fetcher, the GitHub snapshot tool and the WebLLM bundler.
 | `core/` | The kernel, UI, desktop, crypto, store, sync, messaging crypto, CritterScript |
 | `modules/` | One file per app |
 | `relay/` | The relay server, the streamed browser, its Docker image |
+| `lens/` | BROWSER's lighter mode: the Wisp server for a rented machine, its page, its image |
 | `runnerd/` | The run server, its sandbox images, `setup.sh` |
 | `tools/` | Build and release helpers |
 | `tests/` | The test suite (`node tests/run.js`) |
@@ -408,23 +415,20 @@ page, drafts in MESSAGES, RUN AGAIN, text size, contrast and less motion. A
 read-only disk for the graphics-card browser helper. `/probe`, a page that says
 what a device allows.
 
-**Next: a lighter BROWSER ("lens").** Today every page runs on the server and is
-sent as video, about 11 MB a minute while it moves. Lens would run the page in
-your own browser instead, through a proxy, so a page costs what it weighs and
-nothing more while you read it. It would be a second mode beside the streamed
-browser, which stays, both as the fallback and for anyone who prefers it.
-- *Tested:* [Scramjet](https://github.com/MercuryWorkshop/scramjet) with a Wisp
-  connection opened 15 of 20 sites, including CrazyGames, Poki, Krunker,
-  Scratch, YouTube and sign-in pages, at 1-19 MB a page. Google search, Reddit
-  and Unsplash refused it.
-- *Built in it:* the same block lists, checked as each connection opens; private
-  addresses refused; a spending cap on its own meter; a notice to everyone when
-  it falls back to the streamed browser, which clears itself when it is back.
-- *Waits on:* whether school-managed Chromebooks allow the service worker it
-  needs (`/probe` answers that), and a small rented server near Austin with a
-  monthly ceiling, so it does not use the home connection.
-- *Then:* a cache for pages you open twice, which the test showed would roughly
-  halve what a second visit costs.
+**Done in 0.8.0: a lighter BROWSER ("lens").** The full mode runs every page on
+the server and sends it as video, about 11 MB a minute while it moves. Lens
+runs the page in your own browser, through a small rented server, so a page
+costs what it weighs and nothing more while you read it. The streamed browser
+stays, as the fallback and for what lens cannot do.
+- *Built in it:* the same block lists, checked as each connection opens;
+  private addresses refused; a monthly ceiling on its own meter, and the
+  provider's own count; passes signed by the relay; a notice to everyone when
+  it falls back, which clears itself.
+- *What it cannot do:* YouTube refuses a rented server's address, so it opens
+  in the full mode by itself. All sites in it share one origin, so sign-ins
+  belong in the full mode.
+- *Next:* a cache for pages you open twice, which the test showed would
+  roughly halve what a second visit costs.
 
 **After that.**
 - Sound in BROWSER without one Chromium per session (it is the biggest memory

@@ -226,6 +226,17 @@
           (helpers.length ? ", helpers: " + helpers.filter(function (h) { return h.up; }).length + " of " + helpers.length + " up" +
             (helpers.some(function (h) { return h.up && h.gpu; }) ? ", with a graphics card" : "") : "");
       }),
+      /* The lighter mode: what the relay says, then whether THIS network
+         reaches the lens server, which a school's filter may not. */
+      check("LIGHTER BROWSER", false, async function () {
+        var b = await getJson(relayBase() + "/browser/status");
+        if (!b || !b.lens) throw new Error("SKIPPED — not set up on this relay");
+        if (!b.lens.usable) throw new Error("not in use: " + b.lens.why + " (BROWSER uses the streamed one meanwhile)");
+        var s = null;
+        try { s = await getJson(String(b.lens.page).replace(/\/+$/, "") + "/lens/status"); } catch (e) { s = null; }
+        if (!s || !s.up) throw new Error("the relay can use it, but this network did not reach " + b.lens.page + " — BROWSER's FULL MODE still works here");
+        return "in use, and this network reaches it" + (s.state === "near" ? "; close to this month's allowance" : "");
+      }),
       check("RUNNER", false, async function () {
         var r = await getJson(relayBase() + "/runner/status");
         if (!r || !r.enabled) throw new Error("SKIPPED — RUNNER is not on this relay");

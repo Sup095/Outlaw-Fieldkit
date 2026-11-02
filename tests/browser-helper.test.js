@@ -232,6 +232,8 @@ const json = (r) => { try { return JSON.parse(r.body.toString("utf8")); } catch 
       u && u.helpers && u.helpers[0].usage && u.helpers[0].usage.sessions.some((s) => s.who === "msg:bob"), JSON.stringify(u && u.helpers));
     ok("the status says how many helpers are up", json(await get(rPort, "/browser/status")).helpers[0].up === true);
     ok("the helper's public key is public", /BEGIN PUBLIC KEY/.test(json(await get(rPort, "/browser/helper-key")).key));
+    const allow = json(await get(rPort, "/browser/allow"));
+    ok("the sites admins allowed are public too, for the lens server (names only)", Array.isArray(allow.allow) && Object.keys(allow).join() === "allow");
     await shut(again);
   }
 

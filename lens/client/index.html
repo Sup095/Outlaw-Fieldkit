@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>FieldKit BROWSER</title>
+<link rel="stylesheet" href="lens.css">
+<script src="/v/scramjet-1.1.0-fk1/scramjet.all.js"></script>
+<script src="/v/bare-mux-2.1.9/index.js"></script>
+<script src="lens.js" defer></script>
+</head>
+<body>
+<div id="bar">
+  <button id="back" type="button" title="back" aria-label="back">◀</button>
+  <button id="fwd" type="button" title="forward" aria-label="forward">▶</button>
+  <button id="reload" type="button" title="reload" aria-label="reload">⟳</button>
+  <button id="home" type="button" title="start page" aria-label="start page">⌂</button>
+  <form id="go-form" autocomplete="off">
+    <input id="addr" type="text" spellcheck="false" placeholder="an address, or words to search for" aria-label="address">
+  </form>
+  <button id="go" type="button">GO</button>
+</div>
+<div id="note" role="status" hidden></div>
+<div id="view">
+  <div id="start">
+    <div class="h">FIELDKIT BROWSER</div>
+    <div class="p">Pages run here, in your own browser, and only their bytes come through FieldKit's server.
+      Ads, trackers, malware and adult sites are blocked for everyone.</div>
+    <form id="search-form" autocomplete="off">
+      <input id="search" type="text" spellcheck="false" placeholder="search, or type an address">
+    </form>
+    <div id="state" class="p dim">Starting…</div>
+    <div class="foot">Built on <a href="https://github.com/MercuryWorkshop/scramjet" target="_blank" rel="noopener">Scramjet</a> (MIT, with one fix of ours to how it waits on cookies),
+      <a href="https://github.com/MercuryWorkshop/bare-mux" target="_blank" rel="noopener">bare-mux</a> and
+      <a href="https://github.com/MercuryWorkshop/libcurl-transport" target="_blank" rel="noopener">libcurl-transport</a>
+      (AGPL-3.0) with <a href="https://github.com/ading2210/libcurl.js" target="_blank" rel="noopener">libcurl.js</a>
+      (LGPL-3.0), both unmodified; their source is at those links.</div>
+  </div>
+</div>
+</body>
+</html>

@@ -65,16 +65,22 @@ const COST = { cpu: 10, mem: 6, gpu: 8 };
 
 const b64u = (b) => Buffer.from(b).toString("base64url");
 
-function sign(privateKey, claims, now) {
-  const body = b64u(JSON.stringify(Object.assign({ v: 1, aud: AUDIENCE, exp: (now || Date.now()) + PASS_MS,
+/* opts: { aud, life } for a pass meant for something other than a
+   browser helper (lens uses the same key and format). */
+function sign(privateKey, claims, now, opts) {
+  const aud = (opts && opts.aud) || AUDIENCE;
+  const life = (opts && opts.life) || PASS_MS;
+  const body = b64u(JSON.stringify(Object.assign({ v: 1, aud, exp: (now || Date.now()) + life,
     n: crypto.randomBytes(12).toString("hex") }, claims)));
   return body + "." + b64u(crypto.sign(null, Buffer.from(body), privateKey));
 }
 
 /* { ok, claims } or { ok: false, why }. Never throws: the text came
    from the network. */
-function verify(publicKey, text, now) {
+function verify(publicKey, text, now, opts) {
   now = now || Date.now();
+  const aud = (opts && opts.aud) || AUDIENCE;
+  const life = (opts && opts.life) || PASS_MS;
   const s = String(text || "");
   const parts = s.split(".");
   if (s.length > 2048 || parts.length !== 2 || !parts[0] || !parts[1]) return { ok: false, why: "not a pass" };
@@ -84,9 +90,9 @@ function verify(publicKey, text, now) {
   if (!good) return { ok: false, why: "the signature does not match the relay's key" };
   let c;
   try { c = JSON.parse(Buffer.from(parts[0], "base64url").toString("utf8")); } catch (e) { return { ok: false, why: "not a pass" }; }
-  if (!c || c.v !== 1 || c.aud !== AUDIENCE) return { ok: false, why: "that pass is for something else" };
+  if (!c || c.v !== 1 || c.aud !== aud) return { ok: false, why: "that pass is for something else" };
   if (typeof c.exp !== "number" || c.exp <= now) return { ok: false, why: "that pass has expired" };
-  if (c.exp - now > PASS_MS * 2) return { ok: false, why: "that pass claims to last too long" };
+  if (c.exp - now > life * 2) return { ok: false, why: "that pass claims to last too long" };
   if (typeof c.n !== "string" || c.n.length < 16) return { ok: false, why: "no nonce" };
   if (typeof c.what !== "string") return { ok: false, why: "no purpose" };
   return { ok: true, claims: c };
@@ -361,4 +367,4 @@ class Overflow {
   }
 }
 
-module.exports = { Overflow, sign, verify, Spent, parseUrl, AUDIENCE, PASS_MS };
+module.exports = { Overflow, sign, verify, Spent, parseUrl, loadKeys, AUDIENCE, PASS_MS };

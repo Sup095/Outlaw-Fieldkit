@@ -1,0 +1,17 @@
+# FieldKit lens: Caddy in front of the lens server. setup.sh puts the
+# real name where LENS_HOST is and installs this as /etc/caddy/Caddyfile.
+#
+# Caddy gets and renews the certificate (Let's Encrypt; ports 80 and
+# 443 must be open). It replaces any X-Forwarded-For a visitor sends
+# with their real address, which is the one lens/server.js reads
+# (trustProxy "loopback"). No access log: nothing about who opened
+# what is kept on this machine.
+
+LENS_HOST {
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:8080
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
+}

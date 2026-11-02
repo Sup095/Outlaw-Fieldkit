@@ -76,6 +76,8 @@ let fairTimer = null;
 /* overflow.js: helpers on Bastion 2 that take new sessions when this
    relay is full. null when none are set, and on a helper itself. */
 let overflow = null;
+/* lens-link.js: the lighter browser on a rented server, when set up. */
+let lens = null;
 /* On a helper, the relay says which video step the house is on. */
 let houseStep = 0;
 const viewers = new Set();        /* every open panel, to step its video down or up */
@@ -108,6 +110,7 @@ function init(opts) {
      is let in if there is room, and everyone waiting hears where they are. */
   fair = opts.fairness || null;
   overflow = opts.overflow || null;
+  lens = opts.lens || null;
   houseStep = 0;
   if (fairTimer) clearInterval(fairTimer);
   fairTimer = null;
@@ -225,15 +228,28 @@ async function route(req, res, url, helpers) {
   /* status is readable by anyone who can already talk to the relay:
      it says whether the thing is up, not what anyone is doing. */
   if (what === "status" && method === "GET") {
-    send(res, 200, overflow ? Object.assign(engine.status(), { helpers: overflow.view() }) : engine.status());
+    const st = overflow ? Object.assign(engine.status(), { helpers: overflow.view() }) : engine.status();
+    /* The lighter mode: whether BROWSER will use it, and its page's
+       address, which is public anyway (it is in every panel's frame), so
+       DIAGNOSTICS can ask whether this network reaches it. */
+    if (lens && lens.url()) st.lens = { usable: lens.usable(), why: lens.why(), page: lens.url() + "/" };
+    send(res, 200, st);
     return true;
   }
 
   /* The public half of the key passes to helpers are signed with
      (overflow.js). Public, like /runner/pubkey: a helper fetches it
      by itself. */
-  if (what === "helper-key" && method === "GET" && overflow) {
-    send(res, 200, { key: overflow.keys.publicPem });
+  if (what === "helper-key" && method === "GET" && (overflow || (lens && lens.keys))) {
+    send(res, 200, { key: (overflow ? overflow.keys : lens.keys).publicPem });
+    return true;
+  }
+
+  /* The sites admins have allowed (admin.js), for the lens server, which
+     knows no accounts and asks for them every few minutes so an ALLOW
+     reaches it too. Site names only, as ADMIN CENTER lists them. */
+  if (what === "allow" && method === "GET") {
+    send(res, 200, { allow: engine.lists.view().allow });
     return true;
   }
 
@@ -246,6 +262,14 @@ async function route(req, res, url, helpers) {
   const who = authorise(req);
   if (!who) {
     send(res, 401, { error: "sign in to MESSAGES, or unlock the vault, to use the browser" });
+    return true;
+  }
+
+  /* Which browser this person's panel should use: lens, with a pass
+     and its address, or the streamed one and why. */
+  if (what === "lens" && method === "POST") {
+    const tier = helpers.tierOf ? helpers.tierOf(req) : (who === "vault" ? "admin" : "guest");
+    send(res, 200, lens ? lens.offer(who, tier) : { mode: "stream", why: "not set up" });
     return true;
   }
 

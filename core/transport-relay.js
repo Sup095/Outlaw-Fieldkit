@@ -98,6 +98,12 @@
       return call("POST", "/browser/ticket", undefined, { timeout: 20000 });
     },
 
+    /* And the lighter one (lens, SIMPLIFY_PLAN.md §11): which mode to
+       use, and for lens a 12-hour pass that only lens accepts. */
+    async lensPass() {
+      return call("POST", "/browser/lens", undefined, { timeout: 8000 });
+    },
+
     /* What the streamed browser costs, for its admin (the vault holder). */
     async browserUsage() {
       return call("GET", "/browser/usage");

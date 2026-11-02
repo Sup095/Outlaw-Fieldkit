@@ -232,6 +232,28 @@ async function call(method, p, body, as) {
     ok("is a clear error, not a crash", r.status === 502 && /timed out/.test(r.out.error));
   }
 
+  section("the lens address");
+  {
+    const { LensLink } = require("../relay/lens-link");
+    const crypto = require("crypto");
+    const p = crypto.generateKeyPairSync("ed25519");
+    const lens = new LensLink({ keys: { privateKey: p.privateKey, publicPem: "" }, everyMs: 3600000,
+      fetch: async () => ({ ok: true, json: async () => ({ up: true, state: "ok", key: true }) }) });
+    admin.init(Object.assign(parts(), { lens }));
+    ok("a member cannot set it", (await call("POST", "/admin/lens", { url: "https://lens.example.com" }, "ana")).status === 403);
+    ok("an address that is not one is refused", (await call("POST", "/admin/lens", { url: "ftp://x" })).status === 400 && lens.url() === "");
+    const r = await call("POST", "/admin/lens", { url: "https://lens.example.com/" });
+    ok("an admin sets it, and lens starts using it", r.status === 200 && r.out.url === "https://lens.example.com" && lens.url() === "https://lens.example.com");
+    ok("…kept, so a restart remembers it", admin.savedLensUrl(TMP) === "https://lens.example.com");
+    const ov = await call("GET", "/admin/overview");
+    ok("the overview shows it and whether it can be used", ov.out.browser.lens && ov.out.browser.lens.url === "https://lens.example.com" && "usable" in ov.out.browser.lens);
+    ok("empty turns it off", (await call("POST", "/admin/lens", { url: "" })).status === 200 && lens.url() === "" && admin.savedLensUrl(TMP) === "");
+    lens.stop();
+    admin.init(parts());
+    ok("a relay with the browser off says so", (await call("POST", "/admin/lens", { url: "https://lens.example.com" })).status === 409);
+    ok("nothing saved: nothing read", admin.savedLensUrl(path.join(TMP, "nowhere")) === "");
+  }
+
   fs.rmSync(TMP, { recursive: true, force: true });
   console.log("\nRESULT  pass " + pass + "  fail " + fail);
   if (failures.length) { console.log("\nFAILURES:"); failures.forEach((f) => console.log("  - " + f)); }

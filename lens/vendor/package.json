@@ -1,0 +1,10 @@
+{
+  "name": "fieldkit-lens-vendor",
+  "private": true,
+  "description": "The client files lens serves, fetched when the lens image is built and never committed. Exact versions; package-lock.json holds their integrity hashes, and `npm ci` refuses anything that does not match.",
+  "dependencies": {
+    "@mercuryworkshop/bare-mux": "2.1.9",
+    "@mercuryworkshop/libcurl-transport": "1.5.2",
+    "@mercuryworkshop/scramjet": "1.1.0"
+  }
+}

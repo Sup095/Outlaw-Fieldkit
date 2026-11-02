@@ -11,6 +11,7 @@
      POST /admin/announce   { text, level, hours } or { end: true }
      POST /admin/block      { op: "allow"|"unallow"|"dismiss"|"refresh", host }
      POST /admin/session    { who }: end someone's browser session
+     POST /admin/lens       { url }: where the lighter browser is ("" = off)
      POST /admin/report     any account: "this was blocked by mistake"
 
    The overview also carries what /probe has heard (relay/probe.js).
@@ -73,7 +74,7 @@ function diskOf(dir) {
 }
 
 async function overview() {
-  const { engine, overflow, fairness, runner, messaging, updates, notices, dataDir } = parts;
+  const { engine, overflow, fairness, runner, messaging, updates, notices, dataDir, lens } = parts;
   const mem = process.memoryUsage();
   const fair = fairness ? fairness.meter : null;
   const browser = engine ? engine.status() : { enabled: false };
@@ -92,7 +93,7 @@ async function overview() {
     relay: { uptimeSec: Math.round((Date.now() - startedAt) / 1000), node: process.version,
       memMb: Math.round(mem.rss / 1048576), load: os.loadavg()[0], cpus: os.cpus().length,
       disk: diskOf(dataDir), upKbps: fair ? fair.upKbps || 0 : null, cpu: fair ? fair.cpu : null, mem: fair ? fair.mem : null },
-    browser: Object.assign(browser, { sessionList: sessions, helpers: helpers }),
+    browser: Object.assign(browser, { sessionList: sessions, helpers: helpers }, lens ? { lens: Object.assign(lens.view(), { url: lens.url() }) } : {}),
     upload: parts.upload ? parts.upload() : null,
     runner: run,
     people: messaging && messaging.counts ? messaging.counts() : null,
@@ -169,6 +170,18 @@ async function route(req, res, url, helpers) {
     return true;
   }
 
+  if (what === "lens" && method === "POST") {
+    const body = await readBody(req).catch(() => null);
+    const u = String((body && body.url) || "").trim();
+    if (!parts.lens) { send(res, 409, { error: "the browser is off on this relay, so there is nothing to point at lens" }); return true; }
+    if (!parts.lens.setUrl(u)) { send(res, 400, { error: "that is not an https address" }); return true; }
+    try { jf.write(path.join(parts.dataDir, "lens.json"), { url: parts.lens.url() }); }
+    catch (e) { parts.log("WARN", "admin: could not save lens.json: " + e.message); }
+    parts.log("INFO", "admin: lens address " + (u ? "set to " + parts.lens.url() : "cleared"));
+    send(res, 200, { ok: true, url: parts.lens.url() });
+    return true;
+  }
+
   if (what === "session" && method === "POST") {
     const body = await readBody(req).catch(() => null);
     const who = String((body && body.who) || "");
@@ -192,4 +205,10 @@ async function route(req, res, url, helpers) {
   return true;
 }
 
-module.exports = { init, route, note, overview, _internals: { events, hostFrom } };
+/* The lens address ADMIN CENTER saved, read at start (server.js). */
+function savedLensUrl(dataDir) {
+  const j = jf.read(path.join(dataDir, "lens.json"), {}) || {};
+  return typeof j.url === "string" ? j.url : "";
+}
+
+module.exports = { init, route, note, overview, savedLensUrl, _internals: { events, hostFrom } };

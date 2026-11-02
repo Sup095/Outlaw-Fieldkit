@@ -19,6 +19,7 @@
   var nodes = {};
   var data = null, people = null, problem = null, timer = null;
   var said = "";            /* the announcement being written; it survives a refresh */
+  var lensDraft = null;     /* the lens address being typed, likewise */
   var REFRESH_MS = 15000;
 
   function api(method, path, body) {
@@ -80,6 +81,7 @@
     if (d.browser && d.browser.enabled && !d.browser.available) bad.push("BROWSER is down");
     if (d.runner && d.runner.enabled && !d.runner.online) bad.push("RUNNER's server is offline");
     if ((d.browser.helpers || []).some(function (h) { return !h.up; })) bad.push("a browser helper is not answering");
+    if (d.browser.lens && d.browser.lens.url && !d.browser.lens.usable) bad.push("the lighter browser is not in use");
     if (d.relay.disk && d.relay.disk.freeGb < 2) bad.push("the relay's disk is nearly full");
     if (d.blocking && d.blocking.lists.some(function (l) { return l.why; })) bad.push("a block list did not refresh");
     var line = el("div", { class: "ac-top " + (bad.length ? "warn" : "ok"),
@@ -106,6 +108,7 @@
     (b.helpers || []).forEach(function (h) {
       kids.push(row(h.name.toUpperCase() + (h.gpu ? " (CARD)" : ""), h.up ? h.sessions + " sessions, room for " + h.free : "not answering", h.up ? "" : "bad"));
     });
+    if (b.enabled) kids = kids.concat(lensRows(b.lens));
     var r = d.runner;
     kids.push(row("RUNNER", !r || !r.enabled ? "switched off" : (r.online ? (r.jobs || 0) + " running, " + (r.sessions || 0) + " connected" : (r.why || "offline")), r && r.enabled && !r.online ? "bad" : ""));
     var u = d.updates;
@@ -116,6 +119,34 @@
       ui.button("COPY A REPORT", function () { ui.copy(report(d)); })
     ]));
     return box("SERVICES", kids);
+  }
+
+  /* The lighter browser (lens, on the rented server): whether BROWSER
+     can use it, how much of the month it has used, and its address,
+     which is set here and kept by the relay (POST /admin/lens). */
+  function lensRows(l) {
+    var kids = [];
+    var where = l && l.url ? l.url : "";
+    if (!where) kids.push(row("LIGHTER BROWSER", "not set up: everyone gets the streamed one"));
+    else kids.push(row("LIGHTER BROWSER", l.usable
+      ? "in use  ·  " + Math.round((l.fraction || 0) * 1000) / 10 + "% of the month  ·  " + (l.open || 0) + " connected" + (l.state === "near" ? "  ·  close to the allowance" : "")
+      : "not in use: " + (l.why || "unknown") + " (BROWSER uses the streamed one meanwhile)",
+      !l.usable ? "warn" : l.state === "near" ? "warn" : ""));
+    var addr = el("input", { class: "ac-in", type: "text", placeholder: "its address, such as https://lens.example.com", spellcheck: "false" });
+    addr.value = lensDraft === null ? where : lensDraft;
+    addr.addEventListener("input", function () { lensDraft = addr.value; });
+    kids.push(el("div", { class: "ac-line" }, [addr,
+      ui.button("SAVE", function () {
+        var u = addr.value.trim();
+        lensDraft = null;
+        if (u) act(function () { return api("POST", "/admin/lens", { url: u }); }, "LIGHTER BROWSER SET");
+      }),
+      where ? ui.button("TURN IT OFF", function () {
+        if (!window.confirm("Turn the lighter browser off? Everyone will use the streamed one.")) return;
+        act(function () { return api("POST", "/admin/lens", { url: "" }); }, "LIGHTER BROWSER OFF");
+      }) : null
+    ].filter(Boolean)));
+    return kids;
   }
 
   function peopleBox(d) {
@@ -259,6 +290,7 @@
       "up " + upFor(d.relay.uptimeSec) + ", " + d.relay.memMb + " MB, node " + d.relay.node,
       "browser: " + (d.browser.available ? "up" : "down") + ", " + (d.browser.sessions || 0) + " sessions, helpers " +
         (d.browser.helpers || []).map(function (h) { return h.name + (h.up ? " up" : " DOWN"); }).join(", "),
+      "lens: " + (!d.browser.lens || !d.browser.lens.url ? "not set up" : d.browser.lens.usable ? "in use, " + Math.round((d.browser.lens.fraction || 0) * 100) + "% of the month" : "not in use, " + d.browser.lens.why),
       "runner: " + (d.runner && d.runner.online ? "online" : "offline"),
       "updates: " + (d.updates ? d.updates.serving : "none"),
       "recent:",

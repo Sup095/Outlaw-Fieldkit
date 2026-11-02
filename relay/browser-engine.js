@@ -232,6 +232,19 @@ function findChromium(configured) {
   return { path: null, tried };
 }
 
+/* Downloads and uploads in flight live under the system's temp folder,
+   one folder per process. It goes when the process does, however it
+   ends, rather than piling up one per run (the tests left 86). */
+const FILE_DIRS = new Set();
+function leaveNoFiles(dir) {
+  if (!FILE_DIRS.size) {
+    process.once("exit", () => {
+      for (const d of FILE_DIRS) { try { fs.rmSync(d, { recursive: true, force: true }); } catch (e) {} }
+    });
+  }
+  FILE_DIRS.add(dir);
+}
+
 function siteOf(url) {
   try { return /^https?:/.test(url) ? new URL(url).hostname.toLowerCase() : ""; } catch (e) { return ""; }
 }
@@ -273,6 +286,7 @@ class Engine {
        and gone with the relay process. key -> { cookies, at } */
     this.kept = new Map();
     this.filesDir = path.join(os.tmpdir(), "fk-browser-files-" + process.pid);
+    leaveNoFiles(this.filesDir);
     this.startedAt = 0;
     this.lastFailure = null;
     this.sessions = new Map();          /* key -> session */

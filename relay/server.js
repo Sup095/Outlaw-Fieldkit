@@ -42,7 +42,8 @@ const { UpCap, Rate, paceFor, RESERVE_KBPS } = require("./upcap");
 const tinyAi = require("./tiny-ai");
 const modelMirror = require("./model-mirror");
 const topology = require("./topology");
-const { Overflow } = require("./overflow");
+const { Overflow, loadKeys } = require("./overflow");
+const { LensLink } = require("./lens-link");
 
 /* ---- config -------------------------------------------------- */
 /* Where config.json is. FK_CONFIG wins; otherwise next to this file;
@@ -1091,7 +1092,7 @@ function runAction(a) {
 /* ---- what everyone is told (notices.js) ------------------------ */
 let notices = null;
 
-function watchServices(bw, overflow) {
+function watchServices(bw, overflow, lens) {
   if (config.browser && config.browser.enabled) {
     notices.watch("browser", () => (bw.status().available ? null :
       { level: "warn", text: "BROWSER is not available right now. It comes back by itself." }));
@@ -1106,6 +1107,9 @@ function watchServices(bw, overflow) {
       return st.online ? null : { level: "warn", text: "RUNNER's server is offline right now. Your files are safe; it comes back by itself." };
     });
   }
+  /* Lens fell back to the streamed browser: one notice, gone for
+     everyone when lens is back (lens-link.js). */
+  if (lens) notices.watch("lens", () => lens.notice());
   notices.start();
 }
 
@@ -1130,7 +1134,7 @@ const ROUTES = [
   "GET  /msg/reports", "GET  /msg/review", "POST /msg/resolve", "GET  /msg/signins",
   "GET  /msg/people", "POST /msg/role",
   "POST /browse/ticket", "GET  /browse/get", "GET  /browse/check",
-  "GET  /browser/status", "POST /browser/ticket", "POST /browser/clear", "GET  /browser/helper-key",
+  "GET  /browser/status", "POST /browser/ticket", "POST /browser/lens", "POST /browser/clear", "GET  /browser/helper-key", "GET  /browser/allow",
   "GET  /runner/status", "POST /runner/ticket", "GET  /runner/pubkey",
   "WS   /browser/stream",
   "GET  /updates/latest", "GET  /updates/file", "GET  /updates/status",
@@ -2079,6 +2083,13 @@ server.listen(config.port, config.host, () => {
      when this relay is full. */
   const helperUrls = config.browser && config.browser.enabled && Array.isArray(config.browser.helpers) ? config.browser.helpers : [];
   const overflow = helperUrls.length ? new Overflow({ urls: helperUrls, dataDir: DATA_DIR, log: log }) : null;
+  /* The lighter browser on a rented server (lens-link.js). Its address
+     is set in ADMIN CENTER (kept in data/lens.json by admin.js) or by
+     browser.lens.url; the saved one wins. Its passes use the helpers' key. */
+  const lens = config.browser && config.browser.enabled ? new LensLink({
+    url: admin.savedLensUrl(DATA_DIR) || (config.browser.lens && config.browser.lens.url) || "", log: log,
+    keys: overflow ? overflow.keys : loadKeys(path.join(DATA_DIR, "browser")) }) : null;
+  if (lens) lens.start();
   const bw = browser.init({
     config: config.browser,
     log: log,
@@ -2086,14 +2097,15 @@ server.listen(config.port, config.host, () => {
     dataDir: DATA_DIR,
     fairness: fairness,
     overflow: overflow,
-    upTotal: upcap
+    upTotal: upcap,
+    lens: lens
   });
   notices = new Notices({ file: path.join(DATA_DIR, "announcement.json"), log: log });
   admin.init({ dataDir: DATA_DIR, engine: bw, overflow: overflow, fairness: fairness, runner: runner,
-    messaging: messaging, updates: updates, notices: notices, config: config, log: log,
+    messaging: messaging, updates: updates, notices: notices, config: config, log: log, lens: lens,
     upload: () => ({ capMbps: fairness.settings().uploadCapMbps, relayKbps: relayNet.kbps, runnerKbps: Math.round(fairness.peerUp()),
       paceKbps: upcap.view().kbps, waited: upcap.view().waited }) });
-  watchServices(bw, overflow);
+  watchServices(bw, overflow, lens);
   topology.init({
     browser: () => Object.assign(bw.status(), overflow ? { helpers: overflow.view() } : {}),
     runner: () => runner.status(),

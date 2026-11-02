@@ -1,0 +1,18 @@
+{
+  "_what": "lens/config.json on the rented server. lens/setup.sh writes /srv/lens/config.json from these values the first time; edit it there after that.",
+  "host": "127.0.0.1",
+  "port": 8080,
+  "relayUrl": "https://relay.example.com",
+  "dataDir": "/data",
+  "clientDir": "/opt/fieldkit/lens/client",
+  "dnsFilter": "adult",
+  "_capBytes": "What lens may send in a month before BROWSER falls back to the streamed browser. Set it below what the plan allows plus what you will pay for: up to a minute of counting can be lost in a crash. 0 = no ceiling. 1.7 TB on a 1 TB Linode is about $8.50 a month at most.",
+  "capBytes": 1700000000000,
+  "_personDayBytes": "One person's share per day, so one long game cannot use the month. 0 = none.",
+  "personDayBytes": 15000000000,
+  "maxPerWho": 4,
+  "_trustProxy": "\"loopback\" behind Caddy on the same machine: the person's address is read from X-Forwarded-For. Empty trusts no header.",
+  "trustProxy": "loopback",
+  "_providerTokenFile": "A read-only Linode API token, in a file. Linode's own traffic count is then read every ten minutes, and the meter catches up to it: a second stop on the bill.",
+  "providerTokenFile": "/etc/lens/provider-token"
+}

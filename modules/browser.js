@@ -570,6 +570,36 @@
     throw last;
   }
 
+  /* ---- THE LIGHTER MODE (lens, SIMPLIFY_PLAN.md §11) ----------------
+     The relay says which mode to use: lens, with a pass and the lens
+     page's address, or the streamed one and why. Asked with the same
+     credentials as a stream ticket. The person can choose the streamed
+     one anyway (FULL MODE), remembered on this computer. */
+  var MODE_KEY = "fieldkit.browser.mode";
+  var lens = null;           /* the relay's last offer while lens is in use */
+  function modePref() {
+    try { return localStorage.getItem(MODE_KEY) === "full" ? "full" : "light"; } catch (e) { return "light"; }
+  }
+  function setModePref(m) {
+    try { localStorage.setItem(MODE_KEY, m); } catch (e) {}
+  }
+  async function lensOffer() {
+    var sources = [];
+    var relay = FieldKit.service("transportRelay");
+    var store = FieldKit.service("store");
+    if (relay && typeof relay.lensPass === "function" && store && store.isUnlocked && store.isUnlocked()) sources.push(relay.lensPass);
+    var msg = FieldKit.service("messages");
+    if (msg && typeof msg.lensPass === "function" && msg.signedIn && msg.signedIn()) sources.push(msg.lensPass);
+    for (var i = 0; i < sources.length; i++) {
+      try {
+        var o = await sources[i]();
+        if (o && o.mode) return o;
+      } catch (e) { /* an older relay, or the other credential */ }
+    }
+    return null;
+  }
+  function useLens() { return !!(lens && lens.mode === "lens" && lens.pass && lens.page && modePref() === "light"); }
+
   function wsUrlFor(t) {
     var base = relayBase();
     var ws = base.replace(/^http:/i, "ws:").replace(/^https:/i, "wss:");
@@ -692,9 +722,12 @@
     try { localStorage.setItem(SOUND_KEY, on ? "on" : "off"); } catch (e) {}
   }
 
-  function renderLive(host, status) {
+  /* startUrl: where to go once connected (lens handing over a site it
+     cannot play). */
+  function renderLive(host, status, startUrl) {
     ui.clear(host);
     closeLive();
+    closeLens();
 
     var addr = el("input", { class: "br-addr", type: "text",
       placeholder: "address, or something to search for" });
@@ -1090,6 +1123,19 @@
     adminBits = [usageBtn];
     showAdmin();
 
+    /* Back to the lighter mode, when the relay has one. */
+    var lightBtn = btn("LIGHT MODE", "pages run in this browser, through FieldKit's lighter server: faster, and kinder to the relay", function () {
+      setModePref("light");
+      if (lens && lens.mode === "lens") return render(host);
+      lensOffer().then(function (o) {
+        lens = o;
+        if (useLens()) return render(host);
+        stat.textContent = "the lighter mode is not available now" + (o && o.why ? " (" + o.why + ")" : "");
+        stat.className = "br-status warn";
+      });
+    });
+    lightBtn.style.display = lens && lens.mode === "lens" ? "" : "none";
+
     /* The rarer buttons live under ⋯, so the page gets the room on a
        Chromebook's short screen. Ctrl F, Ctrl + and Ctrl − still work
        without opening it. */
@@ -1107,6 +1153,7 @@
         cmd({ t: "clear", what: "all" });
       }),
       usageBtn,
+      lightBtn,
       btn("OPEN ON THIS DEVICE", "run this page here instead of on the server, if this network allows it", async function () {
         moreClose();
         var url = live && live.url;
@@ -1181,7 +1228,7 @@
     canvas.tabIndex = 0;
 
     live = { sock: null, ro: null, offKeys: null, offVis: null, drawing: false, queued: null,
-      video: false, dec: null, keyWait: true, ts: 0, zoom: 1, hidden: false };
+      video: false, dec: null, keyWait: true, ts: 0, zoom: 1, hidden: false, startUrl: startUrl || null };
 
     /* A minimised window or a hidden tab: tell the relay, which stops
        sending (and, if nobody else is looking, stops encoding). Shown
@@ -1392,6 +1439,7 @@
           stat.textContent = "connected";
           stat.className = "br-status ok";
           if (isHidden()) setHidden(true);
+          if (live.startUrl) { cmd({ t: "nav", url: live.startUrl }); live.startUrl = null; }
         } else if (m.t === "zoomed") {
           live.zoom = m.zoom || 1;
           zoomBtn.textContent = Math.round(live.zoom * 100) + "%";
@@ -1664,6 +1712,196 @@
     }
   }
 
+  /* ---- LIGHT MODE: the lens page in a frame ---------------------------
+     The page has its own address bar, back and forward (it is where the
+     browsing is, as in the proxy); this bar holds what only FieldKit can
+     do: keep a bookmark and history in the vault, open the page in a tab,
+     switch to the full mode, go fullscreen. The page and this panel talk
+     by postMessage (lens/client/lens.js lists the messages), and only a
+     message from that frame and that origin is listened to. */
+  var lensView = null;
+  function closeLens() {
+    if (!lensView) return;
+    window.removeEventListener("message", lensView.onMsg);
+    if (lensView.stopTimer) lensView.stopTimer();
+    if (lensView.frame) lensView.frame.removeAttribute("src");
+    if (places.timer) saveHist();
+    lensView = null;
+  }
+
+  function renderLens(host) {
+    ui.clear(host);
+    closeLive();
+    closeLens();
+    var origin = new URL(lens.page).origin;
+    var btn = function (label, title, fn) {
+      return el("button", { class: label.length > 1 ? "br-nav br-word" : "br-nav", type: "button", text: label, title: title, onclick: fn });
+    };
+    var stat = el("div", { class: "br-status", text: "starting the lighter mode…" });
+    var notes = el("div", { class: "br-asks" });
+    var frame = el("iframe", {
+      class: "br-frame",
+      /* The proxy's set (SANDBOX, and why, above), and downloads: in
+         this mode a download comes straight from the site to this
+         computer, as in any browser, not through anything of ours.
+         Still no allow-top-navigation: a page cannot move FieldKit. */
+      sandbox: SANDBOX.concat(["allow-downloads"]).join(" "),
+      allow: ALLOW.join("; "),
+      allowfullscreen: true,
+      referrerpolicy: "no-referrer"
+    });
+    var view = { frame: frame, url: "", title: "", onMsg: null };
+    lensView = view;
+
+    function post(m) {
+      m.fk = "lens";
+      try { frame.contentWindow.postMessage(m, origin); } catch (e) {}
+    }
+    function say(text, level) { stat.textContent = text; stat.className = "br-status" + (level ? " " + level : ""); }
+
+    var star = btn("☆", "keep this page (" + placeNote() + ")", async function () {
+      if (!view.url) return say("open a page first", "warn");
+      if (!placeStore()) return say("unlock the vault to keep bookmarks", "warn");
+      try { drawStar(await toggleMark(view.url, view.title)); } catch (e) { say(e.message, "bad"); }
+    });
+    function drawStar(on) { star.textContent = on ? "★" : "☆"; star.classList.toggle("on", !!on); }
+
+    /* Bookmarks and history, opened in the page. */
+    var list = el("div", { class: "br-places-list" });
+    var findIn = el("input", { class: "br-addr", type: "text", placeholder: "find in bookmarks and history" });
+    var placesBar = el("div", { class: "br-places", style: { display: "none" } }, [
+      el("div", { class: "br-places-head" }, [findIn, btn("✕", "close", function () { placesBar.style.display = "none"; })]),
+      list
+    ]);
+    function drawPlaces() {
+      ui.clear(list);
+      var rows = findPlaces(findIn.value, 60);
+      if (!rows.length) {
+        list.appendChild(el("div", { class: "br-places-none", text: placeStore() ? "nothing kept yet" : "unlock the vault to keep bookmarks and history" }));
+        return;
+      }
+      rows.forEach(function (p) {
+        list.appendChild(el("div", { class: "br-place" }, [
+          el("button", { class: "br-place-go", type: "button", title: p.url, onclick: function () {
+            placesBar.style.display = "none";
+            post({ t: "go", url: p.url });
+          } }, [
+            el("span", { class: "br-place-t", text: (p.mark ? "★ " : "") + (p.title || siteOf(p.url)) }),
+            el("span", { class: "br-place-u", text: p.url })
+          ])
+        ]));
+      });
+    }
+    findIn.addEventListener("input", drawPlaces);
+    findIn.addEventListener("keydown", function (e) { e.stopPropagation(); if (e.key === "Escape") placesBar.style.display = "none"; });
+
+    /* The same page in a browser tab of its own, with the same pass. */
+    function openTab() {
+      window.open(lens.page + "#p=" + encodeURIComponent(lens.pass) + (view.url ? "&u=" + encodeURIComponent(view.url) : ""), "_blank", "noopener");
+    }
+    function toFull(url) {
+      setModePref("full");
+      if (!liveReady) return say("this relay has no full mode, so this stays in the lighter one", "warn");
+      renderLive(host, liveInfo, url);
+    }
+
+    var bar = el("div", { class: "br-toolbar" }, [
+      el("span", { class: "br-lbl", text: "BROWSER · LIGHT" }),
+      el("span", { class: "br-navgroup" }, []),
+      star,
+      btn("PLACES", "bookmarks and history, kept " + placeNote(), function () {
+        var open = placesBar.style.display === "none";
+        placesBar.style.display = open ? "" : "none";
+        if (open) { drawPlaces(); findIn.focus(); }
+      }),
+      btn("TAB", "open this page in a browser tab of its own", openTab),
+      liveReady ? btn("FULL MODE", "a real browser on the relay, shown as video: for YouTube, and for sites the lighter mode cannot run", function () { toFull(view.url); }) : null,
+      ui.button("FULLSCREEN", function () {
+        var sh = FieldKit.service("shell");
+        if (sh && sh.fullscreen) sh.fullscreen("browser");
+      }, { title: "give this window the whole screen — Esc to come back" })
+    ].filter(Boolean));
+
+    /* A site a list refused can be wrong: one click tells the admins. */
+    function showBlocked(m) {
+      ui.clear(notes);
+      var msg = FieldKit.service("messages");
+      var canReport = /^(ads|adult|malware|filtered)$/.test(m.kind || "") && msg && msg.adminApi && msg.signedIn && msg.signedIn();
+      if (!canReport) return;
+      notes.appendChild(el("div", { class: "br-ask" }, [
+        el("span", { class: "br-ask-t warn", text: m.host + " was not opened: " + m.why }),
+        btn("THIS IS WRONG", "tell the admins this site should not be blocked", function () {
+          msg.adminApi("POST", "/admin/report", { host: m.host, kind: m.kind }).then(function () {
+            ui.clear(notes);
+            say("the admins have been told", "ok");
+          }).catch(function (e) { say(e.message, "bad"); });
+        }),
+        btn("✕", "close this", function () { ui.clear(notes); })
+      ]));
+    }
+
+    var renewing = false;
+    async function renew() {
+      if (renewing) return;
+      renewing = true;
+      try {
+        var o = await lensOffer();
+        if (lensView !== view) return;
+        if (o && o.mode === "lens" && o.pass) { lens = o; post({ t: "pass", pass: o.pass }); return; }
+        lens = o;
+        say("the lighter mode stopped" + (o && o.why ? " (" + o.why + ")" : "") + (liveReady ? "; switching to the full mode" : ""), "warn");
+        if (liveReady) renderLive(host, liveInfo, view.url);
+      } finally { renewing = false; }
+    }
+
+    /* A network that blocks the lens server shows nothing at all, so a
+       page that has not said "ready" in 25 s is taken as that: the full
+       mode, this time only. */
+    var readyTimer = setTimeout(function () {
+      if (lensView !== view || view.ready) return;
+      if (!liveReady) return say("the lighter mode is not loading on this network", "bad");
+      renderLive(host, liveInfo);
+      ui.toast("THE LIGHTER MODE DID NOT LOAD ON THIS NETWORK: FULL MODE", "warn");
+    }, 25000);
+    view.stopTimer = function () { clearTimeout(readyTimer); };
+
+    view.onMsg = function (e) {
+      if (e.source !== frame.contentWindow || e.origin !== origin) return;
+      var m = e.data;
+      if (!m || m.fk !== "lens" || typeof m.t !== "string") return;
+      if (m.t === "ready" || m.t === "failed" || m.t === "expired") { view.ready = true; view.stopTimer(); }
+      if (m.t === "ready") {
+        say(lens.near ? "lighter mode — close to this month's allowance; it moves to the full mode by itself when that runs out" : "lighter mode", lens.near ? "warn" : "ok");
+      } else if (m.t === "nav") {
+        view.url = String(m.url || "");
+        view.title = String(m.title || "");
+        ui.clear(notes);
+        drawStar(!!markOf(view.url));
+        noteVisit(view.url, view.title);
+        say(view.title || shorten(view.url), "");
+      } else if (m.t === "blocked") {
+        showBlocked(m);
+      } else if (m.t === "expired") {
+        renew();
+      } else if (m.t === "stream") {
+        if (liveReady) renderLive(host, liveInfo, String(m.url || ""));
+        else say("this page needs the full mode, which this relay does not have", "warn");
+      } else if (m.t === "failed") {
+        say(String(m.why || "the lighter mode could not start"), "bad");
+        if (liveReady) notes.appendChild(el("div", { class: "br-ask" }, [
+          el("span", { class: "br-ask-t warn", text: "The lighter mode could not start in this window." }),
+          btn("TAB", "try it in a browser tab of its own", openTab),
+          btn("FULL MODE", "use the full mode instead", function () { toFull(""); })
+        ]));
+      }
+    };
+    window.addEventListener("message", view.onMsg);
+
+    host.appendChild(el("div", { class: "br-wrap" }, [bar, placesBar, notes, frame, stat, buildNote(true, true)]));
+    loadPlaces().catch(function () {});
+    frame.src = lens.page + "#p=" + encodeURIComponent(lens.pass);
+  }
+
   function render(host) {
     ui.clear(host);
 
@@ -1681,6 +1919,7 @@
 
        A relay with no chromium in its container falls through to
        everything below, which is the proxy, unchanged. */
+    if (useLens()) return renderLens(host);
     if (liveReady) return renderLive(host, liveInfo);
 
     var frame = el("iframe", {
@@ -1897,8 +2136,30 @@
     "Only sign in where you would trust the relay's owner: not anonymity, " +
     "your relay sees every address.";
 
-  function buildNote(streamed) {
-    nodes.noteBody = el("div", { class: "br-note-body", text: streamed ? LIVE_FULL : NOTE_FULL });
+  /* And the lighter mode, which is different again: the page runs in
+     THIS browser, under one origin (the lens page's), and its traffic
+     is encrypted here, so the lens server sees which sites, not what. */
+  var LIGHT_FULL =
+    "Pages run here, in this browser, through Scramjet; their traffic goes, " +
+    "encrypted from this computer to each site, through FieldKit's lens " +
+    "server, which blocks ads, trackers, malware and adult sites for " +
+    "everyone. That server sees which sites you open and how much comes from " +
+    "them, not what is on the pages. Every site here shares one origin, the " +
+    "lens page's, so a site could read what another left in storage: do not " +
+    "sign in to anything private here, use FULL MODE for that. YouTube will " +
+    "not play for a rented server and opens in FULL MODE by itself; some " +
+    "other heavy sites may need it too. Downloads come straight to this " +
+    "computer. This is NOT anonymity: the relay's owner can see which sites " +
+    "you open, and the network you are on sees a connection to the lens " +
+    "server. It hides what you read from the local network; it does not hide " +
+    "you from anyone else.";
+
+  var LIGHT_SHORT =
+    "Do not sign in to anything private: all sites here share one origin. " +
+    "Not anonymity: FieldKit's server sees which sites you open.";
+
+  function buildNote(streamed, light) {
+    nodes.noteBody = el("div", { class: "br-note-body", text: light ? LIGHT_FULL : streamed ? LIVE_FULL : NOTE_FULL });
     nodes.noteToggle = el("button", {
       class: "br-note-toggle", type: "button",
       text: noteOpen ? "LESS ▾" : "WHAT THIS CANNOT DO ▸",
@@ -1906,7 +2167,7 @@
     });
     nodes.note = el("div", { class: "br-note" + (noteOpen ? " open" : "") }, [
       el("div", { class: "br-note-line" }, [
-        el("span", { class: "br-note-short", text: streamed ? LIVE_SHORT : NOTE_SHORT }),
+        el("span", { class: "br-note-short", text: light ? LIGHT_SHORT : streamed ? LIVE_SHORT : NOTE_SHORT }),
         nodes.noteToggle
       ]),
       nodes.noteBody
@@ -2019,6 +2280,16 @@
       } },
 
       { name: "IT SAYS WHAT IT IS NOT", critical: false, run: async function () {
+        if (lensView) {
+          var light_ = nodes.note ? nodes.note.textContent : "";
+          [[/NOT anonymity/, "that it is not anonymity"],
+           [/share one origin/i, "that every site here shares one origin"],
+           [/sees which sites/i, "what FieldKit's server sees"],
+           [/YouTube/, "that YouTube needs the full mode"]].forEach(function (p) {
+            if (!p[0].test(light_)) throw new Error("it does not say " + p[1]);
+          });
+          return "the light panel says what is true of the light mode";
+        }
         if (!nodes.frame) {
           /* The streamed panel has no frame: it has its own note. */
           var live_ = nodes.note ? nodes.note.textContent : "";
@@ -2087,6 +2358,9 @@
          ready: false, and this used to give everyone the proxy instead —
          which is how the streamed browser went unseen on the real relay. */
       liveReady = !!(liveInfo && liveInfo.enabled && (liveInfo.ready || liveInfo.available));
+      /* Asked even when FULL MODE was chosen, so its LIGHT MODE button
+         knows whether there is one to go back to. */
+      lens = await lensOffer();
       if (!alive()) return;
 
       render(host);
@@ -2097,6 +2371,7 @@
       /* A stream left open keeps a Chromium session warm on the
          relay and keeps sending frames nobody is looking at. */
       closeLive();
+      closeLens();
       /* The frame is holding a live connection to the relay. Left
          alone it keeps loading whatever it was loading into a panel
          nobody can see. */

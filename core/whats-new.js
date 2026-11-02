@@ -10,6 +10,13 @@
   "use strict";
 
   var NOTES = [
+    { v: "0.8.0", items: [
+      "BROWSER has a lighter mode: pages run in your own browser, sharp and quick to scroll, through FieldKit's new server. It is used by itself when set up.",
+      "In the lighter mode, ★ keeps a bookmark and PLACES opens your bookmarks and history; TAB opens the page in a tab of its own.",
+      "YouTube opens in FULL MODE, the streamed browser, by itself. Use FULL MODE for anything you sign in to too; LIGHT MODE under ⋯ goes back.",
+      "If the lighter mode does not load on a network, BROWSER moves to FULL MODE by itself.",
+      "ADMIN CENTER shows the lighter mode and how much of the month it has used, and sets its address. DIAGNOSTICS checks this network reaches it."
+    ] },
     { v: "0.7.1", items: [
       "When a newer version is out, a popup says so at start, with a button to get it. TELL ME ABOUT UPDATES in SETTINGS turns it off.",
       "GET A TINY MODEL works on a network that blocks Hugging Face: the model comes through your relay instead.",

@@ -1119,6 +1119,11 @@
       if (!session) throw new Error("not signed in to MESSAGES");
       return api("POST", "/browser/ticket");
     },
+    /* The lighter mode's pass, or which mode to use instead. */
+    lensPass: async function () {
+      if (!session) throw new Error("not signed in to MESSAGES");
+      return api("POST", "/browser/lens");
+    },
     /* ADMIN CENTER, and saying a block was wrong. Only these routes:
        the session token stays in this module. */
     adminApi: async function (method, path, body) {

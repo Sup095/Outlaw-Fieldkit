@@ -196,7 +196,7 @@ var driveChecked = false, relayChecked = false, ranAuto = false;
 var manifestInfo = null;
 /* The FieldKit version this page was written for; a test keeps it
    equal to core/kernel.js, so it is updated with every release. */
-var FOR_VERSION = "0.7.1";
+var FOR_VERSION = "0.8.0";
 /* Next to the drive's files (FIELDKIT.html, core/...), or next to the
    downloaded single-file builds. Decided by whether core/kernel.js loads. */
 var layout = "unknown";
@@ -931,6 +931,16 @@ async function checkServices(G, base) {
       " of " + hs.length + " helper machine(s) up" + (hs.some(function (h) { return h.up && h.gpu; }) ? ", one with a graphics card" : "") : ""));
   } else {
     rec(G, "streamed browser", "INFO", b.v ? "switched off on this relay" : "this relay does not offer it");
+  }
+  /* The lighter mode runs on another server; this page asks only the
+     relay, so it says what the relay says. FieldKit's DIAGNOSTICS asks
+     that server itself, from the device. */
+  if (b.v && b.v.lens) {
+    rec(G, "lighter browser", b.v.lens.usable ? "PASS" : "WARN", b.v.lens.usable
+      ? "in use: pages run in this browser, through FieldKit's lens server (DIAGNOSTICS in FieldKit checks this network reaches it)"
+      : "set up but not in use (" + String(b.v.lens.why).slice(0, 120) + "); BROWSER uses the streamed one meanwhile");
+  } else if (b.v && b.v.enabled) {
+    rec(G, "lighter browser", "INFO", "not set up on this relay; BROWSER is the streamed one");
   }
   var r = await guard(10000, async function () {
     var res = await fetch(base + "/runner/status", { cache: "no-store", mode: "cors" });

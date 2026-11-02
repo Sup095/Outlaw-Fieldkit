@@ -44,7 +44,7 @@ const arg = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1
    into the image, so nothing here may be a secret. */
 const RELAY_CODE = ["start.js", "server.js", "browse.js", "browse-runtime.js", "messaging.js",
   "updates.js", "ws.js", "cdp.js", "guard.js", "browser-engine.js", "browser-route.js", "video-encoder.js", "proc-usage.js", "pulse.js", "ogg-opus.js", "fairness.js",
-  "overflow.js", "browser-helper.js", "runner.js", "upcap.js", "tiny-ai.js", "model-mirror.js", "topology.js", "jsonfile.js", "blocklist.js", "fetch-adblock.js", "fetch-cloudflared.js", "fetch-tailscale.js", "admin.js", "notices.js", "probe.js"];
+  "overflow.js", "browser-helper.js", "runner.js", "upcap.js", "tiny-ai.js", "model-mirror.js", "topology.js", "jsonfile.js", "blocklist.js", "fetch-adblock.js", "fetch-cloudflared.js", "fetch-tailscale.js", "admin.js", "notices.js", "probe.js", "lens-link.js"];
 
 const BASTION2 = [
   ["relay/ws.js", "relay/ws.js"], ["relay/guard.js", "relay/guard.js"], ["relay/jsonfile.js", "relay/jsonfile.js"], ["relay/upcap.js", "relay/upcap.js"],
@@ -169,8 +169,30 @@ fs.rmSync(tarball, { force: true });
 const tar = spawnSync("tar", ["-czf", "bastion2.tar.gz", "bastion2"], { cwd: OUT, encoding: "utf8" });
 const tarOk = tar.status === 0 && fs.existsSync(tarball);
 
+/* ---- the lens server (the rented one) ----
+   Our code only: lens/Dockerfile fetches Scramjet's client files at
+   build time, at the versions and hashes lens/vendor pins. No config
+   here: lens/setup.sh writes one on the server the first time. */
+const LENS = ["lens/server.js", "lens/wisp.js", "lens/meter.js", "lens/Dockerfile", "lens/setup.sh", "lens/Caddyfile",
+  "lens/patch-scramjet.js", "lens/config.example.json", "lens/vendor/package.json", "lens/vendor/package-lock.json",
+  "lens/client/index.html", "lens/client/lens.js", "lens/client/lens.css", "lens/client/sw.js"];
+const lensOut = path.join(OUT, "lens");
+fs.rmSync(lensOut, { recursive: true, force: true });
+for (const f of RELAY_CODE) {
+  const src = path.join(ROOT, "relay", f);
+  if (fs.existsSync(src)) put(src, path.join(lensOut, "relay", f), true);
+}
+for (const f of LENS) put(path.join(ROOT, f), path.join(lensOut, f), true);
+put(path.join(ROOT, "lens", "Dockerfile"), path.join(lensOut, "Dockerfile"), true);
+const tarLens = tarUp("lens");
+
 /* ---- what to do with them ---- */
 const user = settings.ssh || "you";
+/* The rented server's login, key and name, in the same private file:
+   lensUser, lensKey (a path), lensHost. */
+const lensHost = settings.lensHost || "<lens host>";
+const lensAt = (settings.lensUser || "<user>") + "@" + lensHost;
+const lensKey = settings.lensKey ? "-i " + settings.lensKey + " " : "";
 const steps = [
   "FieldKit deploy bundle — made " + new Date().toISOString().slice(0, 16).replace("T", " ") + " UTC",
   "",
@@ -185,7 +207,13 @@ const steps = [
   "  scp deploy/bastion2.tar.gz " + user + "@bastion-2:~/",
   "  ssh -t " + user + "@bastion-2 \"rm -rf bastion2 && tar xzf bastion2.tar.gz && sudo bash bastion2/runnerd/setup.sh\"",
   "",
-  "  The same commands are how both are updated later.",
+  "LENS, the rented server (by key, never a password)",
+  "  scp " + lensKey + "deploy/lens.tar.gz " + lensAt + ":~/",
+  "  ssh " + lensKey + lensAt + " \"rm -rf lens && tar xzf lens.tar.gz && sudo sh lens/lens/setup.sh " +
+    (settings.relay || "<relay url>") + " " + lensHost + "\"",
+  "  then the lens address (https://" + lensHost + ") in ADMIN CENTER, SERVICES, once.",
+  "",
+  "  The same commands are how all of them are updated later.",
   ""].filter((l, i, a) => l !== "" || a[i - 1] !== "");
 fs.writeFileSync(path.join(OUT, "NEXT-STEPS.txt"), steps.join("\n"), "utf8");
 
@@ -197,5 +225,6 @@ if (missing.length) console.log("  not present here, so not bundled: " + missing
 if (fs.existsSync(helperOut)) console.log("deploy/helper-upload/  config.json for a browser helper" + helperSaid);
 console.log("deploy/bastion2/       " + BASTION2.length + " file(s)" +
   (tarOk ? ", and deploy/bastion2.tar.gz" : " (tar failed: " + String(tar.stderr || tar.error).trim() + ")"));
+console.log("deploy/lens/            the lens server's build folder" + (tarLens ? " (tar failed: " + tarLens + ")" : ", and deploy/lens.tar.gz"));
 if (!settings.relay) console.log("  no relay address saved yet: run once with --relay https://your-relay");
 console.log("deploy/NEXT-STEPS.txt  the commands");

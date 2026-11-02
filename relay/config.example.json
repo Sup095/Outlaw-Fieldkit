@@ -164,7 +164,9 @@
     "sound": true,
     "soundKbps": 48,
     "_helpers": "Browser helpers (FIELDKIT_PROJECT.md 14.38): a copy of this image on another machine, run as its own Pterodactyl server with relay/helper-config.example.json, takes NEW browser sessions when this relay has no free session or is over its load line. List each one as \"http://address:port\": an address this container can reach on the home network or, better, the tailnet (it is never put on the internet; the panel still only talks to this relay, which passes the stream through). A helper believes only passes this relay signs, with a key it fetches from this relay's own public address (its helper.relayUrl) at /browser/helper-key. tools/make-deploy.js writes a helper's config.json, with this relay's browser settings, in deploy/helper-upload/. Empty: no helpers, as before.",
-    "helpers": []
+    "helpers": [],
+    "_lens": "The lighter browser (lens/README.md): pages run in the person's own browser through a small server rented for it, so a page costs what it weighs instead of video. url is that server's https address. The relay asks it every 15 seconds whether it is up and under its monthly ceiling; when it is not, BROWSER uses the streamed browser and everyone sees one notice, which goes by itself when lens is back. Its passes use the same key as the helpers'. Empty: the streamed browser only, as before.",
+    "lens": { "url": "" }
   },
   "_uploadCapMbps": "The most this relay and the run server may send to the internet together, in Mbit/s: a hard ceiling (relay/upcap.js), set well under the home line so other servers on it keep their share. Every socket the relay serves, and what its browser's pages upload, is paced to it; peers on the tailnet and the home network are not. With RUNNER on, RUNNER's ADMIN sets it for both machines and this is only the fallback.",
   "uploadCapMbps": 12,
