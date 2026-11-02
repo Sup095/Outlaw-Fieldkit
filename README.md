@@ -128,6 +128,10 @@ when video is not available. It has:
 - a warm start: pointing at its tile starts it before you click.
 
 Guests get a throwaway session; members' sign-ins can be kept for a while.
+With a rented server of 4 GB or more (0.9.0), the full mode runs there and the
+panel connects to it directly, so its video does not use the home connection.
+YouTube, which refuses rented servers, still runs at home, with DATA SAVER
+lowering its video.
 
 **RUNNER.** Upload a program (Python, JavaScript, shell, Linux binaries,
 Windows `.exe` through Wine, or a `.zip` of a whole folder) and it runs in a
@@ -288,7 +292,7 @@ Everything after the relay is optional, and each step works without the next.
 | 4. Streamed browser | BROWSER | the Docker image, [`relay/BROWSER.md`](relay/BROWSER.md) |
 | 5. Run server | RUNNER, on a second Linux machine | `runnerd/setup.sh`, [below](#running-your-own-run-server-runner) |
 | 6. Small AI models | ASK for your members | `sh runnerd/tiny-ai.sh`, [below](#small-ai-models) |
-| Optional: a lens server | BROWSER's lighter mode, off your home connection | a small rented Linux server, `lens/setup.sh`, [`lens/README.md`](lens/README.md) |
+| Optional: a lens server | BROWSER's lighter mode, off your home connection; with 4 GB or more, the full mode too | a small rented Linux server, `lens/setup.sh`, [`lens/README.md`](lens/README.md) |
 | Optional: a graphics card | smooth games in BROWSER | `sh runnerd/browser-card.sh`, [`relay/BROWSER.md`](relay/BROWSER.md#a-graphics-card) |
 | 7. A big AI model | ASK with your own PC | LM Studio and `aiTargets`, [`MODELS.md`](MODELS.md) |
 | 8. Accounts | who may use what | `messaging` in the config: `moderators`, `requireApproval` |
@@ -429,6 +433,16 @@ stays, as the fallback and for what lens cannot do.
   belong in the full mode.
 - *Next:* a cache for pages you open twice, which the test showed would
   roughly halve what a second visit costs.
+
+**Done in 0.9.0: the full mode off the home connection.** On a rented server
+with 4 GB or more, `lens/setup.sh` also runs the streamed browser, and the
+relay sends new sessions there. The panel connects to it directly with a pass
+the relay signs, so the home upload carries only the decision. The relay
+still decides who, which tier, the block lists and the line, and sends people
+home when the rented one is busy, down or out of its month. YouTube refuses
+rented addresses even in a real browser, so it stays home, where DATA SAVER
+(about 600 kbit/s instead of 1500) is on for it by itself. A network that
+cannot reach the rented server gets the home one.
 
 **After that.**
 - Sound in BROWSER without one Chromium per session (it is the biggest memory

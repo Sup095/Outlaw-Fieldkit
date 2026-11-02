@@ -205,6 +205,15 @@ const tagOf = (au) => au.readUInt32BE(au.length - 4);
     await until(() => v.text.some((m) => m.t === "quality" && m.step === 0));
     ok("after half a minute of calm it goes back up", v.viewer.quality.own === 0 && v.viewer.video.kbps === 1500);
 
+    /* DATA SAVER: the panel asks for less, and gets it at once. */
+    v.sock.send(JSON.stringify({ t: "saver", on: true }));
+    await until(() => v.text.some((m) => m.t === "saver"));
+    ok("DATA SAVER turns this panel's video down to 600 kbit/s", v.viewer.video.kbps === 600 &&
+      v.text.some((m) => m.t === "saver" && m.on === true && m.kbps === 600));
+    v.sock.send(JSON.stringify({ t: "saver", on: false }));
+    await until(() => v.text.some((m) => m.t === "saver" && m.on === false));
+    ok("and off again, back to the full rate", v.viewer.video.kbps === 1500);
+
     /* USAGE: what the browser costs, for an admin only. */
     const usage = async (tier) => {
       let out = null;

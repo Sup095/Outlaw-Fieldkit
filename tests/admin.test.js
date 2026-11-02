@@ -43,6 +43,7 @@ const overflow = {
   setAllow(l) { overflowAllow.push(l.slice()); },
   view: () => [{ id: "bastion-1", blocked: { ads: 2, adult: 1 } }],
   holding: (who) => who === "msg:bo" ? "helper-1" : null,
+  cloudUrls: () => [],
   async clear(h, who, what) { if (who === "msg:bo") cleared.push([h, who, what]); }
 };
 const notices = new Notices({ file: path.join(TMP, "announcement.json") });
@@ -252,6 +253,26 @@ async function call(method, p, body, as) {
     admin.init(parts());
     ok("a relay with the browser off says so", (await call("POST", "/admin/lens", { url: "https://lens.example.com" })).status === 409);
     ok("nothing saved: nothing read", admin.savedLensUrl(path.join(TMP, "nowhere")) === "");
+  }
+
+  section("FULL MODE on a rented server");
+  {
+    const { Overflow } = require("../relay/overflow");
+    const ov = new Overflow({ urls: [], dataDir: TMP });
+    admin.init(Object.assign(parts(), { overflow: ov }));
+    ok("nothing saved yet: config.json decides", admin.savedCloudUrls(TMP) === null);
+    ok("a member cannot set it", (await call("POST", "/admin/cloud", { url: "https://lens.example.com" }, "ana")).status === 403);
+    ok("an address that is not https is refused", (await call("POST", "/admin/cloud", { url: "http://lens.example.com" })).status === 400 &&
+      ov.cloudUrls().length === 0);
+    const r = await call("POST", "/admin/cloud", { url: "https://lens.example.com/" });
+    ok("an admin sets it, and the relay starts using it", r.status === 200 && JSON.stringify(ov.cloudUrls()) === '["https://lens.example.com"]' && ov.anyCloud());
+    ok("…kept, so a restart remembers it", JSON.stringify(admin.savedCloudUrls(TMP)) === '["https://lens.example.com"]');
+    ok("the overview shows it", JSON.stringify((await call("GET", "/admin/overview")).out.browser.cloud) === '["https://lens.example.com"]');
+    ok("empty turns it off, and that is kept too", (await call("POST", "/admin/cloud", { url: "" })).status === 200 &&
+      ov.cloudUrls().length === 0 && JSON.stringify(admin.savedCloudUrls(TMP)) === "[]");
+    ov.stop && ov.stop();
+    admin.init(Object.assign(parts(), { overflow: null }));
+    ok("a relay with the browser off says so", (await call("POST", "/admin/cloud", { url: "https://lens.example.com" })).status === 409);
   }
 
   fs.rmSync(TMP, { recursive: true, force: true });

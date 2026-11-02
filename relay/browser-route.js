@@ -62,6 +62,8 @@ const AUDIO_TAG = Buffer.from([2]);
    steps wins. A step costs a keyframe, so they are at least
    OWN_GAP_MS apart. */
 const OWN = [1, 0.6, 0.35];
+/* DATA SAVER's share of the full rate: about 600 kbit/s of 1500. */
+const SAVER = 0.4;
 /* Pictures a second at each house step: fewer, as well as smaller, while
    the upload is busy or anyone waits. */
 const FPS = [30, 24, 15];
@@ -278,6 +280,20 @@ async function route(req, res, url, helpers) {
        "chromium will not start" failure arrives as a JSON error the
        panel can print, instead of as a socket that closes. */
     const tier = helpers.tierOf ? helpers.tierOf(req) : (who === "vault" ? "admin" : "guest");
+    /* A CLOUD helper first (SIMPLIFY_PLAN.md §14): a rented server the
+       panel connects to directly, so the pictures never cross the home
+       connection. Not for a session already open here, nor when the
+       panel asks for home (YouTube, which refuses rented addresses), nor
+       once the rented servers' month is used up. The ticket is issued as
+       well, for a panel too old to know `stream`; it is served here. */
+    const body = await readBody(req).catch(() => null);
+    const prefer = body && body.prefer === "home" ? "home" : "cloud";
+    const h = prefer === "cloud" && overflow && !engine.sessions.has(String(who)) && cloudOk() ? overflow.pickCloud(who, tier) : null;
+    if (h) {
+      send(res, 201, { ticket: issue(who, tier), stream: overflow.streamFor(h, who, tier), where: "cloud",
+        expiresIn: TICKET_MS / 1000, tier: tier });
+      return true;
+    }
     /* Going to the card: no Chromium is needed here, and it would sit
        there, with a spare, costing memory until it parked. */
     const away = !!(overflow && !engine.sessions.has(String(who)) && overflow.pick(who, tier, fair, "gpu"));
@@ -289,7 +305,7 @@ async function route(req, res, url, helpers) {
     }
     /* The tier is said so the panel knows to offer admin things (USAGE);
        the relay checks it again on every one of them. */
-    send(res, 201, { ticket: issue(who, tier), expiresIn: TICKET_MS / 1000, tier: tier });
+    send(res, 201, { ticket: issue(who, tier), expiresIn: TICKET_MS / 1000, tier: tier, where: "home" });
     return true;
   }
 
@@ -379,10 +395,20 @@ function lineAnswer(a) {
   for (const e of fair.line) if (e.tell) e.tell(fair.place(e));
 }
 
+/* The rented servers' month (lens's meter reads the provider's count for
+   the whole account, which the cloud helpers share): used up, no more
+   sessions go to them. */
+function cloudOk() {
+  const s = lens && lens.status;
+  return !(s && s.up && s.state === "over");
+}
+
 function placeOf(who, tier) {
   if (!overflow || !overflow.any() || engine.sessions.has(who)) return null;
   const held = overflow.holding(who);
-  if (held) return held;
+  /* A cloud helper's session is reached directly, never piped. A panel
+     that came here anyway (an old one) is served here. */
+  if (held) return held.direct ? null : held;
   /* A helper is not a way round the line, unless the line just sent
      them there. */
   if (!moved.delete(who) && fair && tier !== "admin" && fair.shared() && fair.someoneAhead(tier)) return null;
@@ -425,9 +451,12 @@ async function serve(req, sock, head, who, tier, opts) {
     calm();
     tx.feed(pic);
   };
-  /* This viewer's step: { own, strains, at (last step), last (last strain) }. */
-  const q = { own: 0, strains: [], at: 0, last: 0 };
-  const kbpsNow = () => Math.round((cfg.videoKbps || 1500) * Math.min(fair ? STEPS[fair.step] : STEPS[houseStep] || 1, OWN[q.own]));
+  /* This viewer's step: { own, strains, at (last step), last (last strain) },
+     and DATA SAVER: the panel asked for less (on its own, or for
+     YouTube at home), and gets the lowest step whatever else is free. */
+  const q = { own: 0, strains: [], at: 0, last: 0, saver: false };
+  const kbpsNow = () => Math.round((cfg.videoKbps || 1500) * Math.min(fair ? STEPS[fair.step] : STEPS[houseStep] || 1, OWN[q.own],
+    q.saver ? SAVER : 1));
   function strained() {
     const now = Date.now();
     if (now - q.last < 500) return;          /* one backed-up spell is one strain */
@@ -600,6 +629,7 @@ async function serve(req, sock, head, who, tier, opts) {
           /* Sound only if the panel asked and can play it; the panel's
              SOUND button changes it later. */
           viewer.sound = !!m.sound;
+          q.saver = !!m.saver;
           await engine.resize(session, m.w, m.h, m.scale);
           await engine.attach(session, viewer);
           tell({ t: "ready", who, url: session.url, title: session.title, video: !!viewer.video, zoom: session.zoom || 1,
@@ -607,6 +637,13 @@ async function serve(req, sock, head, who, tier, opts) {
           break;
         case "sound":
           tell({ t: "sound", on: engine.setSound(session, viewer, !!m.on) });
+          break;
+        case "saver":
+          if (q.saver !== !!m.on) {
+            q.saver = !!m.on;
+            viewer.restep();
+            tell({ t: "saver", on: q.saver, kbps: viewer.video ? kbpsNow() : null });
+          }
           break;
         case "keyframe":
           /* The panel's decoder lost its place: a fresh encoder and a

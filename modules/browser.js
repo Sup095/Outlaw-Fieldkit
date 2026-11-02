@@ -539,17 +539,22 @@
     var store = FieldKit.service("store");
     if (relay && typeof relay.streamTicket === "function" &&
         store && store.isUnlocked && store.isUnlocked()) {
-      sources.push({ what: "the vault", get: function () { return relay.streamTicket(); } });
+      sources.push({ what: "the vault", get: function (prefer) { return relay.streamTicket(prefer); } });
     }
     var msg = FieldKit.service("messages");
     if (msg && typeof msg.streamTicket === "function" && msg.signedIn && msg.signedIn()) {
-      sources.push({ what: "your MESSAGES account", get: function () { return msg.streamTicket(); } });
+      sources.push({ what: "your MESSAGES account", get: function (prefer) { return msg.streamTicket(prefer); } });
     }
     return sources;
   }
 
-  async function getStreamTicket(fresh) {
-    if (!fresh && warm.ticket && Date.now() - warm.ticketAt < WARM_TICKET_MS) {
+  /* The relay's answer: { ticket, where, stream? }. `stream` is a cloud
+     helper's own address (SIMPLIFY_PLAN.md §14), with its pass in it:
+     the panel connects there, and the pictures skip the home connection.
+     prefer "home": YouTube, which refuses rented servers' addresses. */
+  async function getStreamTicket(fresh, prefer) {
+    if (!fresh && warm.ticket && Date.now() - warm.ticketAt < WARM_TICKET_MS &&
+        !(prefer === "home" && warm.ticket.where === "cloud")) {
       var t = warm.ticket;
       warm.ticket = null;            /* it works once */
       if (warm.tier) liveTier = warm.tier;
@@ -562,8 +567,8 @@
     var last = null;
     for (var i = 0; i < sources.length; i++) {
       try {
-        var d = await sources[i].get();
-        if (d && d.ticket) { liveTier = d.tier || null; showAdmin(); return d.ticket; }
+        var d = await sources[i].get(prefer);
+        if (d && d.ticket) { liveTier = d.tier || null; showAdmin(); return d; }
         throw new Error("the relay returned no ticket");
       } catch (e) { last = e; }
     }
@@ -601,10 +606,21 @@
   function useLens() { return !!(lens && lens.mode === "lens" && lens.pass && lens.page && modePref() === "light"); }
 
   function wsUrlFor(t) {
+    if (t && typeof t.stream === "string" && /^wss:\/\//.test(t.stream)) return t.stream;
     var base = relayBase();
     var ws = base.replace(/^http:/i, "ws:").replace(/^https:/i, "wss:");
-    return ws + "/browser/stream?t=" + encodeURIComponent(t);
+    return ws + "/browser/stream?t=" + encodeURIComponent(t && t.ticket ? t.ticket : t);
   }
+
+  /* A download or file link from the stream: the relay's path, or a
+     cloud helper's whole address. */
+  function linkUrl(u) {
+    u = String(u || "");
+    return /^https:\/\//.test(u) ? u : relayBase() + u;
+  }
+
+  var YT = /(^|\.)(youtube\.com|youtu\.be|youtube-nocookie\.com)$/;
+  function isYouTube(u) { try { return YT.test(new URL(u).hostname); } catch (e) { return false; } }
 
   /* The same steps as Chrome's own zoom, and as the relay's list. */
   var ZOOMS = [0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2];
@@ -722,9 +738,22 @@
     try { localStorage.setItem(SOUND_KEY, on ? "on" : "off"); } catch (e) {}
   }
 
+  /* DATA SAVER: the stream's video at its lowest rate, about 600 kbit/s
+     instead of 1500. AUTO (the default) turns it on only for YouTube on
+     the home browser, where every bit of it crosses the home upload and
+     moving pictures matter more than sharp text. Remembered here. */
+  var SAVER_KEY = "fieldkit.browser.saver";
+  function saverPref() {
+    try { var v = localStorage.getItem(SAVER_KEY); return v === "on" || v === "off" ? v : "auto"; } catch (e) { return "auto"; }
+  }
+  function setSaverPref(v) {
+    try { localStorage.setItem(SAVER_KEY, v); } catch (e) {}
+  }
+
   /* startUrl: where to go once connected (lens handing over a site it
-     cannot play). */
-  function renderLive(host, status, startUrl) {
+     cannot play). prefer: "home" or "cloud", where the relay should put
+     the session if it can; YouTube goes home by itself. */
+  function renderLive(host, status, startUrl, prefer) {
     ui.clear(host);
     closeLive();
     closeLens();
@@ -854,7 +883,7 @@
       return b >= 1048576 ? (b / 1048576).toFixed(1) + " MB" : b >= 1024 ? Math.round(b / 1024) + " KB" : (b | 0) + " B";
     }
     async function fetchDownload(m) {
-      var r = await fetch(relayBase() + m.url, { cache: "no-store" });
+      var r = await fetch(linkUrl(m.url), { cache: "no-store" });
       if (!r.ok) throw new Error(r.status === 404 ? "the download expired; download it again" : "the relay said " + r.status);
       return r.blob();
     }
@@ -909,7 +938,7 @@
         (async function () {
           var ids = [];
           for (var i = 0; i < list.length; i++) {
-            var r = await fetch(relayBase() + m.url + "?name=" + encodeURIComponent(list[i].name),
+            var r = await fetch(linkUrl(m.url) + "?name=" + encodeURIComponent(list[i].name),
               { method: "POST", body: list[i], headers: { "Content-Type": "application/octet-stream" } });
             var d = await r.json().catch(function () { return {}; });
             if (!r.ok) throw new Error(d.error || "the relay said " + r.status);
@@ -1123,6 +1152,23 @@
     adminBits = [usageBtn];
     showAdmin();
 
+    function saverWanted(url) {
+      var p = saverPref();
+      return p === "on" || (p === "auto" && !!live && live.where === "home" && isYouTube(url));
+    }
+    function applySaver(url) {
+      if (!live) return;
+      var want = saverWanted(url);
+      if (want !== !!live.saver) { live.saver = want; cmd({ t: "saver", on: want }); }
+    }
+    var SAVER_WORDS = { auto: "DATA SAVER: AUTO", on: "DATA SAVER: ON", off: "DATA SAVER: OFF" };
+    var saverBtn = btn(SAVER_WORDS[saverPref()], "AUTO: lower video for YouTube at home. ON: always. OFF: never.", function () {
+      var next = { auto: "on", on: "off", off: "auto" }[saverPref()];
+      setSaverPref(next);
+      saverBtn.textContent = SAVER_WORDS[next];
+      applySaver(live && live.url || "");
+    });
+
     /* Back to the lighter mode, when the relay has one. */
     var lightBtn = btn("LIGHT MODE", "pages run in this browser, through FieldKit's lighter server: faster, and kinder to the relay", function () {
       setModePref("light");
@@ -1153,6 +1199,7 @@
         cmd({ t: "clear", what: "all" });
       }),
       usageBtn,
+      saverBtn,
       lightBtn,
       btn("OPEN ON THIS DEVICE", "run this page here instead of on the server, if this network allows it", async function () {
         moreClose();
@@ -1228,7 +1275,8 @@
     canvas.tabIndex = 0;
 
     live = { sock: null, ro: null, offKeys: null, offVis: null, drawing: false, queued: null,
-      video: false, dec: null, keyWait: true, ts: 0, zoom: 1, hidden: false, startUrl: startUrl || null };
+      video: false, dec: null, keyWait: true, ts: 0, zoom: 1, hidden: false, startUrl: startUrl || null,
+      prefer: prefer || (startUrl && isYouTube(startUrl) ? "home" : "cloud"), where: null };
 
     /* A minimised window or a hidden tab: tell the relay, which stops
        sending (and, if nobody else is looking, stops encoding). Shown
@@ -1388,9 +1436,10 @@
 
     (async function connect() {
       var t;
-      try { t = await getStreamTicket(); }
+      try { t = await getStreamTicket(false, live.prefer); }
       catch (e) { stat.textContent = e.message; stat.className = "br-status bad"; return; }
       if (!alive()) return;
+      live.where = t && t.where === "cloud" ? "cloud" : "home";
 
       var sock;
       try { sock = new WebSocket(wsUrlFor(t)); }
@@ -1401,7 +1450,8 @@
 
       sock.onopen = function () {
         var d = fit();
-        cmd({ t: "hello", w: d.w, h: d.h, scale: 1, video: canVideo(), sound: canSound() && soundPref() });
+        live.saver = saverWanted(live.startUrl || live.url || "");
+        cmd({ t: "hello", w: d.w, h: d.h, scale: 1, video: canVideo(), sound: canSound() && soundPref(), saver: live.saver });
         stat.textContent = "connecting…";
         stat.className = "br-status ok";
         canvas.focus();
@@ -1431,12 +1481,13 @@
         } else if (m.t === "sound") {
           drawSound(!!m.on);
         } else if (m.t === "ready") {
+          live.wasReady = true;
           live.soundHere = !!m.sound && canSound();
           soundBtn.style.display = live.soundHere ? "" : "none";
           drawSound(live.soundHere && soundPref());
           live.zoom = m.zoom || 1;
           zoomBtn.textContent = Math.round(live.zoom * 100) + "%";
-          stat.textContent = "connected";
+          stat.textContent = live.where === "cloud" ? "connected · on FieldKit's cloud server" : "connected";
           stat.className = "br-status ok";
           if (isHidden()) setHidden(true);
           if (live.startUrl) { cmd({ t: "nav", url: live.startUrl }); live.startUrl = null; }
@@ -1472,6 +1523,9 @@
           stat.className = "br-status ok";
         } else if (m.t === "cursor") {
           canvas.style.cursor = CURSORS.indexOf(m.c) >= 0 ? m.c : "default";
+        } else if (m.t === "saver") {
+          stat.textContent = m.on ? "data saver on" + (m.kbps ? ": video at " + m.kbps + " kbit/s" : "") : "data saver off";
+          stat.className = "br-status ok";
         } else if (m.t === "quality") {
           /* The relay turned this panel's video down to fit its connection, or back up. */
           stat.textContent = m.step ? "video turned down to " + m.kbps + " kbit/s to fit " + (m.why || "the connection")
@@ -1484,6 +1538,14 @@
           offerHere(m.url || "");
         } else if (m.t === "nav") {
           if (live) live.url = m.url || "";
+          /* YouTube asks a rented server's visitors to sign in to prove
+             they are not a bot; the home browser plays it. */
+          if (live && live.where === "cloud" && isYouTube(m.url || "")) {
+            note("yt", [el("span", { class: "br-ask-t", text: "YouTube will not play on the cloud server unless you sign in to Google. The home browser plays it." }),
+              btn("PLAY AT HOME", "open this in the home browser", function () { note("yt", null); renderLive(host, status, m.url, "home"); }),
+              btn("✕", "stay here", function () { note("yt", null); })]);
+          } else note("yt", null);
+          applySaver(m.url || "");
           if (document.activeElement !== addr) addr.value = m.url || "";
           drawStar();
           drawHome();
@@ -1523,6 +1585,15 @@
       sock.onclose = function () {
         if (!alive() || !live) return;
         if (live.moving) { live.moving = false; connect(); return; }
+        /* The rented server never answered: this network may block it.
+           Home instead, so FULL MODE still works here. */
+        if (live.where === "cloud" && !live.wasReady) {
+          live.prefer = "home";
+          stat.textContent = "this network did not reach FieldKit's cloud server — connecting at home…";
+          stat.className = "br-status warn";
+          connect();
+          return;
+        }
         stat.textContent = "the stream closed — press ↻ to reconnect";
         stat.className = "br-status warn";
       };

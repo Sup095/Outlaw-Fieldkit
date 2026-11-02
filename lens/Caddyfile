@@ -6,10 +6,21 @@
 # with their real address, which is the one lens/server.js reads
 # (trustProxy "loopback"). No access log: nothing about who opened
 # what is kept on this machine.
+#
+# /browser/ and /helper/ are BROWSER's full mode (the cloud helper,
+# fk-full, on 127.0.0.1:8090) when this machine runs it; the lens page
+# uses neither path. Without fk-full they answer 502, which the relay
+# reads as "not answering" and keeps full mode at home.
 
 LENS_HOST {
-	encode zstd gzip
-	reverse_proxy 127.0.0.1:8080
+	@full path /browser/* /helper/*
+	handle @full {
+		reverse_proxy 127.0.0.1:8090
+	}
+	handle {
+		encode zstd gzip
+		reverse_proxy 127.0.0.1:8080
+	}
 	header {
 		Strict-Transport-Security "max-age=31536000"
 		-Server

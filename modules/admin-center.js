@@ -20,6 +20,7 @@
   var data = null, people = null, problem = null, timer = null;
   var said = "";            /* the announcement being written; it survives a refresh */
   var lensDraft = null;     /* the lens address being typed, likewise */
+  var cloudDraft = null;    /* and the rented full mode's */
   var REFRESH_MS = 15000;
 
   function api(method, path, body) {
@@ -108,7 +109,7 @@
     (b.helpers || []).forEach(function (h) {
       kids.push(row(h.name.toUpperCase() + (h.gpu ? " (CARD)" : ""), h.up ? h.sessions + " sessions, room for " + h.free : "not answering", h.up ? "" : "bad"));
     });
-    if (b.enabled) kids = kids.concat(lensRows(b.lens));
+    if (b.enabled) kids = kids.concat(lensRows(b.lens), cloudRows(b));
     var r = d.runner;
     kids.push(row("RUNNER", !r || !r.enabled ? "switched off" : (r.online ? (r.jobs || 0) + " running, " + (r.sessions || 0) + " connected" : (r.why || "offline")), r && r.enabled && !r.online ? "bad" : ""));
     var u = d.updates;
@@ -144,6 +145,33 @@
       where ? ui.button("TURN IT OFF", function () {
         if (!window.confirm("Turn the lighter browser off? Everyone will use the streamed one.")) return;
         act(function () { return api("POST", "/admin/lens", { url: "" }); }, "LIGHTER BROWSER OFF");
+      }) : null
+    ].filter(Boolean)));
+    return kids;
+  }
+
+  /* FULL MODE on a rented server (a cloud helper): panels connect to it
+     directly, so its pictures skip the home connection. POST /admin/cloud. */
+  function cloudRows(b) {
+    var kids = [];
+    var where = (b.cloud || [])[0] || "";
+    var h = (b.helpers || []).filter(function (x) { return x.cloud; })[0];
+    kids.push(row("FULL MODE, RENTED", !where ? "not set up: full mode runs at home"
+      : h && h.up ? h.sessions + " sessions, room for " + h.free + "  ·  YouTube still runs at home"
+      : "not answering (sessions run at home meanwhile)", where && !(h && h.up) ? "warn" : ""));
+    var addr = el("input", { class: "ac-in", type: "text", placeholder: "its address, such as https://lens.example.com", spellcheck: "false" });
+    addr.value = cloudDraft === null ? where : cloudDraft;
+    addr.addEventListener("input", function () { cloudDraft = addr.value; });
+    kids.push(el("div", { class: "ac-line" }, [addr,
+      ui.button("SAVE", function () {
+        var u = addr.value.trim();
+        cloudDraft = null;
+        if (u) act(function () { return api("POST", "/admin/cloud", { url: u }); }, "RENTED FULL MODE SET");
+      }),
+      where ? ui.button("TURN IT OFF", function () {
+        if (!window.confirm("Stop sending new full-mode sessions to the rented server? They will run at home.")) return;
+        cloudDraft = null;
+        act(function () { return api("POST", "/admin/cloud", { url: "" }); }, "RENTED FULL MODE OFF");
       }) : null
     ].filter(Boolean)));
     return kids;

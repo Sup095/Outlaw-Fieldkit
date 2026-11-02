@@ -1097,8 +1097,8 @@ function watchServices(bw, overflow, lens) {
     notices.watch("browser", () => (bw.status().available ? null :
       { level: "warn", text: "BROWSER is not available right now. It comes back by itself." }));
   }
-  if (overflow && overflow.any()) {
-    notices.watch("helpers", () => (overflow.view().some((h) => h.up) ? null :
+  if (overflow) {
+    notices.watch("helpers", () => (!overflow.any() || overflow.view().some((h) => h.up) ? null :
       { level: "info", text: "BROWSER has less room than usual right now, so you may have to wait for a turn." }));
   }
   if (config.runner && config.runner.enabled) {
@@ -2082,7 +2082,13 @@ server.listen(config.port, config.host, () => {
   /* Browser helpers on Bastion 2 (overflow.js): new sessions go there
      when this relay is full. */
   const helperUrls = config.browser && config.browser.enabled && Array.isArray(config.browser.helpers) ? config.browser.helpers : [];
-  const overflow = helperUrls.length ? new Overflow({ urls: helperUrls, dataDir: DATA_DIR, log: log }) : null;
+  /* And CLOUD helpers on rented servers, which panels reach directly
+     (SIMPLIFY_PLAN.md §14): set in ADMIN CENTER (data/cloud.json) or by
+     browser.cloud. Always made while the browser is on, so one can be
+     added without a restart. */
+  const cloudUrls = admin.savedCloudUrls(DATA_DIR) || (config.browser && Array.isArray(config.browser.cloud) ? config.browser.cloud : []);
+  const overflow = config.browser && config.browser.enabled
+    ? new Overflow({ urls: helperUrls, cloud: cloudUrls, dataDir: DATA_DIR, log: log }) : null;
   /* The lighter browser on a rented server (lens-link.js). Its address
      is set in ADMIN CENTER (kept in data/lens.json by admin.js) or by
      browser.lens.url; the saved one wins. Its passes use the helpers' key. */
@@ -2115,10 +2121,10 @@ server.listen(config.port, config.host, () => {
       return { name: t.name, ok: !!(h && h.ok), checked: !!h };
     })
   });
-  if (overflow && overflow.any()) {
+  if (overflow) {
     overflow.start(() => fairness.line.length > 0 || bw.sessions.size > 0);
-    log("INFO", "browser: " + overflow.helpers.length + " helper(s) take new sessions when this relay is full: " +
-      overflow.helpers.map((h) => h.url).join(", "));
+    if (overflow.any()) log("INFO", "browser: " + overflow.helpers.length + " helper(s): " +
+      overflow.helpers.map((h) => h.url + (h.direct ? " (cloud: panels connect to it directly)" : "")).join(", "));
   }
   runner.startReports(() => ({ up: relayNet.kbps, cpu: fairness.meter.cpu, mem: fairness.meter.mem,
     wait: fairness.line.length, ...browser.lineReport(),

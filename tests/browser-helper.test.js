@@ -82,8 +82,10 @@ const json = (r) => { try { return JSON.parse(r.body.toString("utf8")); } catch 
     ok("nor nonsense", !verify(a.publicKey, "nonsense").ok && !verify(a.publicKey, "a.b.c").ok && !verify(a.publicKey, "x".repeat(3000)).ok);
     const s = new Spent();
     ok("and each is spent on use", s.use(v.claims) && !s.use(v.claims));
-    ok("a helper's address is http://address:port and nothing else",
-      parseUrl("http://192.0.2.7:25570").port === 25570 && !parseUrl("https://x:1") && !parseUrl("http://x:1/path") && !parseUrl("nope"));
+    ok("a helper's address is http://address:port, or https:// for a cloud one, and nothing else",
+      parseUrl("http://192.0.2.7:25570").port === 25570 && !parseUrl("http://192.0.2.7:25570").direct &&
+      parseUrl("https://cloud.example").direct === true && parseUrl("https://cloud.example").port === 443 &&
+      !parseUrl("ftp://x:1") && !parseUrl("http://x:1/path") && !parseUrl("https://a:b@x") && !parseUrl("nope"));
   }
 
   /* ---- the two machines ---- */
@@ -103,7 +105,7 @@ const json = (r) => { try { return JSON.parse(r.body.toString("utf8")); } catch 
   hEngine.download = (s, id) => (id === "d1" ? { size: fs.statSync(DL).size, name: "report.txt", path: DL } : null);
   hEngine.clearAll = async (s) => { cleared.push(s.key); };
 
-  ov = new Overflow({ urls: ["http://127.0.0.1:" + hPort, "https://not-a-helper.example"], dataDir: path.join(TMP, "relay"), log: () => {} });
+  ov = new Overflow({ urls: ["http://127.0.0.1:" + hPort, "ftp://not-a-helper.example"], dataDir: path.join(TMP, "relay"), log: () => {} });
   relayKey.key = crypto.createPublicKey(ov.keys.publicPem);
   const rEngine = standIn(route.init({ config: { enabled: true, video: false, maxSessions: 1 }, log: () => {}, fairness: f, overflow: ov }));
   rEngine.cfg.maxSessions = 1;
@@ -149,7 +151,7 @@ const json = (r) => { try { return JSON.parse(r.body.toString("utf8")); } catch 
 
   section("a helper answers nobody but the relay");
   {
-    ok("an address that is not http://address:port is not used", ov.helpers.length === 1);
+    ok("an address that is not a helper's is not used", ov.helpers.length === 1);
     let r = await get(hPort, "/health");
     ok("its health says it is a helper and nothing more", r.status === 200 && json(r).service === "fieldkit-browser-helper");
     r = await get(hPort, "/helper/state");
@@ -173,6 +175,15 @@ const json = (r) => { try { return JSON.parse(r.body.toString("utf8")); } catch 
       ws.addEventListener("error", () => resolve("refused"));
     });
     ok("a stream without a pass: refused", s === "refused");
+    const d = await new Promise((resolve) => {
+      const p2 = ov.pass({ what: "stream", who: "msg:cy", tier: "member", via: 0, direct: true });
+      const ws = new WebSocket("ws://127.0.0.1:" + hPort + "/browser/stream?p=" + encodeURIComponent(p2));
+      ws.addEventListener("open", () => { ws.close(); resolve("open"); });
+      ws.addEventListener("error", () => resolve("refused"));
+    });
+    ok("a cloud helper's direct pass, on a helper the relay pipes: refused", d === "refused");
+    r = await get(hPort, "/helper/hello");
+    ok("…and no DIAGNOSTICS question here: the device never reaches a home helper", r.status === 404);
     r = await get(hPort, "/vault");
     ok("and it is not a relay: no vault, no accounts", r.status === 404);
   }
@@ -297,6 +308,88 @@ const json = (r) => { try { return JSON.parse(r.body.toString("utf8")); } catch 
     ok("the relay's example lists no helpers, so nothing changes until one is set", Array.isArray(rc.browser.helpers) && !rc.browser.helpers.length);
     const cfg = helperMod.readConfig(null);
     ok("a helper always binds every address unless told otherwise", cfg.host === "0.0.0.0" && cfg.browser.enabled === true);
+  }
+
+  section("a cloud helper: panels connect to it directly");
+  {
+    /* Its own copy of browser-route.js, as on the rented server. */
+    delete require.cache[require.resolve("../relay/browser-route")];
+    delete require.cache[require.resolve("../relay/browser-helper")];
+    const cloudMod = require("../relay/browser-helper");
+    const cloud = await cloudMod.start({ relayKey, meter: new Fairness({ read: () => ({}) }),
+      config: { host: "127.0.0.1", port: 0, dataDir: path.join(TMP, "cloud"),
+        helper: { relayUrl: relayKey.base, publicUrl: "https://cloud.example" },
+        browser: { enabled: true, video: false, maxSessions: 2 }, browse: {} } });
+    const cEngine = standIn(cloud.engine, { status: () => ({ available: true }) });
+    cEngine.download = (s, id) => (id === "d1" ? { size: fs.statSync(DL).size, name: "report.txt", path: DL } : null);
+    const cPort = cloud.server.address().port;
+    const tryWs = (u) => new Promise((resolve) => {
+      const w = new WebSocket(u);
+      w.addEventListener("open", () => resolve(w));
+      w.addEventListener("error", () => resolve(null));
+    });
+    const direct = (claims) => ov.pass(Object.assign({ what: "stream", who: "msg:cy", tier: "member", via: 9, direct: true }, claims));
+    const base = "ws://127.0.0.1:" + cPort + "/browser/stream?p=";
+    ok("a stream with no pass: refused", !(await tryWs(base)));
+    ok("one the relay meant to pipe: refused here", !(await tryWs(base + encodeURIComponent(direct({ direct: undefined })))));
+    const w = await tryWs(base + encodeURIComponent(direct({})));
+    ok("the relay's direct pass, in the address: the panel is in", !!w);
+    const got = [];
+    w.addEventListener("message", (e) => { if (typeof e.data === "string") got.push(JSON.parse(e.data)); });
+    w.send(JSON.stringify({ t: "hello", w: 800, h: 600 }));
+    ok("…as the account the pass names", await until(() => cEngine.sessions.has("msg:cy") && got.some((m) => m.t === "ready")));
+    /* An early character: the last one of a signature carries bits
+       nobody reads, so changing it can change nothing. */
+    const p0 = direct({});
+    const changed = encodeURIComponent(p0.slice(0, 3) + (p0[3] === "A" ? "B" : "A") + p0.slice(4));
+    const again = await tryWs(base + changed);
+    ok("a pass that was changed: refused", !again);
+    if (again) again.close();
+    /* Downloads and a page's files: the panel (another origin) asks the
+       cloud helper itself, and the single-use link is the permission. */
+    const pre = await get(cPort, "/browser/put/abcdef", "OPTIONS");
+    ok("a page's file can be sent from another origin (the preflight is answered)", pre.status === 204);
+    const nolink = await get(cPort, "/browser/file/abcdef");
+    ok("an unknown link is still nothing, with no pass asked for", nolink.status === 404);
+    const hello = await get(cPort, "/helper/hello");
+    ok("DIAGNOSTICS can ask it from the device (yes, and nothing else)", hello.status === 200 && json(hello).ok === true &&
+      Object.keys(json(hello)).length === 3);
+    shut(w);
+
+    /* The relay's side. */
+    const real = ov.request.bind(ov);
+    let cloudState = { ready: true, free: 2, max: 2, cpu: 5, mem: 5, pids: 1, sessions: [], kept: [] };
+    ov.request = (h, method, p, claims, body) => h.direct
+      ? (p === "/helper/state" ? Promise.resolve(Object.assign({ allowV: ov.allowV }, cloudState)) : Promise.resolve({ ok: true }))
+      : real(h, method, p, claims, body);
+    ok("ADMIN CENTER's address must be https", ov.setCloud(["http://cloud.example"]) === false && !ov.anyCloud());
+    ok("an https one is a cloud helper", ov.setCloud(["https://cloud.example"]) && ov.anyCloud() && ov.cloudUrls()[0] === "https://cloud.example");
+    const ch = ov.helpers.find((h) => h.direct);
+    await ov.poll(ch);
+    ok("it is polled like any helper, without the house video step", ch.state && ch.state.free === 2);
+    ok("a piped helper is never chosen as a cloud one, nor the other way", ov.pick("dee", "member", f, "plain") !== ch && ov.pickCloud("dee", "member") === ch);
+    const ticket = async (body) => json(await get(rPort, "/browser/ticket", "POST", body ? JSON.stringify(body) : null, { "x-who": "msg:dee", "x-tier": "member" }));
+    let t = await ticket(null);
+    ok("a new session's ticket names the cloud helper's own address", t.where === "cloud" && /^wss:\/\/cloud\.example\/browser\/stream\?p=/.test(t.stream || ""), JSON.stringify(t));
+    const pass = decodeURIComponent(t.stream.split("?p=")[1]);
+    const v = verify(crypto.createPublicKey(ov.keys.publicPem), pass);
+    ok("…with a direct pass for that account", v.ok && v.claims.direct === true && v.claims.who === "msg:dee" && v.claims.what === "stream");
+    ok("…and a ticket too, for a panel too old to know", typeof t.ticket === "string" && t.ticket.length > 10);
+    t = await ticket({ prefer: "home" });
+    ok("asked for home (YouTube): no cloud", t.where === "home" && !t.stream);
+    cloudState = Object.assign({}, cloudState, { cpu: 95 });
+    await ov.poll(ch);
+    ok("a cloud helper over its line takes no member", (await ticket(null)).where === "home");
+    ok("…but takes an admin", ov.pickCloud("root", "admin") === ch);
+    cloudState = Object.assign({}, cloudState, { cpu: 95, sessions: ["msg:dee"] });
+    await ov.poll(ch);
+    ok("someone already on it goes back to it, busy or not", (await ticket(null)).where === "cloud");
+    ok("the relay's status lists it as cloud, with its public address", ov.view().some((h) => h.cloud && h.up && h.url === "https://cloud.example"));
+    ok("…but never a home helper's address", ov.view().filter((h) => !h.cloud).every((h) => !("url" in h)));
+    ok("turned off in ADMIN CENTER, it is gone", ov.setCloud([]) && !ov.anyCloud());
+    ov.request = real;
+    await new Promise((r) => cloud.server.close(r));
+    cloud.engine.stop && cloud.engine.stop();
   }
 
   ov.stop();

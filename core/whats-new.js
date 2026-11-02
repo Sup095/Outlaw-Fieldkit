@@ -10,6 +10,13 @@
   "use strict";
 
   var NOTES = [
+    { v: "0.9.0", items: [
+      "FULL MODE can run on FieldKit's cloud server: its video then does not use the home internet, which stays free for everything else.",
+      "YouTube still plays at home, because it refuses rented servers. PLAY AT HOME on the note moves a video there.",
+      "DATA SAVER under ⋯ lowers FULL MODE's video. On AUTO it does this for YouTube at home only.",
+      "If a network does not reach the cloud server, FULL MODE runs at home by itself. DIAGNOSTICS and PREFLIGHT check it.",
+      "ADMIN CENTER sets the cloud server's address under SERVICES."
+    ] },
     { v: "0.8.0", items: [
       "BROWSER has a lighter mode: pages run in your own browser, sharp and quick to scroll, through FieldKit's new server. It is used by itself when set up.",
       "In the lighter mode, ★ keeps a bookmark and PLACES opens your bookmarks and history; TAB opens the page in a tab of its own.",

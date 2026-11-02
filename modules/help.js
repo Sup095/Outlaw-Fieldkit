@@ -161,6 +161,12 @@
         "BROWSER moves to FULL MODE by itself. FULL MODE is remembered; LIGHT MODE under ⋯ goes back.",
         "In FULL MODE, type an address or a search in the bar. Sign in to MESSAGES and it " +
         "remembers your sign-ins; as a guest it keeps nothing.",
+        "When the relay has FieldKit's cloud server, FULL MODE runs there, and its video does " +
+        "not use the home internet; the line under the page says \"on FieldKit's cloud server\". " +
+        "YouTube refuses rented servers, so it runs at home: PLAY AT HOME on the note moves it. " +
+        "If a network does not reach the cloud server, FULL MODE runs at home by itself.",
+        "DATA SAVER under ⋯ lowers FULL MODE's video, to about a third. AUTO does it for YouTube " +
+        "at home only; ON always; OFF never. It is remembered.",
         "A new tab shows your bookmarks and the sites you were last on. ↩TAB appears once " +
         "you have closed a tab, and opens it again. PLACES lists them all. In FIELDKIT they " +
         "are encrypted in your vault. OUTPOST has no vault, so there they sit on this " +
@@ -349,6 +355,8 @@
           ["WHAT DEVICES ALLOW", "the answers from /probe, a page anyone can open"],
           ["WHAT WENT WRONG LATELY", "warnings and errors since the relay started"]
         ] },
+        "FULL MODE, RENTED under SERVICES sets the cloud server FULL MODE runs on (an https " +
+        "address); TURN IT OFF puts FULL MODE back at home. " +
         "ALLOW takes effect for everyone at once, on every browser machine. COPY A REPORT " +
         "puts a summary on the clipboard for asking for help; no message or page address " +
         "is in it.",

@@ -1115,9 +1115,9 @@
     /* And the streamed one. The account IS the browser session on
        that side — your cookies, your history — which is what makes
        one sign-in serve both apps. */
-    streamTicket: async function () {
+    streamTicket: async function (prefer) {
       if (!session) throw new Error("not signed in to MESSAGES");
-      return api("POST", "/browser/ticket");
+      return api("POST", "/browser/ticket", prefer ? { prefer: String(prefer) } : undefined);
     },
     /* The lighter mode's pass, or which mode to use instead. */
     lensPass: async function () {

@@ -12,6 +12,7 @@
      POST /admin/block      { op: "allow"|"unallow"|"dismiss"|"refresh", host }
      POST /admin/session    { who }: end someone's browser session
      POST /admin/lens       { url }: where the lighter browser is ("" = off)
+     POST /admin/cloud      { url }: FULL MODE's rented server ("" = off)
      POST /admin/report     any account: "this was blocked by mistake"
 
    The overview also carries what /probe has heard (relay/probe.js).
@@ -93,7 +94,7 @@ async function overview() {
     relay: { uptimeSec: Math.round((Date.now() - startedAt) / 1000), node: process.version,
       memMb: Math.round(mem.rss / 1048576), load: os.loadavg()[0], cpus: os.cpus().length,
       disk: diskOf(dataDir), upKbps: fair ? fair.upKbps || 0 : null, cpu: fair ? fair.cpu : null, mem: fair ? fair.mem : null },
-    browser: Object.assign(browser, { sessionList: sessions, helpers: helpers }, lens ? { lens: Object.assign(lens.view(), { url: lens.url() }) } : {}),
+    browser: Object.assign(browser, { sessionList: sessions, helpers: helpers, cloud: overflow ? overflow.cloudUrls() : [] }, lens ? { lens: Object.assign(lens.view(), { url: lens.url() }) } : {}),
     upload: parts.upload ? parts.upload() : null,
     runner: run,
     people: messaging && messaging.counts ? messaging.counts() : null,
@@ -182,6 +183,20 @@ async function route(req, res, url, helpers) {
     return true;
   }
 
+  /* FULL MODE on a rented server (overflow.js, cloud helpers). Empty
+     turns it off; sessions there keep running until they end. */
+  if (what === "cloud" && method === "POST") {
+    const body = await readBody(req).catch(() => null);
+    const u = String((body && body.url) || "").trim().replace(/\/+$/, "");
+    if (!parts.overflow) { send(res, 409, { error: "the browser is off on this relay" }); return true; }
+    if (!parts.overflow.setCloud(u ? [u] : [])) { send(res, 400, { error: "that is not an https address" }); return true; }
+    try { jf.write(path.join(parts.dataDir, "cloud.json"), { urls: parts.overflow.cloudUrls() }); }
+    catch (e) { parts.log("WARN", "admin: could not save cloud.json: " + e.message); }
+    parts.log("INFO", "admin: cloud browser " + (u ? "set to " + u : "cleared"));
+    send(res, 200, { ok: true, urls: parts.overflow.cloudUrls() });
+    return true;
+  }
+
   if (what === "session" && method === "POST") {
     const body = await readBody(req).catch(() => null);
     const who = String((body && body.who) || "");
@@ -211,4 +226,11 @@ function savedLensUrl(dataDir) {
   return typeof j.url === "string" ? j.url : "";
 }
 
-module.exports = { init, route, note, overview, savedLensUrl, _internals: { events, hostFrom } };
+/* The cloud helpers ADMIN CENTER saved, or null if it never has (then
+   browser.cloud in config.json is used). */
+function savedCloudUrls(dataDir) {
+  const j = jf.read(path.join(dataDir, "cloud.json"), null);
+  return j && Array.isArray(j.urls) ? j.urls.map(String) : null;
+}
+
+module.exports = { init, route, note, overview, savedLensUrl, savedCloudUrls, _internals: { events, hostFrom } };

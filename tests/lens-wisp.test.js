@@ -489,6 +489,25 @@ async function client(port, who) {
     ok("the pass leaves the address bar at once", /history\.replaceState\(null, "", location\.pathname\)/.test(js));
   }
 
+  section("full mode on the same machine");
+  {
+    const dir = path.join(__dirname, "..", "lens");
+    const caddy = fs.readFileSync(path.join(dir, "Caddyfile"), "utf8"), setup = fs.readFileSync(path.join(dir, "setup.sh"), "utf8");
+    const deploy = fs.readFileSync(path.join(__dirname, "..", "tools", "make-deploy.js"), "utf8");
+    ok("Caddy sends the browser's paths to full mode, the rest to lens",
+      /@full path \/browser\/\* \/helper\/\*/.test(caddy) && /handle @full \{[^}]*127\.0\.0\.1:8090/.test(caddy) && /handle \{[^}]*127\.0\.0\.1:8080/.test(caddy));
+    ok("full mode runs only on the 4 GB plan or larger, and is taken away below it",
+      /"\$MEM_MB" -ge 3500/.test(setup) && /docker rm -f fk-full[^\n]*\n\s*echo "full mode: off/.test(setup));
+    ok("…listening on this machine only, behind Caddy", /-p 127\.0\.0\.1:8090:8080/.test(setup) && !/-p 8090|--network host[^\n]*fk-full/.test(setup));
+    ok("…read-only, without privileges, its memory capped", /--read-only --user 999:999 --cap-drop ALL --security-opt no-new-privileges/.test(setup) &&
+      /--memory "\$\{FULL_MB\}m"/.test(setup));
+    ok("…at this server's own name", setup.includes('\\"publicUrl\\": \\"https://$HOST\\"'));
+    ok("the month's ceiling rises to 6 TB only on the bigger plan, and only from the old default",
+      /-ge 3500 \] && grep -q '"capBytes": 1700000000000'/.test(setup) && /"capBytes": 6000000000000/.test(setup));
+    ok("the deploy puts the relay's image in lens/full, with a cloud helper's config", /copyDir\(b1, path\.join\(lensOut, "full"\)\)/.test(deploy) &&
+      /cloudCfg\.helper\.publicUrl = "https:\/\/"/.test(deploy));
+  }
+
   section("a client that sends first");
   {
     /* The fix in relay/ws.js: a frame that arrives with the 101. */

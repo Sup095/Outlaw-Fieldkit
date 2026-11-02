@@ -123,7 +123,7 @@ if (fs.existsSync(cfgSrc)) {
    secret: the relay's browser block holds none. */
 const helperOut = path.join(OUT, "helper-upload");
 fs.rmSync(helperOut, { recursive: true, force: true });
-let helperSaid = "";
+let helperSaid = "", cloudCfg = null;
 if (fs.existsSync(cfgSrc)) {
   const rc = JSON.parse(fs.readFileSync(cfgSrc, "utf8"));
   const ex = JSON.parse(fs.readFileSync(path.join(ROOT, "relay", "helper-config.example.json"), "utf8"));
@@ -134,6 +134,16 @@ if (fs.existsSync(cfgSrc)) {
   fs.mkdirSync(helperOut, { recursive: true });
   fs.writeFileSync(path.join(helperOut, "config.json"), JSON.stringify(hc, null, 2) + "\n", "utf8");
   helperSaid = settings.relay ? "" : " (no relay address saved: run once with --relay https://your-relay)";
+  /* The same for a CLOUD helper on the rented server (SIMPLIFY_PLAN.md
+     §14): panels reach it at publicUrl, its pages' own uploads are not
+     on the home connection, and lens/setup.sh sets maxSessions from the
+     machine's size. Also nothing secret. */
+  cloudCfg = JSON.parse(JSON.stringify(hc));
+  cloudCfg._ = "A CLOUD browser helper's config.json, written by tools/make-deploy.js and installed by lens/setup.sh. Panels connect to it directly at helper.publicUrl with passes the relay signs; it fetches the relay's public key from helper.relayUrl and holds nothing else of FieldKit's.";
+  cloudCfg.host = "0.0.0.0";
+  cloudCfg.port = 8080;
+  cloudCfg.helper.publicUrl = "https://" + (settings.lensHost || "LENS_HOST");
+  cloudCfg.helper.upKbps = 20000;
 }
 
 const firstTime = !Object.keys(last).length;
@@ -184,6 +194,11 @@ for (const f of RELAY_CODE) {
 }
 for (const f of LENS) put(path.join(ROOT, f), path.join(lensOut, f), true);
 put(path.join(ROOT, "lens", "Dockerfile"), path.join(lensOut, "Dockerfile"), true);
+/* FULL MODE on the same server: the relay's image, built there from the
+   same folder Bastion 1 builds it from, and the cloud helper's config.
+   lens/setup.sh runs it only on a machine big enough (4 GB or more). */
+copyDir(b1, path.join(lensOut, "full"));
+if (cloudCfg) fs.writeFileSync(path.join(lensOut, "full", "config.json"), JSON.stringify(cloudCfg, null, 2) + "\n", "utf8");
 const tarLens = tarUp("lens");
 
 /* ---- what to do with them ---- */
