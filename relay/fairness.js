@@ -27,7 +27,10 @@ const fs = require("fs");
 const os = require("os");
 
 const RANK = { admin: 0, member: 1, guest: 2 };
-const DEFAULTS = { guest: { load: 60, upload: 50 }, member: { load: 85, upload: 85 }, uploadMbps: 20 };
+/* uploadCapMbps: the most all of FieldKit may send (upcap.js), well
+   under the house's 21 Mbit/s so its other servers are not crowded
+   out. The upload lines are shares of it. */
+const DEFAULTS = { guest: { load: 60, upload: 50 }, member: { load: 85, upload: 85 }, uploadCapMbps: 12 };
 /* One browser session: Chromium's share while in use, and its video
    while the page moves (0.5-0.8 Mbit/s measured scrolling). */
 const COST = { cpu: 10, mem: 6, kbps: 800, pids: 20 };
@@ -92,6 +95,13 @@ class Fairness {
     this.read = opts.read || readCgroup;
     this.peer = opts.peer || (() => null);   /* Bastion 2's { upKbps, settings, at } */
     this.sent = 0;                           /* bytes the browser has sent to panels */
+    /* Everything this relay sends to the internet, kbit/s (upcap.js):
+       the browser, RUNNER passed through, files, messages. Without it,
+       the browser's own bytes stand in. */
+    this.net = opts.net || (() => this.meter.upKbps);
+    /* The ceiling when RUNNER's ADMIN has not said (config.json
+       uploadCapMbps, for a relay with no run server). */
+    this.capMbps = num(opts.capMbps) > 0 ? num(opts.capMbps) : DEFAULTS.uploadCapMbps;
     this.prev = null;
     this.meter = { cpu: 0, avg: null, mem: 0, pids: 0, upKbps: 0, at: 0 };
     this.sessions = opts.sessions || (() => 0);   /* how many sessions the meter is seeing */
@@ -129,7 +139,7 @@ class Fairness {
     return {
       guest: s && ok(s.guest) ? s.guest : DEFAULTS.guest,
       member: s && ok(s.member) ? s.member : DEFAULTS.member,
-      uploadMbps: s && num(s.uploadMbps) > 0 ? s.uploadMbps : DEFAULTS.uploadMbps
+      uploadCapMbps: s && num(s.uploadCapMbps) > 0 ? s.uploadCapMbps : this.capMbps
     };
   }
 
@@ -150,7 +160,8 @@ class Fairness {
       pids: n ? Math.min(COST_MAX.pids, this.meter.pids / n) : COST.pids };
   }
 
-  /* RUNNER's upload, while its report is fresh. */
+  /* What Bastion 2 sends to the internet itself (not through this
+     relay), while its report is fresh. */
   peerUp() {
     const p = this.peer();
     return p && this.now() - p.at < 30000 ? Math.max(0, Number(p.upKbps) || 0) : 0;
@@ -176,8 +187,8 @@ class Fairness {
       this.calmAt = now;
     } else if (now - this.calmAt >= CALM_MS) {
       const up = this.step - 1;
-      const mine = this.meter.upKbps * STEPS[up] / STEPS[this.step];
-      const then = (mine + this.peerUp()) / (s.uploadMbps * 10);
+      const more = this.meter.upKbps * (STEPS[up] / STEPS[this.step] - 1);
+      const then = (this.net() + this.peerUp() + more) / (s.uploadCapMbps * 10);
       const line = up === 0 ? s.guest.upload : s.member.upload;
       if (then < line - 5 && !(up === 0 && (this.line.length || this.peerWaiting()))) {
         this.step = up;
@@ -188,7 +199,7 @@ class Fairness {
   }
 
   upPct(extra) {
-    return (this.meter.upKbps + this.peerUp() + (extra || 0)) / (this.settings().uploadMbps * 10);
+    return (this.net() + this.peerUp() + (extra || 0)) / (this.settings().uploadCapMbps * 10);
   }
 
   fits(tier, slotFree) {

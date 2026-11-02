@@ -31,6 +31,8 @@ global.atob = (s) => Buffer.from(s, "base64").toString("binary");
 
 const build = require("../build.js");
 const updatesRoute = require("../relay/updates.js");
+/* An empty data folder outside the tree: the relay makes updates/ in it. */
+const NONE_DIR = fs.mkdtempSync(path.join(require("os").tmpdir(), "fk-updates-none-"));
 const key = FieldKit.need("updateKey");
 const def = FieldKit.modules().updater;
 
@@ -289,7 +291,7 @@ const ctx = { settings, ui: FieldKit.need("ui"), version: "0.1.0",
     const send = (r, status, body) => sent.push({ status, body });
     const res = { writeHead() {}, end() {} };
 
-    updatesRoute.init({ dataDir: path.join(ROOT, "release", "__none__"),
+    updatesRoute.init({ dataDir: NONE_DIR,
       config: { enabled: false }, log: () => {} });
     sent.length = 0;
     await updatesRoute.route({ method: "GET", headers: {} }, res,
@@ -297,7 +299,7 @@ const ctx = { settings, ui: FieldKit.need("ui"), version: "0.1.0",
       { send, authorise: () => "vault" });
     ok("disabled means 503 before anything else", sent[0] && sent[0].status === 503);
 
-    updatesRoute.init({ dataDir: path.join(ROOT, "release", "__none__"),
+    updatesRoute.init({ dataDir: NONE_DIR,
       config: { enabled: true }, log: () => {} });
 
     sent.length = 0;
@@ -384,6 +386,7 @@ const ctx = { settings, ui: FieldKit.need("ui"), version: "0.1.0",
     }
   }
 
+  fs.rmSync(NONE_DIR, { recursive: true, force: true });
   console.log("\nRESULT  pass " + state.pass + "  fail " + state.fail);
   if (state.failures.length) {
     console.log("\nFAILURES:");

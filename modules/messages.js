@@ -460,11 +460,7 @@
   }
 
   function renderNoRelay() {
-    nodes.root.appendChild(el("div", { class: "mg-empty" }, [
-      el("div", { class: "mg-empty-h", text: "NO RELAY CONFIGURED" }),
-      el("div", { class: "mg-empty-p", text:
-        "Messages live on your relay. Set its address in SETTINGS, then come back." })
-    ]));
+    nodes.root.appendChild(ui.noRelay("MESSAGES keeps your conversations on your relay, sealed before they leave.", "messages"));
   }
 
   function renderSignIn() {

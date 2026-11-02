@@ -37,7 +37,7 @@
     taskList = el("div", { id: "fk-tasks" });
     tray = el("div", { id: "fk-tray" });
     taskbar = el("div", { id: "fk-taskbar" }, [
-      el("span", { class: "brand", text: "FIELDKIT" }), taskList, tray
+      el("span", { class: "brand", text: onOutpost() ? "OUTPOST" : "FIELDKIT" }), taskList, tray
     ]);
     desktop.appendChild(iconLayer);
     desktop.appendChild(winLayer);
@@ -58,6 +58,10 @@
     FieldKit.on("messages:session", refreshIcons);
     FieldKit.on("health:checked", drawAttention);
     window.addEventListener("keydown", onKey);
+    /* A menu goes when anything else is pressed. */
+    document.addEventListener("pointerdown", function (e) {
+      if (menuNode && !menuNode.contains(e.target)) closeMenu();
+    }, true);
     desktop.addEventListener("mousedown", function (e) {
       var inWin = false;
       windows.forEach(function (r) { if (r.node.contains(e.target)) inWin = true; });
@@ -172,6 +176,9 @@
     ["Ctrl+Shift+Left / Right", "snap the window to half the screen"],
     ["Ctrl+Shift+Up", "maximise, or restore"],
     ["Ctrl+Shift+Down", "minimise"],
+    ["Ctrl+Shift+D", "show the desktop; again brings the windows back"],
+    ["Right-click an app or a window's button", "pin it, snap it, close it"],
+    ["Middle-click a window's button", "close it"],
     ["Double-click a title bar", "maximise, or restore"],
     ["Drag a title bar to an edge", "snap to that side; the top edge maximises"],
     ["In BROWSER: Ctrl+F, Ctrl+L, F5", "find, address bar, reload"],
@@ -186,6 +193,12 @@
 
   /* Apps marked adminOnly exist only for an admin on the relay: to
      everyone else there is no tile, no search hit and no window. */
+  /* The build without a vault names itself, and offers nothing it lacks. */
+  function onOutpost() {
+    var boot = FieldKit.service("boot");
+    return !!(boot && boot.OUTPOST);
+  }
+
   function adminOK(m) {
     if (!m || !m.adminOnly) return true;
     var msg = FieldKit.service("messages");
@@ -304,9 +317,21 @@
   }
 
   function tick() {
-    var d = new Date();
-    trayClock.textContent = [d.getHours(), d.getMinutes(), d.getSeconds()]
-      .map(function (n) { return String(n).padStart(2, "0"); }).join(":");
+    var d = new Date(), s = FieldKit.service("settings");
+    trayClock.textContent = clockText(d, !s || s.get("clock24") !== false);
+    /* The date where the time is, without taking room on the bar. */
+    var day = d.toDateString();
+    if (trayClock.__day !== day) {
+      trayClock.__day = day;
+      trayClock.title = d.toLocaleDateString(undefined, { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+    }
+  }
+
+  function clockText(d, h24) {
+    var p = function (n) { return String(n).padStart(2, "0"); };
+    if (h24) return p(d.getHours()) + ":" + p(d.getMinutes()) + ":" + p(d.getSeconds());
+    return (d.getHours() % 12 || 12) + ":" + p(d.getMinutes()) + ":" + p(d.getSeconds()) +
+      (d.getHours() < 12 ? " AM" : " PM");
   }
 
   /* ONLINE means "the store is answering", which is not the same as
@@ -400,6 +425,27 @@
     return out;
   }
 
+  /* ---- pinned apps ---------------------------------------------
+     Also this machine's and not the vault's, for the same reason. */
+  var PIN_KEY = "fieldkit.pins.v1";
+  function readPins() {
+    try {
+      var p = JSON.parse(localStorage.getItem(PIN_KEY) || "[]");
+      return Array.isArray(p) ? p.filter(function (x) { return typeof x === "string"; }).slice(0, TOP_MAX) : [];
+    } catch (e) { return []; }
+  }
+  function isPinned(id) { return readPins().indexOf(id) >= 0; }
+  function setPinned(id, on) {
+    var p = readPins().filter(function (x) { return x !== id; });
+    if (on) {
+      if (p.length >= TOP_MAX) { ui.toast("YOUR APPS HOLDS " + TOP_MAX + " — UNPIN ONE FIRST", "warn"); return false; }
+      p.push(id);
+    }
+    try { localStorage.setItem(PIN_KEY, JSON.stringify(p)); } catch (e) { return false; }
+    refreshIcons();
+    return true;
+  }
+
   function noteUsed(id) {
     try {
       var u = readUsage();
@@ -433,9 +479,14 @@
       var m = mods[id];
       return !!m && !m.inside && adminOK(m) && (!guest || guest.allowed(m));
     };
-    var ids = Object.keys(u).filter(usable).sort(function (a, b) {
+    /* Pinned first, in the order pinned, so they stay where the hand
+       expects them; the rest of the row follows what is used. */
+    var pins = readPins().filter(usable);
+    var ids = pins.concat(Object.keys(u).filter(function (id) {
+      return usable(id) && pins.indexOf(id) < 0;
+    }).sort(function (a, b) {
       return usageScore(u[b], now) - usageScore(u[a], now) || a.localeCompare(b);
-    }).slice(0, TOP_MAX);
+    })).slice(0, TOP_MAX);
     DEFAULT_APPS.forEach(function (id) {
       if (ids.length < TOP_MIN && ids.indexOf(id) < 0 && usable(id)) ids.push(id);
     });
@@ -561,7 +612,7 @@
       onclick: function () { everything(q); }
     }, [
       el("span", { class: "g", text: ">" }),
-      el("span", { class: "n", text: "Search notes, records and commands for “" + q + "”" }),
+      el("span", { class: "n", text: (onOutpost() ? "Search commands for “" : "Search notes, records and commands for “") + q + "”" }),
       el("span", { class: "k", text: "CTRL+K" })
     ]));
   }
@@ -678,9 +729,11 @@
         el("span", { class: "n", text: m.title })
       ]);
     }
-    return el("button", {
-      class: "fk-app", type: "button", title: m.title + (m.about ? " — " + m.about : ""),
-      onclick: function () { closeFolder(); open(id); },
+    var tile = el("button", {
+      class: "fk-app" + (isPinned(id) ? " pinned" : ""), type: "button",
+      title: m.title + (m.about ? " — " + m.about : "") + (isPinned(id) ? " (pinned)" : ""),
+      onclick: function () { if (tile.__held) { tile.__held = false; return; } closeFolder(); open(id); },
+      oncontextmenu: function (e) { if (e.preventDefault) e.preventDefault(); tileMenu(id, m, e.clientX, e.clientY); },
       onpointerenter: function () { prewarm(id, m); },
       ontouchstart: function () { prewarm(id, m); },
       onfocus: function () { prewarm(id, m); }
@@ -688,6 +741,71 @@
       el("span", { class: "g", text: m.icon }),
       el("span", { class: "n", text: m.title })
     ]);
+    holdForMenu(tile, function (x, y) { tileMenu(id, m, x, y); });
+    return tile;
+  }
+
+  function tileMenu(id, m, x, y) {
+    var pinned = isPinned(id);
+    var manual = FieldKit.service("manual");
+    var page = manual && manual.pageFor(id);
+    return popMenu(x, y, [
+      ["OPEN", function () { closeFolder(); open(id); }],
+      [pinned ? "UNPIN FROM YOUR APPS" : "PIN TO YOUR APPS", function () {
+        if (setPinned(id, !pinned)) ui.toast((pinned ? "UNPINNED :: " : "PINNED :: ") + m.title, "ok");
+      }],
+      page ? ["HOW IT WORKS", function () { manual.open(page); }] : null
+    ]);
+  }
+
+  /* ---- a small menu: right-click, or a long press on a touch screen */
+  var menuNode = null;
+  function closeMenu() {
+    if (menuNode && menuNode.parentNode) menuNode.parentNode.removeChild(menuNode);
+    menuNode = null;
+  }
+  function popMenu(x, y, items) {
+    closeMenu();
+    if (!desktop) return null;
+    var box = el("div", { class: "fk-menu", role: "menu" });
+    items.filter(Boolean).forEach(function (it) {
+      box.appendChild(el("button", { class: "fk-menu-i", type: "button", role: "menuitem", text: it[0],
+        onclick: function () { closeMenu(); it[1](); } }));
+    });
+    /* Up and down move between the items, as in any menu. */
+    box.addEventListener("keydown", function (e) {
+      if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+      if (e.preventDefault) e.preventDefault();
+      var list = Array.prototype.slice.call(box.children || []);
+      var i = list.indexOf(document.activeElement);
+      var next = list[(i + (e.key === "ArrowDown" ? 1 : list.length - 1)) % list.length];
+      if (next && next.focus) next.focus();
+    });
+    desktop.appendChild(box);
+    /* Kept on screen, whichever corner it was asked for in. */
+    var w = box.offsetWidth || 200, h = box.offsetHeight || items.length * 30;
+    box.style.left = Math.max(4, Math.min(Number(x) || 0, (window.innerWidth || 1024) - w - 4)) + "px";
+    /* y below zero means "with its bottom edge this far up", for the
+       taskbar, so the menu never covers the buttons it came from. */
+    var top = Number(y) < 0 ? (window.innerHeight || 768) + Number(y) - h : Number(y) || 0;
+    box.style.top = Math.max(4, Math.min(top, (window.innerHeight || 768) - h - 4)) + "px";
+    menuNode = box;
+    var first = box.children && box.children[0];
+    if (first && first.focus) first.focus();
+    return box;
+  }
+  /* Half a second's press on a touch screen is a right-click. The click
+     that follows it is swallowed, or the app would open under the menu. */
+  function holdForMenu(node, fn) {
+    var timer = null;
+    node.addEventListener("pointerdown", function (e) {
+      if (e.pointerType !== "touch") return;
+      var x = e.clientX, y = e.clientY;
+      timer = setTimeout(function () { timer = null; node.__held = true; fn(x, y); }, 550);
+    });
+    ["pointerup", "pointercancel", "pointerleave"].forEach(function (t) {
+      node.addEventListener(t, function () { if (timer) { clearTimeout(timer); timer = null; } });
+    });
   }
 
   /* A module can start something slow before it is opened: the
@@ -865,6 +983,9 @@
 
   /* ---- windows ------------------------------------------------ */
   function open(id) {
+    /* Before the desktop exists (the boot screen, a test) there is no
+       layer to put a window in: say no rather than throw. */
+    if (!winLayer) return null;
     var mod = FieldKit.module(id);
     if (!mod) { ui.toast("NO SUCH MODULE :: " + id, "fail"); return null; }
 
@@ -1030,11 +1151,51 @@
   function addTask(rec) {
     rec.task = el("button", { class: "fk-task", type: "button", text: rec.mod.title,
       onclick: function () {
+        if (rec.task.__held) { rec.task.__held = false; return; }
         if (rec.node.classList.contains("minimized")) { rec.node.classList.remove("minimized"); focus(rec.id); }
         else if (focused === rec.id) minimize(rec.id);
         else focus(rec.id);
-      } });
+      },
+      /* The middle button closes, as it does a browser's tab. */
+      onauxclick: function (e) { if (e.button === 1) { if (e.preventDefault) e.preventDefault(); close(rec.id); } },
+      onmousedown: function (e) { if (e.button === 1 && e.preventDefault) e.preventDefault(); },
+      oncontextmenu: function (e) { if (e.preventDefault) e.preventDefault(); taskMenu(rec, e.clientX, e.clientY); } });
+    holdForMenu(rec.task, function (x, y) { taskMenu(rec, x, y); });
     taskList.appendChild(rec.task);
+  }
+
+  function taskMenu(rec, x) {
+    var min = rec.node.classList.contains("minimized");
+    var back = function () { rec.node.classList.remove("minimized"); };
+    /* From the taskbar it opens upward, over the desktop, its bottom
+       edge on the bar's top (the bar is 30px high). */
+    return popMenu(x, -34, [
+      [min ? "RESTORE" : "MINIMISE", function () { if (min) { back(); focus(rec.id); } else minimize(rec.id); }],
+      [rec.node.classList.contains("maximized") ? "RESTORE SIZE" : "MAXIMISE", function () { back(); toggleMaximise(rec.id); focus(rec.id); }],
+      ["SNAP LEFT", function () { back(); snap(rec.id, "left"); focus(rec.id); }],
+      ["SNAP RIGHT", function () { back(); snap(rec.id, "right"); focus(rec.id); }],
+      ["CLOSE", function () { close(rec.id); }]
+    ]);
+  }
+
+  /* ---- show the desktop -----------------------------------------
+     Everything out of the way, and the same windows back on the second
+     press. A window opened or restored in between ends that: the next
+     press hides again. */
+  var hiddenForDesktop = null;
+  function showDesktop() {
+    var shown = [];
+    windows.forEach(function (r, id) { if (!r.node.classList.contains("minimized")) shown.push(id); });
+    if (!shown.length && hiddenForDesktop) {
+      var back = hiddenForDesktop.filter(function (id) { return windows.has(id); });
+      hiddenForDesktop = null;
+      back.forEach(function (id) { windows.get(id).node.classList.remove("minimized"); });
+      if (back.length) focus(back[back.length - 1]);
+      return back.length ? "restored" : "nothing";
+    }
+    shown.forEach(function (id) { minimize(id); });
+    hiddenForDesktop = shown.length ? shown : null;
+    return shown.length ? "hidden" : "nothing";
   }
 
   /* ---- drag / resize ------------------------------------------ */
@@ -1311,6 +1472,7 @@
     /* An open folder is on top of everything and was opened last, so
        it is what Escape means — checked before the focused window,
        or Esc would close a window the user cannot currently see. */
+    if (e.key === "Escape" && menuNode) { closeMenu(); return; }
     if (e.key === "Escape" && openFolder) { closeFolder(); return; }
     var sh = document.getElementById("fk-sheet");
     if (e.key === "Escape" && sh && sh.parentNode) { sh.parentNode.removeChild(sh); return; }
@@ -1320,6 +1482,11 @@
     if (keysBelongElsewhere(e)) return;
     if (e.key === "Escape" && focused) { close(focused); return; }
     if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key === "/") { if (e.preventDefault) e.preventDefault(); showKeys(); return; }
+    if (e.ctrlKey && e.shiftKey && !e.altKey && (e.key === "D" || e.key === "d")) {
+      if (e.preventDefault) e.preventDefault();
+      showDesktop();
+      return;
+    }
     if (e.ctrlKey && e.shiftKey && !e.altKey && focused) {
       if (e.key === "ArrowLeft") { if (e.preventDefault) e.preventDefault(); snap(focused, "left"); return; }
       if (e.key === "ArrowRight") { if (e.preventDefault) e.preventDefault(); snap(focused, "right"); return; }
@@ -1377,6 +1544,13 @@
     search: function (text) { searchInput.value = String(text || ""); runSearch(); return hits.slice(); },
     setWallpaper: setWallpaper,
     openWindows: function () { return Array.from(windows.keys()); },
+    showDesktop: showDesktop,
+    pins: readPins,
+    pin: setPinned,
+    tileMenu: tileMenu,
+    taskMenu: function (id, x, y) { var r = windows.get(id); return r ? taskMenu(r, x || 0, y || 0) : null; },
+    closeMenu: closeMenu,
+    clockText: clockText,
     desktop: function () { return desktop; }
   });
 })(window.FieldKit);

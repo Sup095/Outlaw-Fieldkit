@@ -195,12 +195,26 @@ whole-machine reading from runnerd, so whatever one is not using is
 there for the other, and when both want the processors a page someone is
 looking at wins.
 
+**The upload ceiling.** The house line is shared with other servers, so
+all of FieldKit together sends at most `uploadCapMbps` (12 Mbit/s by
+default; RUNNER's ADMIN sets it for both machines, `config.json` is the
+fallback). It is a hard limit, not a guess: every socket the relay
+serves, and whatever its pages upload, is paced through one budget in
+16 KB slices (`upcap.js`), so a big download takes turns with a page's
+video instead of taking the line. runnerd paces what it sends by itself
+the same way, each side leaving out what the other reports, and 2 Mbit/s
+is set aside for RUNNER's programs and the helpers' pages, which have
+their own small totals. The admission lines above are shares of this
+ceiling, so video steps down and new sessions wait before the pace has
+to hold anything back. Peers on the tailnet and the home network are not
+paced: those bytes never use the upload.
+
 **Pterodactyl's limit.** Wings allows a container 512 processes by
 default, each thread counts, and an idle Chromium is over 100: about two
-sessions. The browser waits rather than crashes when it gets there. Set
-it to 2048 for this design: `container_pid_limit: 2048` under `docker:`
-in `/etc/pterodactyl/config.yml`, then `systemctl restart wings` and
-restart the server.
+sessions. The browser waits rather than crashes when it gets there. This
+design wants 2048: `container_pid_limit: 2048` under `docker:` in
+`/etc/pterodactyl/config.yml`, then `systemctl restart wings` and restart
+the server. (Done on both machines here.)
 
 ## A second machine: browser helpers
 

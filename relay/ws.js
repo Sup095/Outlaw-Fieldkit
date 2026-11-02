@@ -372,18 +372,28 @@ function connect(url, opts) {
 
     req.on("error", fail);
     req.on("response", (res) => fail(new Error("expected 101, got " + res.statusCode)));
-    req.on("upgrade", (res, sock) => {
+    req.on("upgrade", (res, sock, head) => {
       clearTimeout(timer);
       if (String(res.headers["sec-websocket-accept"] || "") !== acceptFor(key)) {
         try { sock.destroy(); } catch (e) {}
         return reject(new Error("the handshake did not verify — something else is on that port"));
       }
       try { sock.setNoDelay(true); } catch (e) {}
-      resolve(new Socket(sock, {
+      const s = new Socket(sock, {
         masked: true,
         maxPayload: opts.maxPayload,
         pingMs: opts.pingMs
-      }));
+      });
+      /* A server that speaks first (Wisp does) can have its first
+         frame arrive in the same packet as the 101, and Node hands
+         those bytes over here rather than as data. They are fed in
+         after the caller has had a turn to listen, with the socket
+         held until then so nothing newer overtakes them. */
+      if (head && head.length) {
+        sock.pause();
+        setImmediate(() => { s._feed(head); sock.resume(); });
+      }
+      resolve(s);
     });
     req.end();
   });

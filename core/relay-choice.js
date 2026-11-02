@@ -84,7 +84,10 @@
     ".rc-input{flex:1;min-width:180px;background:transparent;border:1px solid var(--line2);color:var(--fg);",
     "  font:inherit;font-size:12px;padding:4px 6px}",
     ".rc-note{font-size:11px;color:var(--fg-dimmer);margin-top:6px;min-height:1.3em}",
-    ".rc-ok{color:var(--pass)} .rc-bad{color:var(--fail)}"
+    ".rc-ok{color:var(--pass)} .rc-bad{color:var(--fail)}",
+    ".rc-ask{display:flex;gap:8px;align-items:flex-start;font-size:11px;cursor:pointer;margin:6px 0}",
+    ".rc-ask input{accent-color:var(--accent);margin-top:2px}",
+    ".rc-ask-note{display:block;font-size:10px;color:var(--fg-dimmer);margin-top:2px}"
   ].join("\n");
 
   function style() {
@@ -148,8 +151,12 @@
           var go = btn(cur ? "CONTINUE" : "CONTINUE WITHOUT ONE", finish);
           box.appendChild(el("div", { class: "rc-row" }, [
             go,
-            btn(cur ? "CHANGE OR ADD ADDRESS" : "ADD AN ADDRESS", function () { editing = true; draw(); })
-          ]));
+            btn(cur ? "CHANGE OR ADD ADDRESS" : "ADD AN ADDRESS", function () { editing = true; draw(); }),
+            /* For a drive that always uses the same relay: the countdown
+               is then a few seconds lost at every start. */
+            cur ? btn("DON'T ASK AT START", function () { settings.set("relayAskAtBoot", false); finish(); },
+              "go straight to this address from now on; RELAY LINK can turn the question back on") : null
+          ].filter(Boolean)));
           box.appendChild(el("div", { class: "rc-note", text: (timer ? "Continuing in " + left + " s. " : "") +
             "Enter continues, C changes." }));
           return;
@@ -225,5 +232,21 @@
     return { url: list[0], ok: false };
   }
 
-  FieldKit.provide("relayChoice", { ask: ask, reachable: reachable, clean: clean, known: known, save: save, answers: answers });
+  /* The same choice, after boot: RELAY LINK shows it in both builds. */
+  function askToggle(settings) {
+    var ui = FieldKit.need("ui"), el = ui.el;
+    style();
+    var input = el("input", { type: "checkbox" });
+    input.checked = settings.get("relayAskAtBoot") !== false;
+    input.addEventListener("change", function () {
+      settings.set("relayAskAtBoot", input.checked);
+      ui.toast(input.checked ? "THE ADDRESS IS ASKED AT START" : "STARTS STRAIGHT WITH THE ADDRESS IN USE", "ok");
+    });
+    return el("label", { class: "rc-ask" }, [input, el("span", {}, [
+      el("span", { text: "ASK WHICH ADDRESS AT START" }),
+      el("span", { class: "rc-ask-note", text: "a few seconds to change it before connecting; off goes straight to the one in use" })
+    ])]);
+  }
+
+  FieldKit.provide("relayChoice", { askToggle: askToggle, ask: ask, reachable: reachable, clean: clean, known: known, save: save, answers: answers });
 })(window.FieldKit);

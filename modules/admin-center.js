@@ -91,7 +91,16 @@
     var b = d.browser, kids = [];
     kids.push(row("RELAY", "up " + upFor(d.relay.uptimeSec) + "  ·  " + d.relay.memMb + " MB  ·  " + d.relay.node));
     if (d.relay.disk) kids.push(row("ITS DISK", d.relay.disk.freeGb + " GB free of " + d.relay.disk.totalGb, d.relay.disk.freeGb < 2 ? "bad" : ""));
-    kids.push(row("UPLOAD NOW", d.relay.upKbps == null ? "not measured" : (d.relay.upKbps / 1000).toFixed(1) + " Mbit/s"));
+    /* FieldKit's upload ceiling (relay/upcap.js): both machines together
+       stay under it, so the house's other servers keep their share. */
+    var up = d.upload;
+    if (up) {
+      var used = (up.relayKbps || 0) + (up.runnerKbps || 0), cap = up.capMbps * 1000;
+      kids.push(row("UPLOAD", (used / 1000).toFixed(1) + " of " + up.capMbps + " Mbit/s  ·  relay " + (up.relayKbps / 1000).toFixed(1) +
+        ", Bastion 2 by itself " + (up.runnerKbps / 1000).toFixed(1), used >= cap * 0.9 ? "warn" : ""));
+    } else {
+      kids.push(row("UPLOAD NOW", d.relay.upKbps == null ? "not measured" : (d.relay.upKbps / 1000).toFixed(1) + " Mbit/s"));
+    }
     kids.push(row("BROWSER", !b.enabled ? "switched off" : (b.available ? (b.sessions || 0) + " of " + b.maxSessions + " sessions here" +
       (b.render ? "  ·  drawn on the " + (b.render === "gpu" ? "card" : "processor") : "") : "down"), b.enabled && !b.available ? "bad" : ""));
     (b.helpers || []).forEach(function (h) {

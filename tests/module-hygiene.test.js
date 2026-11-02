@@ -263,6 +263,29 @@ function shape(node) {
       /<a\\b\[\^>\]/.test(browse));
   }
 
+  section("each file styles its own classes");
+  {
+    /* Two apps styling the same prefix is how NOTES' .sp-wrap (a flex
+       row) once turned SETTINGS' .sp-wrap into squeezed columns, but only
+       after NOTES had been opened in the same session. fk- is the shared
+       one, owned by core/ui.js; anywhere else it may only be scoped under
+       the file's own class. */
+    const files = ["core", "modules"].flatMap((d) => fs.readdirSync(path.join(ROOT, d))
+      .filter((f) => f.endsWith(".js")).map((f) => d + "/" + f));
+    const owners = {};
+    for (const f of files) {
+      const src = fs.readFileSync(path.join(ROOT, f), "utf8");
+      const re = /(?:^|[\s,}>"'])\.([a-z]{1,5})-[a-z0-9-]+[^{\n;]*\{/gm;
+      const seen = new Set();
+      let m;
+      while ((m = re.exec(src))) if (m[1] !== "fk") seen.add(m[1]);
+      for (const p of seen) (owners[p] = owners[p] || []).push(f);
+    }
+    const shared = Object.keys(owners).filter((p) => owners[p].length > 1).map((p) => p + "- in " + owners[p].join(", "));
+    ok("no class prefix is styled by two files", shared.length === 0, shared.join("; "));
+    ok("NOTES and SETTINGS no longer share sp-", !/\.sp-wrap/.test(fs.readFileSync(path.join(ROOT, "modules/scratchpad.js"), "utf8")));
+  }
+
   console.log("\nRESULT  pass " + state.pass + "  fail " + state.fail);
   if (state.failures.length) {
     console.log("\nFAILURES:");

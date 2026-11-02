@@ -69,7 +69,7 @@ const until = async (fn, ms) => { const end = Date.now() + (ms || 3000); while (
     ok("memory counts too", !f.fits("member", true) && /memory/.test(f.why("member", true)));
 
     at(10, 10, 5000);
-    peer = { upKbps: 5000, at: clock, settings: { guest: { load: 30, upload: 40 }, member: { load: 90, upload: 90 }, uploadMbps: 20 } };
+    peer = { upKbps: 5000, at: clock, settings: { guest: { load: 30, upload: 40 }, member: { load: 90, upload: 90 }, uploadCapMbps: 20 } };
     ok("RUNNER's thresholds are used while fresh", f.settings().guest.load === 30);
     ok("the house upload is both machines' ((5000 + 5000 + 800) / 20000 = 54%)", Math.round(f.upPct(800)) === 54);
     ok("so a guest waits for the upload", !f.fits("guest", true) && /upload/.test(f.why("guest", true)));
@@ -108,7 +108,9 @@ const until = async (fn, ms) => { const end = Date.now() + (ms || 3000); while (
   section("video steps down before anyone waits");
   {
     let clock = 1800000000000, peer = null;
-    const f = new Fairness({ now: () => clock, read: () => ({}), peer: () => peer });
+    /* A ceiling of 20 Mbit/s, so 1% is 200 kbit/s. */
+    const f = new Fairness({ now: () => clock, read: () => ({}),
+      peer: () => Object.assign({ at: clock, upKbps: 0 }, peer || {}, { at: clock, settings: { guest: { load: 60, upload: 50 }, member: { load: 85, upload: 85 }, uploadCapMbps: 20 } }) });
     const up = (kbps) => { f.meter.upKbps = kbps; };   /* of 20000: 1% per 200 */
     up(2000);
     ok("a quiet house: full quality", f.videoKbps(1500) === 1500 && f.step === 0);
@@ -204,7 +206,7 @@ const until = async (fn, ms) => { const end = Date.now() + (ms || 3000); while (
     const up0 = app.access.upPct(0);
     const r1 = relayRunner._internals.signReport({ up: 10000 });
     await get("?load=" + encodeURIComponent(r1));
-    ok("the relay's upload counts against the house line (10000 of 20000 = +50%)", Math.round(app.access.upPct(0) - up0) === 50);
+    ok("the relay's upload counts against FieldKit's ceiling (10000 of 12000 = +83%)", Math.round(app.access.upPct(0) - up0) === 83);
     ok("and shows in ADMIN's meter", app.access.view(0).meter.relayUpKbps === 10000);
     const r2 = relayRunner._internals.signReport({ up: 0 });
     await get("?load=" + encodeURIComponent(r2));

@@ -210,7 +210,7 @@
     var relay = FieldKit.service("transportRelay");
 
     var h1 = hop(1, "USB", "RELAY");
-    var h2 = hop(2, "RELAY", "HOME PC / LM STUDIO");
+    var h2 = hop(2, "RELAY", "MODEL SERVERS");
 
     /* ---- hop 1: this machine to the relay ---- */
     var transports = [];

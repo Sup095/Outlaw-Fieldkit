@@ -38,6 +38,7 @@ const probe = require("./probe");
 const browser = require("./browser-route");
 const runner = require("./runner");
 const { Fairness } = require("./fairness");
+const { UpCap, Rate, paceFor, RESERVE_KBPS } = require("./upcap");
 const tinyAi = require("./tiny-ai");
 const topology = require("./topology");
 const { Overflow } = require("./overflow");
@@ -1946,6 +1947,11 @@ server.on("error", (e) => {
   process.exit(1);
 });
 
+/* FieldKit's upload ceiling (upcap.js): every socket this relay serves,
+   and what its browser's pages send out, share one pace. */
+const upcap = new UpCap().attach(server);
+const relayNet = new Rate(() => upcap.sent);
+
 server.listen(config.port, config.host, () => {
   log("INFO", `fieldkit-relay listening on ${config.host}:${config.port}`);
   log("INFO", `data dir: ${DATA_DIR}`);
@@ -2056,7 +2062,15 @@ server.listen(config.port, config.host, () => {
      blocklist, one place to change it, whichever browser is on. */
   /* The browser's share of this container and of the home upload,
      with Bastion 2's numbers and thresholds (RUNNER_PLAN.md §22). */
-  const fairness = new Fairness({ peer: () => runner.load() });
+  const fairness = new Fairness({ peer: () => runner.load(), net: () => relayNet.kbps, capMbps: config.uploadCapMbps });
+  /* The pace follows the ceiling RUNNER's ADMIN sets, less what Bastion 2
+     sends to the internet itself and the reserve. */
+  const paceTimer = setInterval(() => {
+    relayNet.sample();
+    upcap.setRate(paceFor(fairness.settings().uploadCapMbps, fairness.peerUp() + RESERVE_KBPS));
+  }, 2000);
+  if (paceTimer.unref) paceTimer.unref();
+  upcap.setRate(paceFor(fairness.settings().uploadCapMbps, RESERVE_KBPS));
   /* Browser helpers on Bastion 2 (overflow.js): new sessions go there
      when this relay is full. */
   const helperUrls = config.browser && config.browser.enabled && Array.isArray(config.browser.helpers) ? config.browser.helpers : [];
@@ -2067,11 +2081,14 @@ server.listen(config.port, config.host, () => {
     filter: (host) => browse.hostVerdict(host),
     dataDir: DATA_DIR,
     fairness: fairness,
-    overflow: overflow
+    overflow: overflow,
+    upTotal: upcap
   });
   notices = new Notices({ file: path.join(DATA_DIR, "announcement.json"), log: log });
   admin.init({ dataDir: DATA_DIR, engine: bw, overflow: overflow, fairness: fairness, runner: runner,
-    messaging: messaging, updates: updates, notices: notices, config: config, log: log });
+    messaging: messaging, updates: updates, notices: notices, config: config, log: log,
+    upload: () => ({ capMbps: fairness.settings().uploadCapMbps, relayKbps: relayNet.kbps, runnerKbps: Math.round(fairness.peerUp()),
+      paceKbps: upcap.view().kbps, waited: upcap.view().waited }) });
   watchServices(bw, overflow);
   topology.init({
     browser: () => Object.assign(bw.status(), overflow ? { helpers: overflow.view() } : {}),
@@ -2087,9 +2104,9 @@ server.listen(config.port, config.host, () => {
     log("INFO", "browser: " + overflow.helpers.length + " helper(s) take new sessions when this relay is full: " +
       overflow.helpers.map((h) => h.url).join(", "));
   }
-  runner.startReports(() => ({ up: fairness.meter.upKbps, cpu: fairness.meter.cpu, mem: fairness.meter.mem,
+  runner.startReports(() => ({ up: relayNet.kbps, cpu: fairness.meter.cpu, mem: fairness.meter.mem,
     wait: fairness.line.length, ...browser.lineReport(),
-    busy: fairness.meter.upKbps > 0 || fairness.line.length > 0 || bw.sessions.size > 0 || !!(overflow && overflow.sessionsOut()) }),
+    busy: relayNet.kbps > 50 || fairness.meter.upKbps > 0 || fairness.line.length > 0 || bw.sessions.size > 0 || !!(overflow && overflow.sessionsOut()) }),
   browser.lineAnswer);
   if (!config.browser || !config.browser.enabled) {
     log("INFO", "browser: off (browser.enabled is false)");

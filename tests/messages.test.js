@@ -218,9 +218,9 @@ let bob, mod;
   {
     settings.set("relayUrl", "");
     await def.mount(host, ctx);
-    const heads = byClass("mg-empty-h").map((n) => n.textContent);
+    const heads = byClass("fk-norelay-h").map((n) => n.textContent);
     ok("with no relay it says so instead of showing a login box",
-      heads.indexOf("NO RELAY CONFIGURED") >= 0, heads.join("|"));
+      heads.indexOf("NO RELAY ADDRESS YET") >= 0, heads.join("|"));
     ok("and offers no password field to type into", !placeholder("password"));
   }
 

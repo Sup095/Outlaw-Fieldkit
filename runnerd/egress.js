@@ -27,7 +27,7 @@
    ============================================================ */
 "use strict";
 
-const { Guard, DNS_PRESETS } = require("../relay/guard");
+const { Guard, DNS_PRESETS, Bucket } = require("../relay/guard");
 
 const env = (k, d) => (process.env[k] == null || process.env[k] === "" ? d : process.env[k]);
 const num = (k, d) => { const v = Number(env(k, d)); return Number.isFinite(v) && v > 0 ? v : d; };
@@ -43,7 +43,10 @@ function settings() {
          job leaves room for everything else that uses it. */
       upBps: num("FK_EGRESS_UP_KBPS", 128) * 1024,
       downBps: num("FK_EGRESS_DOWN_KBPS", 1024) * 1024
-    }
+    },
+    /* All sandboxes together, about 1 Mbit/s: part of the reserve the
+       relay and runnerd leave out of FieldKit's ceiling (upcap.js). */
+    upTotalBps: num("FK_EGRESS_UP_TOTAL_KBPS", 120) * 1024
   };
 }
 
@@ -51,10 +54,10 @@ if (require.main === module) {
   const log = (lvl, msg) => console.log(new Date().toISOString() + " [" + lvl + "] " + msg);
   const s = settings();
   const g = new Guard({ log: log, dnsFilter: s.dnsFilter, host: "0.0.0.0", port: s.port, perClient: s.perClient,
-    words: { place: "run server", who: "a RUNNER program" } });
+    upTotal: new Bucket(s.upTotalBps), words: { place: "run server", who: "a RUNNER program" } });
   g.listen().then(() => {
     log("INFO", "egress: per sandbox " + s.perClient.maxConns + " connections, " +
-      Math.round(s.perClient.upBps / 1024) + " KB/s up, " + Math.round(s.perClient.downBps / 1024) + " KB/s down");
+      Math.round(s.perClient.upBps / 1024) + " KB/s up, " + Math.round(s.perClient.downBps / 1024) + " KB/s down; " + Math.round(s.upTotalBps / 1024) + " KB/s up for all together");
   }).catch((e) => { log("ERROR", "egress: could not start — " + e.message); process.exit(1); });
   const bye = () => { g.close(); process.exit(0); };
   process.on("SIGTERM", bye);

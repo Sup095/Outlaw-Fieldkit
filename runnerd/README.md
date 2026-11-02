@@ -133,6 +133,11 @@ everyone's files, the shared library, the bin and the last actions taken.
   upload, members under 85%, admins always; everyone else waits in line
   (members ahead of guests) and gets 60 seconds to press START when it is
   their turn. MOVE TO FRONT, REMOVE, and the thresholds are all here.
+  The upload lines are shares of **FieldKit sends at most** (12 Mbit/s by
+  default): a hard ceiling for the relay and this machine together, under
+  the house's own line so other servers keep their share. runnerd paces
+  what it sends to the internet itself; what goes to the relay over the
+  tailnet is paced by the relay on its way out (`relay/upcap.js`).
 - **POWER** shows what the processor and graphics card draw now, the day's
   average with an estimate for the rest of the PC, and what a month costs at
   that. Set your price per kWh there. The readings come from `fk-power`, a
@@ -233,7 +238,7 @@ updating.
 
 ## Not built yet
 
-Games drawn on the graphics card (needs a Turing-or-newer card for
-gVisor) and the shared game library with saves per game: phases 6b
-and the rest of 7. (The relay's browser uses this server's thresholds, read from
-its health check, and its upload counts here.)
+Games drawn on the graphics card inside the sandbox: phase 6b, which
+needs a Turing-or-newer card for gVisor. (The relay uses this server's
+thresholds and ceiling, read from its health check, and each side's upload
+counts on the other.)

@@ -12,7 +12,7 @@ const path = require("path");
 const { bootstrap, makeRunner } = require("./harness");
 const FieldKit = bootstrap([
   "core/kernel.js", "core/settings.js", "core/ui.js", "core/shell.js", "core/whats-new.js", "core/notices.js",
-  "modules/admin-center.js"
+  "modules/admin-center.js", "modules/help.js"
 ]);
 const { ok, section, state } = makeRunner("qol");
 
@@ -158,6 +158,130 @@ const nodeOf = () => document.querySelectorAll(".fk-win")[0];
     shell.showWhatsNew();
     ok("WHAT'S NEW opens", document.getElementById("fk-sheet").querySelectorAll(".fk-sheet-li").length > 0);
     key("Escape", document.body);
+  }
+
+  section("pinned apps");
+  {
+    const tiles = () => icons().querySelectorAll(".fk-app").filter((t) => !t.classList.contains("sealed"));
+    const tileOf = (title) => tiles().find((t) => t.querySelector(".n") && t.querySelector(".n").textContent === title);
+    ok("nothing is pinned to begin with", shell.pins().length === 0);
+    ok("pinning one", shell.pin("two", true) && shell.pins().join() === "two");
+    ok("puts it first in YOUR APPS", tiles()[0] && tiles()[0].querySelector(".n").textContent === "TWO");
+    ok("with a mark on it", tileOf("TWO").className.split(" ").includes("pinned") && !tileOf("ONE").className.split(" ").includes("pinned"));
+    localStorage.setItem("fieldkit.pins.v1", "not json");
+    ok("a damaged list is read as empty, not an error", shell.pins().length === 0);
+    localStorage.setItem("fieldkit.pins.v1", JSON.stringify(["two", 5, "gone-app"]));
+    ok("only names are kept from it", shell.pins().join() === "two,gone-app");
+    shell.refreshIcons();
+    ok("and an app that no longer exists is not shown", !tiles().some((t) => /GONE/.test(t.textContent || "")));
+    shell.pin("two", false);
+    ok("unpinning takes it off", shell.pins().indexOf("two") < 0);
+    localStorage.setItem("fieldkit.pins.v1", JSON.stringify(["a", "b", "c", "d", "e", "f", "g", "h"]));
+    ok("no more than YOUR APPS holds", shell.pin("one", true) === false && shell.pins().length === 8);
+    localStorage.removeItem("fieldkit.pins.v1");
+    shell.refreshIcons();
+  }
+
+  section("the right-click menu");
+  {
+    const menu = () => document.querySelector(".fk-menu");
+    const items = () => menu() ? menu().querySelectorAll(".fk-menu-i").map((b) => b.textContent) : [];
+    const pick = (label) => menu().querySelectorAll(".fk-menu-i").find((b) => b.textContent === label).click();
+    const tile = icons().querySelectorAll(".fk-app").find((t) => t.querySelector(".n") && t.querySelector(".n").textContent === "ONE");
+    tile.dispatchEvent({ type: "contextmenu", clientX: 40, clientY: 50, preventDefault() {} });
+    ok("right-click on an app opens its menu", items().join() === "OPEN,PIN TO YOUR APPS", items().join());
+    ok("on screen, where it was asked for", menu().style.left === "40px" && menu().style.top === "50px");
+    pick("PIN TO YOUR APPS");
+    ok("PIN pins it, and the menu goes", shell.pins().join() === "one" && !menu());
+    shell.tileMenu("one", FieldKit.modules().one, 9999, 9999);
+    ok("the menu is kept inside the screen", parseInt(menu().style.left, 10) < 1024 && parseInt(menu().style.top, 10) < 768);
+    ok("and it offers UNPIN now", items()[1] === "UNPIN FROM YOUR APPS");
+    shell.open("two");
+    key("Escape", document.body);
+    ok("Esc closes the menu first, not the window", !menu() && shell.openWindows().includes("two"));
+    shell.tileMenu("help", FieldKit.modules().help, 1, 1);
+    ok("an app the manual describes offers HOW IT WORKS", items()[2] === "HOW IT WORKS");
+    pick("HOW IT WORKS");
+    ok("HOW IT WORKS opens the manual on that app's page", shell.openWindows().includes("help"));
+    shell.close("help");
+    shell.pin("one", false);
+
+    const task = document.querySelectorAll(".fk-task").find((t) => t.textContent === "TWO");
+    task.dispatchEvent({ type: "contextmenu", clientX: 200, clientY: 590, preventDefault() {} });
+    ok("right-click on a window's button", items().join() === "MINIMISE,MAXIMISE,SNAP LEFT,SNAP RIGHT,CLOSE", items().join());
+    ok("opens upward, over the desktop", parseInt(menu().style.top, 10) < 590);
+    pick("SNAP LEFT");
+    const w = document.querySelectorAll(".fk-win").find((n) => n.classList.contains("focused"));
+    ok("SNAP LEFT snaps it", w && w.style.left === "0px" && w.style.width === "500px");
+    shell.taskMenu("two");
+    pick("MINIMISE");
+    ok("MINIMISE minimises", w.classList.contains("minimized"));
+    shell.taskMenu("two");
+    ok("and then offers RESTORE", items()[0] === "RESTORE");
+    pick("RESTORE");
+    ok("which restores", !w.classList.contains("minimized"));
+    task.dispatchEvent({ type: "auxclick", button: 1, preventDefault() {} });
+    ok("the middle button closes it", !shell.openWindows().includes("two"));
+  }
+
+  section("show the desktop");
+  {
+    shell.open("one"); shell.open("two");
+    const wins = () => document.querySelectorAll(".fk-win");
+    key("D", document.body, { ctrlKey: true, shiftKey: true });
+    ok("Ctrl+Shift+D moves every window out of the way", wins().every((n) => n.classList.contains("minimized")));
+    key("d", document.body, { ctrlKey: true, shiftKey: true });
+    ok("and again brings them all back", wins().every((n) => !n.classList.contains("minimized")));
+    ok("so does the palette's SHOW DESKTOP", shell.showDesktop() === "hidden" && shell.showDesktop() === "restored");
+    shell.showDesktop();
+    shell.open("one");
+    ok("a window opened in between ends it: the next press hides again", shell.showDesktop() === "hidden");
+    shell.close("one"); shell.close("two");
+    ok("with nothing open it does nothing", shell.showDesktop() === "nothing");
+    const read = (f) => fs.readFileSync(path.join(__dirname, "..", f), "utf8");
+    ok("the palette has it", /SHOW DESKTOP[\s\S]{0,200}showDesktop\(\)/.test(read("core/command-palette.js")));
+  }
+
+  section("the clock");
+  {
+    const t = new Date(2026, 10, 2, 13, 5, 9);
+    ok("24-hour by default", shell.clockText(t, true) === "13:05:09" && settings.get("clock24") === true);
+    ok("12-hour with AM and PM", shell.clockText(t, false) === "1:05:09 PM");
+    ok("midnight is 12 AM, not 0", shell.clockText(new Date(2026, 10, 2, 0, 3, 0), false) === "12:03:00 AM");
+    const read = (f) => fs.readFileSync(path.join(__dirname, "..", f), "utf8");
+    ok("both builds' SETTINGS offer it", /"clock24"/.test(read("modules/settings-panel.js")) && /"clock24"/.test(read("modules/settings-outpost.js")));
+    ok("and a drive remembers it", /"clock24"/.test(read("core/drive-profile.js")));
+    ok("OUTPOST offers the same wallpapers, from one list", /ui\.WALLPAPERS/.test(read("modules/settings-outpost.js")) &&
+      /ui\.WALLPAPERS/.test(read("modules/settings-panel.js")) && ui.WALLPAPERS.length >= 6);
+  }
+
+  section("COPY says it copied");
+  {
+    const was = document.execCommand;
+    document.execCommand = () => true;
+    const b = ui.button("COPY ADDRESS", () => {});
+    b.focus();
+    ui.copy("hello");
+    ok("the button that copied says so", b.textContent === "COPIED ✓" && b.classList.contains("fk-copied"));
+    b.focus();
+    ui.copy("again");
+    ok("pressed twice, it still goes back to its own name", b.__copiedText === "COPY ADDRESS");
+    document.execCommand = was;
+    const plain = document.createElement("div");
+    plain.focus();
+    ui.copy("x", { silent: true });
+    ok("nothing else is touched", !plain.textContent);
+  }
+
+  section("an app with no relay comes back by itself");
+  {
+    reg("relay-config");
+    let n = ui.noRelay("ONE needs it.", "one");
+    shell.open("one");
+    n.querySelectorAll("button").find((x) => x.textContent === "SET THE RELAY ADDRESS").click();
+    ok("SET THE RELAY ADDRESS opens FIELDKIT's RELAY LINK", shell.openWindows().includes("relay-config"));
+    shell.close("relay-config"); shell.close("one");
+    ok("the brand names the build", document.querySelector(".brand").textContent === "FIELDKIT");
   }
 
   section("every release says what is in it");

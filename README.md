@@ -93,11 +93,13 @@ so there is nothing on that drive that could open a vault.
 ## What is in it
 
 **The desktop.** A search bar across the top: type anywhere and press Enter
-to open the first match. *Your apps* fills with what you use most, and *all
-apps* is grouped as ONLINE, FILES, TOOLS and SYSTEM. If anything needs you, it
+to open the first match. *Your apps* fills with what you use most (right-click
+an app to pin it there), and *all apps* is grouped as ONLINE, FILES, TOOLS and
+SYSTEM. If anything needs you, it
 says so under the search bar. Ctrl+K searches apps and records, and Ctrl+/
 lists the keys. Windows open where you left them, snap to the sides of the
-screen, and can come back after a reload. A line at the top says when a service
+screen, and can come back after a reload; right-click a window's taskbar button
+to snap or close it, and Ctrl+Shift+D shows the desktop. A line at the top says when a service
 is down and clears itself when it is back; ◉ in the taskbar keeps what you
 missed. Themes, a CRT mode, a lock screen, and settings for bigger text, higher
 contrast and less motion. FIELDKIT has 18 apps and OUTPOST 12, and the manual
@@ -207,6 +209,11 @@ signed (Ed25519), and fetches the relay's public key by itself. With
 `runner.innerUrl` set, the relay passes RUNNER's connection through to the run
 server over the tailnet without reading it, so RUNNER answers on every address
 the relay does; without it, the panel connects to the run server directly.
+
+Both servers share one home internet line with other things, so together they
+send at most a set ceiling (12 Mbit/s by default, of a 21 Mbit/s line): every
+connection they serve is paced to it, and the busier it gets, the sooner video
+steps down and new sessions wait. RUNNER's ADMIN sets it.
 
 ---
 

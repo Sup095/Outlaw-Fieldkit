@@ -25,7 +25,7 @@
      which file you opened. Writing a relay URL from here would mean
      the limited build could reconfigure the real one. */
   var OWNED = ["theme", "crt", "textSize", "contrast", "calm", "sound", "perfMode",
-    "wallpaper", "bootFlavor", "displayName"];
+    "wallpaper", "bootFlavor", "displayName", "clock24"];
 
   function set(key, value) {
     if (OWNED.indexOf(key) < 0) {
@@ -88,6 +88,29 @@
       });
       wrap.appendChild(sw);
     });
+    return wrap;
+  }
+
+  /* The same presets as the full build. Uploading a picture is left to
+     the full build: it lives in localStorage, unencrypted, on a machine
+     that may be someone else's. */
+  function wallGrid() {
+    var wrap = el("div", { class: "so-walls" });
+    function draw() {
+      ui.clear(wrap);
+      var current = ctx.settings.get("wallpaper") || null;
+      ui.WALLPAPERS.forEach(function (p) {
+        var sw = el("button", { class: "so-wall" + ((p.css || null) === current ? " on" : ""), type: "button",
+          title: p.name, onclick: function () { set("wallpaper", p.css || null); apply(); draw(); } },
+          [el("span", { class: "so-wall-name", text: p.name })]);
+        if (p.css) {
+          sw.style.backgroundImage = p.css;
+          sw.style.backgroundSize = p.id === "grid" ? "22px 22px" : "cover";
+        }
+        wrap.appendChild(sw);
+      });
+    }
+    draw();
     return wrap;
   }
 
@@ -201,13 +224,15 @@
 
       host.appendChild(el("div", { class: "so-wrap" }, [
         ui.panel("APPEARANCE", [
-          row("ACCENT", "everything highlights in this colour", themes)
+          row("ACCENT", "everything highlights in this colour", themes),
+          row("WALLPAPER", "behind the windows", wallGrid())
         ]),
         ui.panel("DISPLAY", [
           row("TEXT SIZE", "everything inside windows, and the icons", size),
           toggle("contrast", "HIGHER CONTRAST", "brighter text and lines on black"),
           toggle("calm", "LESS MOTION", "no animation or fading"),
           toggle("crt", "CRT OVERLAY", "scanlines and a little glow"),
+          toggle("clock24", "24-HOUR CLOCK", "off shows the time with AM and PM"),
           row("PERFORMANCE", "how hard to work this machine", perf)
         ]),
         ui.panel("BEHAVIOUR", [
@@ -259,6 +284,13 @@
       "  border:1px solid var(--line2);padding:5px 9px;font:inherit;font-size:10px;",
       "  letter-spacing:.12em;cursor:pointer}",
       ".so-theme.sel{border-color:var(--accent);color:var(--accent)}",
+      ".so-walls{display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end}",
+      ".so-wall{position:relative;width:78px;height:48px;border:1px solid var(--line2);background-color:#0c0f0d;cursor:pointer;padding:0}",
+      ".so-wall:hover{border-color:var(--accent-dim)}",
+      ".so-wall.on{border-color:var(--accent);box-shadow:0 0 0 1px rgba(var(--accent-glow),.3)}",
+      ".so-wall-name{position:absolute;left:0;right:0;bottom:0;font-size:8px;letter-spacing:.1em;",
+      "  color:var(--fg-dim);background:rgba(6,8,7,.8);padding:2px 0;text-align:center}",
+      ".so-wall.on .so-wall-name{color:var(--accent)}",
       ".so-chip{width:10px;height:10px;display:inline-block;border:1px solid rgba(0,0,0,.4)}",
       ".so-about{font-size:10px;color:var(--fg-dim);line-height:1.5;padding:2px 4px}",
       ".so-about.dim{color:var(--warn);margin-top:6px}"

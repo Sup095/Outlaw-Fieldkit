@@ -299,7 +299,7 @@
     });
 
     if (!shown.length) {
-      nodes.list.appendChild(el("div", { class: "sp-empty", text:
+      nodes.list.appendChild(el("div", { class: "np-empty", text:
         state.notes.length ? "NO MATCHES" : "NO NOTES YET" }));
       return;
     }
@@ -307,12 +307,12 @@
     shown.forEach(function (n) {
       var preview = (n.data.body || "").replace(/\s+/g, " ").slice(0, 46);
       nodes.list.appendChild(el("button", {
-        class: "sp-item" + (n.id === state.noteId ? " active" : ""),
+        class: "np-item" + (n.id === state.noteId ? " active" : ""),
         type: "button", onclick: function () { openNote(n.id); }
       }, [
-        el("span", { class: "sp-item-title", text: n.data.title || "UNTITLED" }),
-        el("span", { class: "sp-item-prev", text: preview || "—" }),
-        el("span", { class: "sp-item-date", text: (tagOf(n) === "note" ? "" : tagOf(n).toUpperCase() + " · ") +
+        el("span", { class: "np-item-title", text: n.data.title || "UNTITLED" }),
+        el("span", { class: "np-item-prev", text: preview || "—" }),
+        el("span", { class: "np-item-date", text: (tagOf(n) === "note" ? "" : tagOf(n).toUpperCase() + " · ") +
           new Date(n.meta.updatedAt).toLocaleDateString() + " " +
           new Date(n.meta.updatedAt).toLocaleTimeString().slice(0, 5) })
       ]));
@@ -322,6 +322,27 @@
   function renderPreview() {
     ui.clear(nodes.preview);
     nodes.preview.appendChild(renderMarkdown(nodes.editor.value));
+    renderCount();
+  }
+
+  function renderCount() {
+    if (!nodes.count) return;
+    var text = nodes.editor.value;
+    var words = (text.match(/\S+/g) || []).length;
+    var lines = text ? text.split("\n").length : 0;
+    nodes.count.textContent = words + (words === 1 ? " WORD" : " WORDS") + " · " +
+      text.length + " CHARACTERS · " + lines + (lines === 1 ? " LINE" : " LINES");
+  }
+
+  /* Markdown out, as a file: for a note that has to go somewhere the
+     vault does not, a repository or an email. The title is the name. */
+  function downloadNote() {
+    var title = nodes.title.value.trim() || "untitled";
+    var name = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "note";
+    var body = nodes.editor.value;
+    var text = /^#\s/.test(body) ? body : "# " + title + "\n\n" + body;
+    if (ui.download(text, name + ".md", "text/markdown")) ui.toast("DOWNLOADED :: " + name + ".md", "ok");
+    else ui.copy(text, { title: name + ".md", note: "Downloads are blocked here. Select this and press Ctrl+C." });
   }
 
   function markDirty() {
@@ -335,7 +356,7 @@
 
   function updateDirty() {
     nodes.dirty.textContent = state.dirty ? "UNSAVED" : "";
-    nodes.dirty.className = "sp-dirty" + (state.dirty ? " on" : "");
+    nodes.dirty.className = "np-dirty" + (state.dirty ? " on" : "");
   }
 
   /* ---- module ------------------------------------------------- */
@@ -402,7 +423,7 @@
     guestSafe: true,
     selfcheck: selfcheck,
     title: "NOTES",
-    icon: "▤",
+    icon: "✎",
     width: 860,
     height: 540,
 
@@ -413,45 +434,50 @@
 
       injectCSS();
 
-      nodes.search = el("input", { class: "fk-input sp-search", placeholder: "SEARCH NOTES",
+      nodes.search = el("input", { class: "fk-input np-search", placeholder: "SEARCH NOTES",
         oninput: function (e) { state.filter = e.target.value; renderList(); } });
-      nodes.list = el("div", { class: "sp-list" });
-      nodes.filter = el("select", { class: "fk-input sp-search", title: "show one tag",
+      nodes.list = el("div", { class: "np-list" });
+      nodes.filter = el("select", { class: "fk-input np-search", title: "show one tag",
         onchange: function (e) { state.tag = e.target.value; renderList(); } },
         [el("option", { value: "", text: "ALL" })].concat(TAGS.map(function (t) {
           return el("option", { value: t, text: t.toUpperCase() + "S" });
         })));
-      nodes.tag = el("select", { class: "fk-input sp-tag", title: "this note's tag", onchange: markDirty },
+      nodes.tag = el("select", { class: "fk-input np-tag", title: "this note's tag", onchange: markDirty },
         TAGS.map(function (t) { return el("option", { value: t, text: t.toUpperCase() }); }));
-      nodes.title = el("input", { class: "fk-input sp-title", placeholder: "NOTE TITLE",
+      nodes.title = el("input", { class: "fk-input np-title", placeholder: "NOTE TITLE",
         oninput: markDirty });
-      nodes.editor = el("textarea", { class: "fk-input sp-editor", spellcheck: "false",
+      nodes.editor = el("textarea", { class: "fk-input np-editor", spellcheck: "false",
         placeholder: "# markdown supported\n\n- lists\n- **bold**, *italic*, `code`\n- > quotes and ``` blocks",
         oninput: function () { markDirty(); renderPreview(); } });
-      nodes.preview = el("div", { class: "sp-preview" });
-      nodes.dirty = el("span", { class: "sp-dirty" });
+      nodes.preview = el("div", { class: "np-preview" });
+      nodes.dirty = el("span", { class: "np-dirty" });
 
       var offlineWarning = ctx.store.canReadHistory() ? null :
-        el("div", { class: "sp-offline", text:
+        el("div", { class: "np-offline", text:
           "OFFLINE — prior notes are encrypted on the relay and cannot be read here. New notes are queued for upload." });
 
-      host.appendChild(el("div", { class: "sp-wrap" }, [
-        el("div", { class: "sp-side" }, [
+      host.appendChild(el("div", { class: "np-wrap" }, [
+        el("div", { class: "np-side" }, [
           nodes.search,
           nodes.filter,
-          el("div", { class: "sp-side-actions" }, [ui.button("NEW", newNote, { primary: true })]),
+          el("div", { class: "np-side-actions" }, [ui.button("NEW", newNote, { primary: true })]),
           nodes.list
         ]),
-        el("div", { class: "sp-main" }, [
+        el("div", { class: "np-main" }, [
           offlineWarning,
-          el("div", { class: "sp-bar" }, [
+          el("div", { class: "np-bar" }, [
             nodes.title, nodes.tag, nodes.dirty,
-            ui.button("SAVE", function () { saveNote({ force: true }); }, { primary: true }),
-            ui.button("COPY", copyNote),
+            ui.button("SAVE", function () { saveNote({ force: true }); }, { primary: true })
+          ]),
+          el("div", { class: "np-split" }, [nodes.editor, nodes.preview]),
+          /* The rest under the note, so the title keeps its room. */
+          el("div", { class: "np-foot" }, [
+            (nodes.count = el("div", { class: "np-count" })),
+            ui.button("COPY", copyNote, { title: "the first code block if there is one, otherwise the whole note" }),
+            ui.button("DOWNLOAD", downloadNote, { title: "this note as a .md file" }),
             ui.button("HISTORY", showHistory),
             ui.button("DELETE", deleteNote, { danger: true })
-          ]),
-          el("div", { class: "sp-split" }, [nodes.editor, nodes.preview])
+          ])
         ])
       ]));
 
@@ -501,34 +527,36 @@
     var s = document.createElement("style");
     s.id = "scratch-style";
     s.textContent = `
-.sp-wrap{display:flex;gap:10px;height:100%;min-height:0}
-.sp-side{width:210px;flex:none;display:flex;flex-direction:column;gap:8px;min-height:0}
-.sp-search{padding:6px 8px;font-size:11px;letter-spacing:.1em}
-.sp-side-actions{display:flex;gap:6px}
-.sp-side-actions .fk-btn{flex:1}
-.sp-list{flex:1;overflow:auto;border:1px solid var(--line);background:var(--bg2);min-height:0}
-.sp-item{display:block;width:100%;text-align:left;padding:7px 9px;background:none;border:0;
+.np-wrap{display:flex;gap:10px;height:100%;min-height:0}
+.np-side{width:210px;flex:none;display:flex;flex-direction:column;gap:8px;min-height:0}
+.np-search{padding:6px 8px;font-size:11px;letter-spacing:.1em}
+.np-side-actions{display:flex;gap:6px}
+.np-side-actions .fk-btn{flex:1}
+.np-list{flex:1;overflow:auto;border:1px solid var(--line);background:var(--bg2);min-height:0}
+.np-item{display:block;width:100%;text-align:left;padding:7px 9px;background:none;border:0;
   border-bottom:1px solid var(--line);cursor:pointer;color:var(--fg-dim)}
-.sp-item:hover{background:rgba(var(--accent-glow),.07)}
-.sp-item.active{background:rgba(var(--accent-glow),.12);border-left:2px solid var(--accent)}
-.sp-item-title{display:block;color:var(--fg);font-size:11px;letter-spacing:.1em;
+.np-item:hover{background:rgba(var(--accent-glow),.07)}
+.np-item.active{background:rgba(var(--accent-glow),.12);border-left:2px solid var(--accent)}
+.np-item-title{display:block;color:var(--fg);font-size:11px;letter-spacing:.1em;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.sp-item.active .sp-item-title{color:var(--accent)}
-.sp-item-prev{display:block;font-size:10px;color:var(--fg-dimmer);
+.np-item.active .np-item-title{color:var(--accent)}
+.np-item-prev{display:block;font-size:10px;color:var(--fg-dimmer);
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
-.sp-item-date{display:block;font-size:9px;color:var(--fg-dimmer);margin-top:3px;letter-spacing:.08em}
-.sp-empty{padding:14px;text-align:center;color:var(--fg-dimmer);font-size:10px;letter-spacing:.2em}
-.sp-main{flex:1;display:flex;flex-direction:column;gap:8px;min-width:0;min-height:0}
-.sp-bar{display:flex;gap:6px;align-items:center;flex:none}
-.sp-title{flex:1;padding:6px 9px;letter-spacing:.1em;min-width:0}
-.sp-tag{flex:none;width:96px;padding:6px 4px;font-size:10px}
-.sp-dirty{font-size:10px;letter-spacing:.16em;color:transparent;min-width:60px}
-.sp-dirty.on{color:var(--warn)}
-.sp-split{flex:1;display:flex;gap:8px;min-height:0}
-.sp-editor{flex:1;resize:none;line-height:1.6;min-height:0}
-.sp-preview{flex:1;overflow:auto;border:1px solid var(--line);background:var(--bg2);
+.np-item-date{display:block;font-size:9px;color:var(--fg-dimmer);margin-top:3px;letter-spacing:.08em}
+.np-empty{padding:14px;text-align:center;color:var(--fg-dimmer);font-size:10px;letter-spacing:.2em}
+.np-main{flex:1;display:flex;flex-direction:column;gap:8px;min-width:0;min-height:0}
+.np-bar{display:flex;gap:6px;align-items:center;flex:none}
+.np-title{flex:1;padding:6px 9px;letter-spacing:.1em;min-width:0}
+.np-tag{flex:none;width:96px;padding:6px 4px;font-size:10px}
+.np-dirty{font-size:10px;letter-spacing:.16em;color:transparent;min-width:60px}
+.np-dirty.on{color:var(--warn)}
+.np-split{flex:1;display:flex;gap:8px;min-height:0}
+.np-foot{flex:none;display:flex;gap:6px;align-items:center}
+.np-count{flex:1;min-width:0;font-size:9px;letter-spacing:.14em;color:var(--fg-dimmer)}
+.np-editor{flex:1;resize:none;line-height:1.6;min-height:0}
+.np-preview{flex:1;overflow:auto;border:1px solid var(--line);background:var(--bg2);
   padding:10px 12px;min-height:0}
-.sp-offline{flex:none;border:1px solid var(--warn);color:var(--warn);padding:7px 10px;font-size:10px;
+.np-offline{flex:none;border:1px solid var(--warn);color:var(--warn);padding:7px 10px;font-size:10px;
   letter-spacing:.08em;background:rgba(224,166,60,.07)}
 .md-h{color:var(--accent);letter-spacing:.1em;margin:.7em 0 .35em;font-size:13px}
 .md-p{margin:.4em 0}

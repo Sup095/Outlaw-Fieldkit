@@ -241,6 +241,8 @@ class Engine {
     this.cfg = Object.assign({}, DEFAULTS, opts.config || {});
     this.log = opts.log || (() => {});
     this.filter = opts.filter || (() => ({ ok: true }));
+    /* The house's upload, for what pages send out (upcap.js). */
+    this.upTotal = opts.upTotal || null;
     /* Here rather than in start(): it outlives Chromium being parked,
        and ADMIN can read and set it before anyone has browsed. */
     this.lists = new Blocklist({ ads: this.cfg.adblock !== false, allow: this.cfg.adblockAllow, log: this.log,
@@ -313,7 +315,7 @@ class Engine {
       this.listsStarted = true;
       this.lists.start().catch((e) => this.log("WARN", "blocklist: " + e.message));
     }
-    this.guard = new Guard({ log: this.log, dnsFilter: this.cfg.dnsFilter, filter: this.filter, lists: this.lists, ports: "browser" });
+    this.guard = new Guard({ log: this.log, dnsFilter: this.cfg.dnsFilter, filter: this.filter, lists: this.lists, ports: "browser", upTotal: this.upTotal });
     this._sweepProfiles();
     this.guardPort = await this.guard.listen();
 

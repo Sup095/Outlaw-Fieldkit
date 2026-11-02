@@ -124,6 +124,14 @@ class Bucket {
   }
 }
 
+/* Two limits on one direction: a sandbox's own, and everybody's
+   together (upTotal). Whichever wants the longer wait wins. */
+function both(a, b) {
+  if (!a) return b || null;
+  if (!b) return a;
+  return { take: (n) => Math.max(a.take(n), b.take(n)) };
+}
+
 /* src -> dst, slowed to the bucket's rate. Without a bucket it is
    just pipe(), which is what the relay's browser has always used. */
 function flow(src, dst, bucket) {
@@ -169,6 +177,10 @@ class Guard {
        and never the well-known ports below 1024 that mail and other
        services listen on. */
     this.ports = opts.ports === "browser" ? "browser" : "web";
+    /* What everything through this guard may send to the internet,
+       together: a { take(n) -> ms } (upcap.js, or a Bucket). Pages
+       that upload, and programs that do, use the house's upload too. */
+    this.upTotal = opts.upTotal || null;
     this.stats = { allowed: 0, refusedPrivate: 0, refusedFilter: 0, refusedDns: 0, refusedAds: 0 };
     /* THE LAST NO, SO SOMEBODY CAN BE TOLD WHY.
 
@@ -346,7 +358,7 @@ class Guard {
     const up = net.connect({ host: where.address, port, family: where.family }, () => {
       sock.write("HTTP/1.1 200 Connection Established\r\n\r\n");
       if (head && head.length) up.write(head);
-      flow(sock, up, lim && lim.up);
+      flow(sock, up, both(lim && lim.up, this.upTotal));
       flow(up, sock, lim && lim.down);
     });
     up.setNoDelay(true);
@@ -409,7 +421,7 @@ class Guard {
         "Content-Length": Buffer.byteLength(body) });
       res.end(body);
     });
-    flow(req, up, lim && lim.up);
+    flow(req, up, both(lim && lim.up, this.upTotal));
   }
 }
 
@@ -435,4 +447,4 @@ Guard.prototype.whyRefused = function (withinMs) {
   return r;
 };
 
-module.exports = { Guard, isPrivateAddress, DNS_PRESETS, splitAuthority, BLOCK_ANSWERS, Bucket, flow };
+module.exports = { Guard, isPrivateAddress, DNS_PRESETS, splitAuthority, BLOCK_ANSWERS, Bucket, flow, both };

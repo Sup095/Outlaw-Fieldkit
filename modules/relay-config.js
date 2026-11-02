@@ -250,20 +250,21 @@
         ui.panel("LINK CONFIGURATION", [
           nodes.url,
           nodes.token,
-          el("p", { class: "rc-note", text:
+          el("p", { class: "rcf-note", text:
             "The provision token creates the vault once and is useless afterwards. Clear it when setup is done." }),
-          el("div", { class: "rc-actions" }, [
+          el("div", { class: "rcf-actions" }, [
             ui.button("SAVE", saveConfig, { primary: true }),
             ui.button("TEST LINK", testLink),
             ui.button("CLEAR TOKEN", clearToken, { danger: true })
           ]),
-          el("p", { class: "rc-note", text:
+          el("p", { class: "rcf-note", text:
             "Vault already open and this relay has never seen it? PROVISION pushes " +
             "everything currently in the vault onto it — header and records — without " +
             "a restart. This is the step SAVE does not do." }),
-          el("div", { class: "rc-actions" }, [
+          el("div", { class: "rcf-actions" }, [
             ui.button("PROVISION THIS VAULT ON THE RELAY", provisionRelay, { primary: true })
           ]),
+          FieldKit.service("relayChoice") ? FieldKit.service("relayChoice").askToggle(s) : null,
           nodes.status
         ]),
         (doctor = ui.moduleFold("link-doctor", ctx)),
@@ -294,12 +295,12 @@
   });
 
   function injectCSS() {
-    if (document.getElementById("rc-style")) return;
+    if (document.getElementById("rcf-style")) return;
     var st = document.createElement("style");
-    st.id = "rc-style";
+    st.id = "rcf-style";
     st.textContent = `
-.rc-note{color:var(--fg-dimmer);font-size:10px;line-height:1.5;margin:0 0 10px}
-.rc-actions{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
+.rcf-note{color:var(--fg-dimmer);font-size:10px;line-height:1.5;margin:0 0 10px}
+.rcf-actions{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
 `;
     document.head.appendChild(st);
   }

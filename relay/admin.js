@@ -93,6 +93,7 @@ async function overview() {
       memMb: Math.round(mem.rss / 1048576), load: os.loadavg()[0], cpus: os.cpus().length,
       disk: diskOf(dataDir), upKbps: fair ? fair.upKbps || 0 : null, cpu: fair ? fair.cpu : null, mem: fair ? fair.mem : null },
     browser: Object.assign(browser, { sessionList: sessions, helpers: helpers }),
+    upload: parts.upload ? parts.upload() : null,
     runner: run,
     people: messaging && messaging.counts ? messaging.counts() : null,
     blocking: lists ? Object.assign(lists, { reports: blocking.reports, allowed: blocking.allow }) : null,

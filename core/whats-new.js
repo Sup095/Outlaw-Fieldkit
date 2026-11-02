@@ -10,6 +10,18 @@
   "use strict";
 
   var NOTES = [
+    { v: "0.7.0", items: [
+      "FieldKit's servers now have a hard ceiling on what they send, 12 Mbit/s unless an admin changes it, so the rest of the house's upload stays free.",
+      "Right-click an app to pin it to YOUR APPS, where it stays put, or to read how it works. On a touch screen, hold it.",
+      "Right-click a window's button in the taskbar to snap, maximise or close it; the middle button closes it.",
+      "Ctrl+Shift+D, or SHOW DESKTOP in Ctrl+K, moves every window aside, and again brings them back.",
+      "The clock shows the date when you point at it, and SETTINGS has a 12-hour option.",
+      "An app that needs a relay address says so the same way everywhere, with one button to set it, and works as soon as it is set.",
+      "The relay question at start can be switched off, and back on in RELAY LINK.",
+      "NOTES counts words and can save a note as a .md file. COPY buttons say when they have copied.",
+      "OUTPOST has the wallpapers too, and TOPOLOGY's starting picture matches how FieldKit is really set up.",
+      "Fixed: SETTINGS could show its rows squeezed into columns after NOTES had been opened."
+    ] },
     { v: "0.6.0", items: [
       "ADMIN CENTER: one page for admins, with services, people waiting, what was blocked, and a way to tell everyone something.",
       "If a service is down, a line at the top says so, and it goes away by itself when the service is back.",

@@ -369,7 +369,7 @@
     guestSafe: true,
     selfcheck: selfcheck,
     title: "QR CODE",
-    icon: "▚",
+    icon: "▩",
     width: 860,
     height: 600,
 

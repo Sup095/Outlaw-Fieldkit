@@ -73,7 +73,8 @@ FieldKit.provide("transportRelay", {
     settings.set("relayUrl", "");
     await def.mount(host, ctx);
     ok("it explains the relay is missing",
-      byClass("br-empty-h").some((n) => n.textContent === "NO RELAY CONFIGURED"));
+      byClass("fk-norelay-h").some((n) => n.textContent === "NO RELAY ADDRESS YET"));
+    ok("and offers the way to set one", all(host).some((n) => n.tagName === "BUTTON" && n.textContent === "SET THE RELAY ADDRESS"));
     ok("and builds no frame at all", all(host).filter((n) => n.tagName === "IFRAME").length === 0);
     def.unmount();
     host.children.length = 0;

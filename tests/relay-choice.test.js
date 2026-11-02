@@ -144,6 +144,39 @@ const input = (h) => all(h).find((n) => n.tagName === "INPUT");
     ok("and can carry on without", done === null);
   }
 
+  section("a drive that always uses the same relay need not be asked");
+  {
+    settings.set("relayUrl", "https://a.example.com");
+    settings.set("relayAskAtBoot", true);
+    const host = fakeElement("div");
+    let done = null;
+    rc.ask(host, { waitS: 30 }).then((u) => { done = u; });
+    await wait(10);
+    ok("the question offers to stop asking", !!button(host, "DON'T ASK AT START"));
+    button(host, "DON'T ASK AT START").click();
+    await wait(10);
+    ok("which carries on at once, with the address in use", done === "https://a.example.com");
+    ok("and is remembered", settings.get("relayAskAtBoot") === false);
+
+    const t = rc.askToggle(settings);
+    const box = all(t).find((n) => n.tagName === "INPUT");
+    ok("RELAY LINK shows it, off", box && box.checked === false && /ASK WHICH ADDRESS AT START/.test(text(t)));
+    box.checked = true;
+    box.dispatchEvent({ type: "change", target: box });
+    ok("and can turn it back on", settings.get("relayAskAtBoot") === true);
+
+    settings.set("relayUrl", "");
+    settings.set("relayUrls", []);
+    const h2 = fakeElement("div");
+    rc.ask(h2, { waitS: 0 });
+    await wait(10);
+    ok("with no address there is nothing to stop asking about", !button(h2, "DON'T ASK AT START"));
+    button(h2, "CONTINUE WITHOUT ONE").click();
+    const read = (f) => fs.readFileSync(path.join(__dirname, "..", f), "utf8");
+    ok("both builds' RELAY LINK carry the switch",
+      /askToggle\(/.test(read("modules/relay-link.js")) && /askToggle\(/.test(read("modules/relay-config.js")));
+  }
+
   section("both builds ask before connecting");
   {
     const read = (f) => fs.readFileSync(path.join(__dirname, "..", f), "utf8");

@@ -37,6 +37,7 @@ const path = require("path");
 const crypto = require("crypto");
 const { StringDecoder } = require("string_decoder");
 const ws = require("../relay/ws");
+const { UpCap, Rate, paceFor, RESERVE_KBPS } = require("../relay/upcap");
 const ticket = require("./ticket");
 const limits = require("./limits");
 const sandbox = require("./sandbox");
@@ -106,8 +107,14 @@ function create(cfg, logFn) {
   const saves = new Saves(cfg.storePath);
   const power = new Power({ file: cfg.powerFile, settingsFile: path.join(cfg.storePath, "power-settings.json") });
   /* Who gets in, and the line (access.js). */
+  /* FieldKit's upload ceiling (relay/upcap.js): what this machine sends
+     to the internet itself (its own address, run.), never what goes to
+     the relay over the tailnet, which the relay paces on the way out. */
+  const upcap = new UpCap();
+  const netRate = new Rate(() => upcap.sent);
   const access = new Access({ settingsFile: path.join(cfg.storePath, "access-settings.json"),
     sent: () => state.sentBytes,
+    net: () => netRate.kbps,
     other: () => (relayFresh() ? state.relayUp.kbps : 0),
     otherWaiting: () => (relayFresh() ? state.relayUp.wait : 0),
     otherAt: () => (state.relayUp ? state.relayUp.at : 0) });
@@ -296,11 +303,11 @@ function create(cfg, logFn) {
       sessions: sessions.size, jobs: jobs.size, ran: state.ran, upSince: state.upSince,
       /* For the relay, whose browser shares the home line and the
          thresholds (RUNNER_PLAN.md §22). Numbers only. */
-      load: { upKbps: access.meter.upKbps, waiting: access.line.length,
+      load: { upKbps: netRate.kbps, waiting: access.line.length,
         /* The whole machine, so the browser's helpers here and RUNNER
            are judged by one reading (SIMPLIFY_PLAN.md §3). */
         machine: { cpu: access.meter.cpu, mem: access.meter.mem },
-        settings: (() => { const s = access.settings(); return { guest: s.guest, member: s.member, uploadMbps: s.uploadMbps }; })() } };
+        settings: (() => { const s = access.settings(); return { guest: s.guest, member: s.member, uploadCapMbps: s.uploadCapMbps }; })() } };
   }
 
   /* ---- jobs ---- */
@@ -320,7 +327,8 @@ function create(cfg, logFn) {
   /* Every 2 s: the meter, then the line moves (offers, lapsed places,
      and runs held to their share while people wait). */
   function tickAccess(sampleToo) {
-    if (sampleToo !== false) access.sample();
+    if (sampleToo !== false) { access.sample(); netRate.sample(); }
+    upcap.setRate(paceFor(access.settings().uploadCapMbps, (relayFresh() ? state.relayUp.kbps : 0) + RESERVE_KBPS));
     if (state.relayHeard && state.relayUp && Date.now() - state.relayUp.at > 120000) {
       state.relayHeard = false;
       log("WARN", "runnerd: the relay's load reports stopped; counting only this machine's upload");
@@ -972,6 +980,7 @@ function create(cfg, logFn) {
     res.end(JSON.stringify({ error: "no such route", routes: ["GET /health", "WS /attach?t=<ticket>"] }));
   });
   server.on("upgrade", upgrade);
+  upcap.attach(server);
 
   let keyTimer = null, renewTimer = null, sweepTimer = null, sweepFirst = null, powerTimer = null, accessTimer = null;
 

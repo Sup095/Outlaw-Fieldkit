@@ -30,6 +30,8 @@ const MIN = 60000;
 
 (async () => {
   let clock = 1800000000000, sent = 0, proc = { cpuTotal: 0, cpuIdle: 0, mem: 20 };
+  /* These numbers are against a 20 Mbit/s ceiling; the default (12) is checked below. */
+  fs.writeFileSync(path.join(TMP, "a.json"), JSON.stringify({ uploadCapMbps: 20 }));
   const a = new Access({ settingsFile: path.join(TMP, "a.json"), now: () => clock, read: () => proc, sent: () => sent });
 
   section("the meter");
@@ -41,7 +43,7 @@ const MIN = 60000;
     ok("processor: busy share since the last reading", m.cpu === 30);
     ok("memory: as read", m.mem === 42.5);
     ok("upload: bytes sent per second, as kbit/s", m.upKbps === 10000);
-    ok("half of a 20 Mbit/s line", a.view().meter.upPct === 50);
+    ok("half of a 20 Mbit/s ceiling", a.view().meter.upPct === 50);
     proc = { cpuTotal: 1000, cpuIdle: 700, mem: 42.5 }; clock += 1000;
     ok("no new processor time: the last reading stands", a.sample().cpu === 30);
   }
@@ -187,13 +189,13 @@ const MIN = 60000;
 
     /* Now the upload is what is short. */
     load(20, 30, 0);
-    b.set({ uploadMbps: 1 });
+    b.set({ uploadCapMbps: 1 });
     const gb2 = b.join({ who: "g:b2", handle: "gb2", tier: "guest", kind: "browser", req: {} });
     r = b.pump(ctx);
     ok("a window short of upload: the console program behind it, which needs none, goes", names(r) === "gc", names(r));
     ok("and the browser session behind it, which needs the upload too, does not", b.line.includes(gb2));
 
-    b.set({ uploadMbps: 20 });
+    b.set({ uploadCapMbps: 20 });
     r = b.pump(ctx);
     ok("upload back, but the console program's turn holds Bastion 2: the window waits, the browser session goes",
       names(r) === "gb2" && !gw.offered, names(r));
@@ -263,6 +265,7 @@ const MIN = 60000;
 
   section("windows' video steps down before anyone waits");
   {
+    fs.writeFileSync(path.join(TMP, "v.json"), JSON.stringify({ uploadCapMbps: 20 }));
     const b = new Access({ settingsFile: path.join(TMP, "v.json"), now: () => clock, read: () => proc, sent: () => sent,
       other: () => relayUp, otherWaiting: () => relayWait, otherAt: () => clock - 3000 });
     let relayUp = 0, relayWait = 0;
@@ -285,16 +288,18 @@ const MIN = 60000;
 
   section("settings");
   {
-    const s = a.set({ guest: { load: 50, upload: 40 }, uploadMbps: 50 });
-    ok("saved", s.guest.load === 50 && s.guest.upload === 40 && s.uploadMbps === 50 && s.member.load === 85);
+    const s = a.set({ guest: { load: 50, upload: 40 }, uploadCapMbps: 15 });
+    ok("saved", s.guest.load === 50 && s.guest.upload === 40 && s.uploadCapMbps === 15 && s.member.load === 85);
     for (const [bad, what] of [[{ guest: { load: 120 } }, "over 100%"], [{ member: { load: 30 } }, "members let in later than guests"],
-      [{ uploadMbps: 0 }, "no upload"], [{ guest: { upload: "lots" } }, "not a number"]]) {
+      [{ uploadCapMbps: 0 }, "no upload"], [{ uploadCapMbps: 5000 }, "past any house line"], [{ guest: { upload: "lots" } }, "not a number"]]) {
       let threw = false;
       try { a.set(bad); } catch (e) { threw = true; }
       ok("refused: " + what, threw);
     }
-    fs.writeFileSync(path.join(TMP, "a.json"), JSON.stringify({ guest: { load: 900 }, uploadMbps: -1 }));
-    ok("a file edited badly by hand falls back to the defaults", a.settings().guest.load === 60 && a.settings().uploadMbps === 20);
+    fs.writeFileSync(path.join(TMP, "a.json"), JSON.stringify({ guest: { load: 900 }, uploadCapMbps: -1 }));
+    ok("a file edited badly by hand falls back to the defaults", a.settings().guest.load === 60 && a.settings().uploadCapMbps === 12);
+    fs.writeFileSync(path.join(TMP, "a.json"), JSON.stringify({ uploadMbps: 20 }));
+    ok("the old setting (the house line) is not read as the ceiling", a.settings().uploadCapMbps === 12);
   }
 
   section("through a real run server");
@@ -356,8 +361,8 @@ const MIN = 60000;
 
     const bad = await boss.ask({ t: "adm-access", guest: { load: 99 } });
     ok("thresholds that would let guests in after members are refused", bad.t === "error");
-    const good = await boss.ask({ t: "adm-access", guest: { load: 40, upload: 30 }, uploadMbps: 21 });
-    ok("good ones are saved", good.t === "adm-done" && A.settings().guest.load === 40 && A.settings().uploadMbps === 21);
+    const good = await boss.ask({ t: "adm-access", guest: { load: 40, upload: 30 }, uploadCapMbps: 10 });
+    ok("good ones are saved", good.t === "adm-done" && A.settings().guest.load === 40 && A.settings().uploadCapMbps === 10);
     const nope = await mia.ask({ t: "adm-access", guest: { load: 10 } });
     ok("by admins only", nope.t === "error" && nope.why === "admins only");
 

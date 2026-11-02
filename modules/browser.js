@@ -1668,12 +1668,7 @@
     ui.clear(host);
 
     if (!relayBase()) {
-      host.appendChild(el("div", { class: "br-empty" }, [
-        el("div", { class: "br-empty-h", text: "NO RELAY CONFIGURED" }),
-        el("div", { class: "br-empty-p", text:
-          "Pages are fetched by your relay and served back through it. " +
-          "Set the relay address in SETTINGS, then come back." })
-      ]));
+      host.appendChild(ui.noRelay("BROWSER opens pages on your relay and shows them here.", "browser"));
       return;
     }
 
@@ -2204,10 +2199,7 @@
       ".br-ask{display:flex;gap:6px;align-items:center;padding:4px 6px;border:1px solid var(--accent-dim);",
       "  background:rgba(var(--accent-glow),.07)}",
       ".br-ask-t{flex:1;min-width:0;font-size:11px;color:var(--fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
-      ".br-ask-t.warn{color:var(--warn)}",
-      ".br-empty{padding:28px;text-align:center}",
-      ".br-empty-h{font-size:12px;letter-spacing:.2em;color:var(--accent);margin-bottom:6px}",
-      ".br-empty-p{font-size:11px;color:var(--fg-dim);line-height:1.6}"
+      ".br-ask-t.warn{color:var(--warn)}"
     ].join("\n");
     document.head.appendChild(s);
   }

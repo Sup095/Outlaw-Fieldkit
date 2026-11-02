@@ -496,7 +496,7 @@
     guestSafe: false,
     selfcheck: selfcheck,
     title: "TASK BOARD",
-    icon: "▤",
+    icon: "▥",
     width: 1080,
     height: 680,
 
@@ -629,7 +629,8 @@
       ".tb-wrap{display:flex;flex-direction:column;gap:8px;height:100%}",
       ".tb-bar{display:flex;gap:6px;flex-wrap:wrap;align-items:center;flex:0 0 auto}",
       ".tb-filter{max-width:170px}",
-      ".tb-board{display:flex;gap:8px;align-items:flex-start;overflow-x:auto;flex:1 1 auto;padding-bottom:4px}",
+      /* Never shrunk to a sliver by the form under it: the window scrolls instead. */
+      ".tb-board{display:flex;gap:8px;align-items:stretch;overflow-x:auto;flex:1 0 auto;min-height:170px;padding-bottom:4px}",
       ".tb-col{flex:1 0 190px;min-width:190px;border:1px solid var(--line2);padding:6px;",
       "  background:rgba(0,0,0,.16);max-height:100%;overflow-y:auto}",
       ".tb-col-head{display:flex;justify-content:space-between;align-items:center;",

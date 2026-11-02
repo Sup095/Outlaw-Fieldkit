@@ -41,27 +41,31 @@
   var DEFAULT = {
     name: "BASTION",
     nodes: [
-      { id: "usb",     label: "FIELDKIT USB",  kind: "device",  x:  40, y: 150 },
-      { id: "chrome",  label: "CHROMEBOOK",    kind: "device",  x:  40, y: 220 },
-      { id: "net",     label: "SCHOOL WIFI",   kind: "network", x: 200, y: 185 },
-      { id: "relay",   label: "RELAY",         kind: "service", x: 360, y: 185 },
-      { id: "ptero",   label: "PTERODACTYL",   kind: "host",    x: 360, y: 100 },
-      { id: "tail",    label: "TAILSCALE",     kind: "cloud",   x: 520, y: 185 },
-      { id: "pc",      label: "HOME PC",       kind: "host",    x: 680, y: 120 },
-      { id: "lm",      label: "LM STUDIO",     kind: "service", x: 680, y: 185 },
-      { id: "b1",      label: "BASTION-1",     kind: "host",    x: 680, y: 260 },
-      { id: "b2",      label: "BASTION-2",     kind: "host",    x: 680, y: 325 }
+      { id: "usb",     label: "FIELDKIT USB",  kind: "device",  x:  30, y: 150 },
+      { id: "chrome",  label: "CHROMEBOOK",    kind: "device",  x:  30, y: 220 },
+      { id: "net",     label: "SCHOOL WIFI",   kind: "network", x: 180, y: 185 },
+      { id: "cf",      label: "CLOUDFLARE",    kind: "cloud",   x: 330, y: 185 },
+      { id: "relay",   label: "RELAY",         kind: "service", x: 480, y: 185 },
+      { id: "b1",      label: "BASTION-1",     kind: "host",    x: 480, y:  90 },
+      { id: "browser", label: "BROWSER",       kind: "service", x: 480, y: 290 },
+      { id: "b2",      label: "BASTION-2",     kind: "host",    x: 660, y:  90 },
+      { id: "runner",  label: "RUNNER",        kind: "host",    x: 660, y: 175 },
+      { id: "helper",  label: "BROWSER HELPER", kind: "service", x: 660, y: 260 },
+      { id: "models",  label: "ASK MODELS",    kind: "service", x: 660, y: 345 }
     ],
+    /* The ids relay, browser and runner are the ones the relay reports
+       on (relay/topology.js), so those light up by themselves. */
     edges: [
       { from: "usb",   to: "chrome", kind: "lan",      label: "plugged in" },
       { from: "chrome", to: "net",   kind: "lan",      label: "" },
-      { from: "net",   to: "relay",  kind: "internet", label: "https" },
-      { from: "ptero", to: "relay",  kind: "lan",      label: "container" },
-      { from: "relay", to: "tail",   kind: "tailnet",  label: "userspace proxy" },
-      { from: "tail",  to: "pc",     kind: "tailnet",  label: "" },
-      { from: "pc",    to: "lm",     kind: "lan",      label: "1234" },
-      { from: "tail",  to: "b1",     kind: "tailnet",  label: "" },
-      { from: "tail",  to: "b2",     kind: "tailnet",  label: "" }
+      { from: "net",   to: "cf",     kind: "internet", label: "https" },
+      { from: "cf",    to: "relay",  kind: "internet", label: "tunnel" },
+      { from: "b1",    to: "relay",  kind: "lan",      label: "container" },
+      { from: "relay", to: "browser", kind: "lan",     label: "" },
+      { from: "relay", to: "b2",     kind: "tailnet",  label: "tailnet" },
+      { from: "b2",    to: "runner", kind: "lan",      label: "" },
+      { from: "b2",    to: "helper", kind: "lan",      label: "" },
+      { from: "b2",    to: "models", kind: "lan",      label: "" }
     ]
   };
 

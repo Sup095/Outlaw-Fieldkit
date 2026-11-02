@@ -10,6 +10,24 @@
   "use strict";
 
   /* ---- themes: all dark, accent is the only variable ---------- */
+  /* Wallpapers: CSS, not image files, so the drive carries no art and
+     they retint with the accent. Shared by both builds' SETTINGS. */
+  var WALLPAPERS = [
+    { id: "none", name: "NONE", css: null },
+    { id: "grid", name: "GRID", css:
+      "linear-gradient(rgba(255,255,255,.028) 1px, transparent 1px)," +
+      "linear-gradient(90deg, rgba(255,255,255,.028) 1px, transparent 1px)" },
+    { id: "deep", name: "DEEP FIELD", css:
+      "radial-gradient(ellipse at 20% 10%, rgba(var(--accent-glow),.13), transparent 55%)," +
+      "radial-gradient(ellipse at 80% 90%, rgba(40,70,90,.22), transparent 55%)" },
+    { id: "scan", name: "SCANLINES", css:
+      "repeating-linear-gradient(0deg, rgba(255,255,255,.03) 0 1px, transparent 1px 4px)" },
+    { id: "ember", name: "EMBER", css:
+      "radial-gradient(circle at 50% 120%, rgba(var(--accent-glow),.2), transparent 60%)" },
+    { id: "topo", name: "TOPO", css:
+      "repeating-radial-gradient(circle at 30% 40%, transparent 0 18px, rgba(255,255,255,.022) 18px 19px)" }
+  ];
+
   var THEMES = {
     amber:  { name: "AMBER",  accent: "#e0a63c", accent2: "#8a6520", glow: "224,166,60" },
     green:  { name: "GREEN",  accent: "#4fbf6a", accent2: "#2c6b3c", glow: "79,191,106" },
@@ -141,8 +159,12 @@
   function copy(text, opts) {
     opts = opts || {};
     text = String(text == null ? "" : text);
+    /* The button that asked, taken now: execCopy moves the focus. */
+    var asker = document.activeElement;
+    var done = function (how) { if (how) flashCopied(asker); return how; };
 
     return new Promise(function (resolve) {
+      resolve = (function (r) { return function (how) { r(done(how)); }; })(resolve);
       function fallback() {
         if (execCopy(text)) { resolve("execCommand"); return; }
         if (opts.silent) { resolve(null); return; }
@@ -158,6 +180,23 @@
       } catch (e) { /* fall through */ }
       fallback();
     });
+  }
+
+  /* The button that copied says so for a moment, where the eye already
+     is: a toast in the corner is easy to miss. Plain text buttons only,
+     so nothing with an icon inside is rebuilt. */
+  function flashCopied(b) {
+    if (!b || String(b.tagName || "").toUpperCase() !== "BUTTON") return;
+    if (b.children && b.children.length) return;
+    if (b.__copiedTimer) clearTimeout(b.__copiedTimer);
+    else b.__copiedText = b.textContent;
+    b.textContent = "COPIED ✓";
+    if (b.classList) b.classList.add("fk-copied");
+    b.__copiedTimer = setTimeout(function () {
+      b.textContent = b.__copiedText;
+      if (b.classList) b.classList.remove("fk-copied");
+      b.__copiedTimer = null;
+    }, 1400);
   }
 
   /* Selecting is a convenience, never a requirement. If it throws,
@@ -362,20 +401,32 @@ button,input,textarea,select{font:inherit;color:inherit}
 /* One app. Big enough to hit without aiming, and the label wraps to
    two lines rather than being cut — "SECURITY SANDBOX" truncated to
    "SECURITY SAN" is how you open the wrong thing. */
-.fk-app{display:flex;flex-direction:column;align-items:center;justify-content:flex-start;
-  gap:7px;width:100px;height:96px;padding:12px 5px 7px;cursor:pointer;
+.fk-app{display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:9px;width:100px;height:96px;padding:8px 5px;cursor:pointer;
   border:1px solid var(--line2);background:rgba(12,15,13,.6);
   color:var(--fg-dim);letter-spacing:.05em;text-align:center}
 .fk-app:hover,.fk-app:focus-visible{border-color:var(--accent-dim);
   background:rgba(var(--accent-glow),.09);color:var(--accent);outline:none}
 .fk-app .g{font-size:28px;line-height:1;color:var(--accent);flex:0 0 auto}
-.fk-app .n{font-size:9px;letter-spacing:.06em;line-height:1.25;word-break:break-word}
+.fk-app .n{font-size:10px;letter-spacing:.06em;line-height:1.25;word-break:break-word}
 .fk-app.dead{opacity:.55;border-color:var(--fail)}
 .fk-app.dead .g{color:var(--fail)}
 .fk-app.sealed{opacity:.45;cursor:not-allowed}
 .fk-app.sealed .g{color:var(--fg-dimmer)}
 .fk-app.sealed:hover{border-color:var(--line2);color:var(--fg-dimmer);
   background:rgba(12,15,13,.55)}
+/* Pinned: a small mark in the corner, so it is clear why it stays put. */
+.fk-app{position:relative}
+.fk-btn.fk-copied{color:var(--pass);border-color:var(--pass)}
+.fk-app.pinned::after{content:"";position:absolute;top:5px;right:5px;width:6px;height:6px;
+  background:var(--accent);opacity:.7}
+
+/* ---- the right-click menu ---- */
+.fk-menu{position:fixed;z-index:9000;min-width:190px;padding:4px;display:flex;flex-direction:column;
+  background:#0c0f0d;border:1px solid var(--accent-dim);box-shadow:0 8px 24px rgba(0,0,0,.55)}
+.fk-menu-i{all:unset;box-sizing:border-box;padding:7px 12px;font-size:11px;letter-spacing:.1em;
+  color:var(--fg-dim);cursor:pointer;white-space:nowrap}
+.fk-menu-i:hover,.fk-menu-i:focus-visible{background:rgba(var(--accent-glow),.12);color:var(--accent)}
 
 /* A folder. The 2x2 of what is inside is the whole reason this
    works — a labelled empty square is something you have to read,
@@ -421,6 +472,10 @@ button,input,textarea,select{font:inherit;color:inherit}
 .fk-folder-head .c{font-size:8px;letter-spacing:.16em;color:var(--fg-dimmer);flex:1}
 
 /* ---- folds ---- */
+.fk-norelay{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;
+  min-height:100%;padding:28px 20px;text-align:center;box-sizing:border-box}
+.fk-norelay-h{color:var(--accent);font-size:12px;letter-spacing:.24em}
+.fk-norelay-p{color:var(--fg-dim);font-size:11px;line-height:1.6;max-width:46ch}
 .fk-fold{border:1px solid var(--line);margin-bottom:6px}
 .fk-fold-head{display:block;width:100%;background:none;border:0;color:var(--fg-dim);font:inherit;font-size:10px;
   letter-spacing:.14em;text-align:left;padding:6px 8px;cursor:pointer}
@@ -654,8 +709,36 @@ body.crt #fk-desktop{animation:fk-flicker 5s infinite}
     return node;
   }
 
+  /* The same few lines wherever an app needs a relay and none is set:
+     what the app would use it for, and the one button that fixes it.
+     BROWSER, MESSAGES and RUNNER each used to say this differently, and
+     two of them sent people to SETTINGS, where the address is not. */
+  function noRelay(forWhat, id) {
+    /* Set from anywhere (RELAY LINK, the boot screen), the app comes
+       back working without being closed and opened by hand. */
+    var off = FieldKit.on("settings:changed", function (e) {
+      if (!e || e.key !== "relayUrl" || !e.value) return;
+      off();
+      if (!id || !node.isConnected) return;
+      var sh = FieldKit.service("shell");
+      if (sh) { sh.close(id); sh.open(id); }
+    });
+    var node = el("div", { class: "fk-norelay" }, [
+      el("div", { class: "fk-norelay-h", text: "NO RELAY ADDRESS YET" }),
+      el("div", { class: "fk-norelay-p", text: forWhat + " Add the address you were given and it works from then on." }),
+      button("SET THE RELAY ADDRESS", function () {
+        var sh = FieldKit.service("shell");
+        /* RELAY LINK is relay-link in OUTPOST and relay-config in FIELDKIT. */
+        if (sh) sh.open(FieldKit.modules()["relay-link"] ? "relay-link" : "relay-config");
+      }, { primary: true })
+    ]);
+    return node;
+  }
+
   FieldKit.provide("ui", {
     THEMES: THEMES,
+    WALLPAPERS: WALLPAPERS,
+    noRelay: noRelay,
     applyTheme: applyTheme,
     applyLook: applyLook,
     currentTheme: function () { return currentTheme; },

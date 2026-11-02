@@ -196,7 +196,7 @@ var driveChecked = false, relayChecked = false, ranAuto = false;
 var manifestInfo = null;
 /* The FieldKit version this page was written for; a test keeps it
    equal to core/kernel.js, so it is updated with every release. */
-var FOR_VERSION = "0.6.0";
+var FOR_VERSION = "0.7.0";
 /* Next to the drive's files (FIELDKIT.html, core/...), or next to the
    downloaded single-file builds. Decided by whether core/kernel.js loads. */
 var layout = "unknown";
@@ -994,6 +994,14 @@ async function checkCapability() {
   rec(G, "localStorage", r.v ? "PASS" : "FAIL",
     r.v ? "read/write works (probe key removed)" : (r.to ? "timed out" : errStr(r.e)) +
       " — settings will not persist, but the vault does not live here so nothing is lost");
+
+  /* Holding a finger on an app or a window's button opens its menu
+     (0.7.0); that is a pointer event with a pointerType of "touch". */
+  var touch = (navigator.maxTouchPoints || 0) > 0;
+  rec(G, "touch menus", typeof window.PointerEvent === "function" ? "PASS" : (touch ? "WARN" : "INFO"),
+    typeof window.PointerEvent === "function"
+      ? (touch ? "holding an app opens its menu" : "no touch screen; right-click opens the menus")
+      : "no pointer events here, so holding an app does nothing; a mouse's right-click still works");
 
   r = await guard(8000, function () {
     if (!window.indexedDB) throw new Error("indexedDB is undefined");

@@ -358,7 +358,8 @@
       ".vf-banner.warn{border-left-color:var(--fk-warn)}",
       ".vf-banner.ok{border-left-color:var(--fk-ok)}",
       ".vf-banner strong{display:block;margin-bottom:3px;letter-spacing:.06em}",
-      ".vf-drop{border:1px dashed var(--fk-line);padding:14px;text-align:center;font-size:12px}",
+      ".vf-drop{border:1px dashed var(--fk-line);padding:18px 14px;text-align:center;font-size:12px;display:flex;flex-direction:column;align-items:center;gap:10px;margin-bottom:10px}",
+      ".vf-drop-t{letter-spacing:.14em;color:var(--fg-dim)}",
       ".vf-drop.over{border-color:var(--fk-accent);background:rgba(255,255,255,0.04)}",
       ".vf-row,.vf-pending-row{border:1px solid var(--fk-line);padding:8px 10px;margin-bottom:6px}",
       ".vf-row-head,.vf-pending-name{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}",
@@ -382,7 +383,7 @@
       ".vf-progress-text{font-size:11px;margin-bottom:3px}",
       ".vf-progress-bar{height:4px;background:rgba(255,255,255,0.08)}",
       ".vf-progress-fill{height:100%;background:var(--fk-accent);transition:width .15s linear}",
-      ".vf-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}",
+      ".vf-grid{display:grid;grid-template-columns:1fr 2fr;gap:8px}",
       ".vf-tools{display:flex;gap:6px;flex-wrap:wrap;align-items:center}"
     ].join("");
     document.head.appendChild(s);
@@ -515,7 +516,7 @@
     guestSafe: false,
     selfcheck: selfcheck,
     title: "FILES",
-    icon: "▤",
+    icon: "▣",
     width: 940,
     height: 640,
 
@@ -540,7 +541,10 @@
       nodes.pick = ui.button("CHOOSE FILES", function () { nodes.input.click(); }, { primary: true });
       nodes.uploadBtn = ui.button("ENCRYPT AND STORE", doUpload, { primary: true });
 
-      nodes.drop = el("div", { class: "vf-drop", text: "CHOOSE FILES, OR DRAG THEM ONTO THIS PANEL" });
+      /* The button sits in the box it describes, so the two read as one. */
+      nodes.drop = el("div", { class: "vf-drop" }, [
+        el("div", { class: "vf-drop-t", text: "DRAG FILES HERE, OR" }), nodes.pick
+      ]);
       ["dragenter", "dragover"].forEach(function (ev) {
         nodes.drop.addEventListener(ev, function (e) {
           e.preventDefault(); nodes.drop.classList.add("over");
@@ -565,10 +569,8 @@
         nodes.usage,
         ui.panel("ADD FILES", [
           nodes.drop,
-          el("div", { class: "vf-tools" }, [nodes.pick, nodes.input]),
+          nodes.input,
           el("div", { class: "vf-grid" }, [
-            el("label", { class: "fk-field" }, [
-              el("span", { class: "fk-field-label", text: "PROJECT" }), nodes.project]),
             el("label", { class: "fk-field" }, [
               el("span", { class: "fk-field-label", text: "TAGS" }), nodes.tags]),
             el("label", { class: "fk-field" }, [

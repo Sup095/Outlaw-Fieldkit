@@ -263,12 +263,12 @@ function command(ctx, s, m) {
       return { done: "removed " + (e.tier === "guest" ? "a guest" : e.handle) + " from the line" };
     }
     case "adm-access": {
-      const st = ctx.access.set({ guest: m.guest, member: m.member, uploadMbps: m.uploadMbps });
+      const st = ctx.access.set({ guest: m.guest, member: m.member, uploadCapMbps: m.uploadCapMbps });
       admin.audit(by, "access-settings", null, "guests " + st.guest.load + "%/" + st.guest.upload + "% up, members " +
-        st.member.load + "%/" + st.member.upload + "% up, upload " + st.uploadMbps + " Mbit/s");
+        st.member.load + "%/" + st.member.upload + "% up, FieldKit at most " + st.uploadCapMbps + " Mbit/s");
       ctx.tickAccess(false);
       return { done: "saved: guests in under " + st.guest.load + "% load and " + st.guest.upload + "% of the upload, members under " +
-        st.member.load + "% and " + st.member.upload + "%, upload " + st.uploadMbps + " Mbit/s" };
+        st.member.load + "% and " + st.member.upload + "%, and FieldKit sends at most " + st.uploadCapMbps + " Mbit/s" };
     }
     case "adm-power": {
       const st = ctx.power.set({ pricePerKwh: m.price, otherWatts: m.other, currency: m.currency });

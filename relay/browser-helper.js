@@ -36,6 +36,8 @@ const http = require("http");
 const crypto = require("crypto");
 const { verify, Spent } = require("./overflow");
 const browserRoute = require("./browser-route");
+const { Bucket } = require("./guard");
+const { HELPER_UP_BPS } = require("./upcap");
 const browse = require("./browse");
 const { Fairness } = require("./fairness");
 const { execFile } = require("child_process");
@@ -131,7 +133,10 @@ function start(opts) {
 
   if (!relayKey.base) log("ERROR", "helper: helper.relayUrl is empty, so no pass can ever be checked — set it to the relay's https address");
   browse.init({ dataDir: config.dataDir, config: config.browse, log: log });
-  const engine = browserRoute.init({ config: config.browser, log: log, filter: (host) => browse.hostVerdict(host), dataDir: config.dataDir });
+  /* What its pages send out leaves Bastion 2 directly, not through the
+     relay: held to a small total that the ceiling sets aside (upcap.js). */
+  const engine = browserRoute.init({ config: config.browser, log: log, filter: (host) => browse.hostVerdict(host), dataDir: config.dataDir,
+    upTotal: new Bucket(HELPER_UP_BPS) });
   meter.sessions = () => engine.sessions.size;
   let allowV = 0;
   const onCard = engine.render.mode === "gpu";

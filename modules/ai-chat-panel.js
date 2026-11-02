@@ -258,7 +258,7 @@
           nodes.input,
           el("div", { class: "chat-actions" }, [
             nodes.send,
-            ui.button("RE-PROBE", refreshAvailability),
+            ui.button("CHECK AGAIN", refreshAvailability),
             ui.button("CLEAR", function () {
               history = [];
               ui.clear(nodes.log);

@@ -36,9 +36,10 @@ html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);
 #fk-boot{position:absolute;inset:0;overflow:hidden;display:flex;flex-direction:column;
   padding:22px 20px;transition:opacity .34s ease}
 #fk-boot.fade{opacity:0}
-#fk-boot-brand{margin:0 0 14px;color:var(--accent);font-size:10px;line-height:1.2;
+#fk-boot-brand{margin:0;color:var(--accent);font-size:10px;line-height:1.2;
   white-space:pre;flex:none;text-shadow:0 0 12px rgba(var(--accent-glow),.3)}
-#fk-boot-console{flex:1;overflow:auto;min-height:0;max-width:760px}
+#fk-boot-console{flex:1;overflow:auto;min-height:0;max-width:760px;padding-top:14px;
+  -webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 14px);mask-image:linear-gradient(to bottom,transparent 0,#000 14px)}
 .boot-line{white-space:pre-wrap;word-break:break-word;color:var(--fg-dim);min-height:1.5em}
 .boot-line.lvl-accent{color:var(--accent);letter-spacing:.14em}
 .boot-line.lvl-pass{color:var(--pass)} .boot-line.lvl-fail{color:var(--fail)}
@@ -79,7 +80,7 @@ html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);
 .gate{border:1px solid var(--accent-dim);background:var(--bg2);padding:16px 18px}
 .gate-title{color:var(--accent);letter-spacing:.24em;font-size:11px;margin-bottom:10px}
 .gate-note{color:var(--fg-dimmer);font-size:11px;margin:0 0 14px;line-height:1.55}
-.gate-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:4px}
+.gate-actions{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 14px}
 .boot-msg{min-height:1.4em;font-size:11px;letter-spacing:.08em;margin:6px 0}
 .recovery-key{border:1px solid var(--accent);background:#0b0e0c;color:var(--accent);
   padding:14px;font-size:15px;letter-spacing:.16em;text-align:center;margin-bottom:14px;

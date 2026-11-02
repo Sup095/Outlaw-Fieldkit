@@ -731,9 +731,9 @@
 .st-actions{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;flex:none}
 .st-blurb{color:var(--fg-dimmer);font-size:10px;line-height:1.55;margin:-4px 0 12px;
   border-left:2px solid var(--line2);padding-left:9px}
-.st-hwarn{color:var(--warn);font-size:10px;line-height:1.6;margin:8px 0 0;
+.st-hwarn{color:var(--warn);font-size:10px;line-height:1.6;margin:8px 0 10px;
   border-left:2px solid var(--warn);padding-left:9px}
-.st-hfail{color:var(--fail);font-size:10px;line-height:1.6;margin:8px 0 0;
+.st-hfail{color:var(--fail);font-size:10px;line-height:1.6;margin:8px 0 10px;
   border-left:2px solid var(--fail);padding-left:9px}
 .st-verdict{font-size:13px;letter-spacing:.24em;margin-bottom:8px}
 .st-restored{border:1px dashed var(--warn);padding:8px;margin-top:8px}

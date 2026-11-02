@@ -865,6 +865,9 @@
 
     if (phase === "checking") return void nodes.root.appendChild(notice("CHECKING THE RUN SERVER...", ""));
     if (phase === "connecting") return void nodes.root.appendChild(notice("CONNECTING...", ""));
+    if (phase === "off" && !relayBase()) {
+      return void nodes.root.appendChild(ui.noRelay("RUNNER runs your programs on the relay's run server and shows them here.", "runner"));
+    }
     if (phase === "off") return void nodes.root.appendChild(notice("RUNNER IS NOT AVAILABLE", problem, [again]));
     if (phase === "offline") {
       return void nodes.root.appendChild(notice("THE RUN SERVER IS OFFLINE",
@@ -1415,16 +1418,17 @@
     [["processor", m.cpu], ["memory", m.mem], ["upload", m.upPct]].forEach(function (x) {
       var pct = Math.max(0, Math.min(100, Math.round(x[1] || 0)));
       box.appendChild(el("div", { class: "rn-meter" }, [
-        el("span", { class: "rn-meter-l", text: x[0] + " " + pct + "%" + (x[0] === "upload" ? " of " + s.uploadMbps + " Mbit/s" : "") }),
+        el("span", { class: "rn-meter-l", text: x[0] + " " + pct + "%" + (x[0] === "upload" ? " of FieldKit's " + s.uploadCapMbps + " Mbit/s" : "") }),
         el("div", { class: "rn-gauge" + (pct >= (s.member ? s.member.load : 85) ? " hot" : "") }, [el("div", { style: { width: pct + "%" } })])
       ]));
     });
     /* The relay's browser shares the home upload (§14.23); its report
        says how much it uses, and windows' video steps down when busy. */
     box.appendChild(el("div", { class: "rn-dim", text: (m.relaySeenSec == null || m.relaySeenSec > 120
-      ? "The relay has not reported its browser's upload lately, so only this machine's is counted."
-      : "The relay's browser is using " + (m.relayUpKbps || 0) + " kbit/s of it" + (m.relayWaiting ? ", with " + m.relayWaiting + " waiting" : "") +
-        " (reported " + m.relaySeenSec + " s ago).") +
+      ? "The relay has not reported its upload lately, so only this machine's is counted."
+      : "The relay is sending " + (m.relayUpKbps || 0) + " kbit/s (RUNNER through it included), this machine " + (m.netKbps || 0) +
+        " kbit/s by itself" + (m.relayWaiting ? ", with " + m.relayWaiting + " waiting for the browser" : "") +
+        " (reported " + m.relaySeenSec + " s ago). Neither can go past the ceiling.") +
       (m.videoStep ? " Windows' video is turned down (" + (m.videoStep === 1 ? "a little" : "a lot") + ") to fit." : "") }));
     box.appendChild(el("div", { class: "rn-dim", text: "Guests get in while load is under " + s.guest.load + "% and upload under " +
       s.guest.upload + "%; members under " + s.member.load + "% and " + s.member.upload + "%. Everyone else waits in line; admins never do." }));
@@ -1439,14 +1443,14 @@
       ]));
     });
     var num = function (v, w) { return el("input", { class: "rn-input", type: "number", min: "0", max: "100", value: v, style: { width: w || "56px", flex: "0 0 auto" } }); };
-    var gl = num(s.guest.load), gu = num(s.guest.upload), ml = num(s.member.load), mu = num(s.member.upload), up = num(s.uploadMbps, "64px");
-    up.max = "10000";
+    var gl = num(s.guest.load), gu = num(s.guest.upload), ml = num(s.member.load), mu = num(s.member.upload), up = num(s.uploadCapMbps, "64px");
+    up.max = "1000"; up.min = "1"; up.step = "0.5";
     box.appendChild(row([el("span", { class: "rn-dim", text: "guests: load %" }), gl, el("span", { class: "rn-dim", text: "upload %" }), gu,
       el("span", { class: "rn-dim", text: "members: load %" }), ml, el("span", { class: "rn-dim", text: "upload %" }), mu,
-      el("span", { class: "rn-dim", text: "upload Mbit/s" }), up,
+      el("span", { class: "rn-dim", text: "FieldKit sends at most, Mbit/s", title: "A hard ceiling for the relay and this machine together, under the house's own upload so its other servers are not crowded out" }), up,
       ui.button("SAVE", function () {
         go({ t: "adm-access", guest: { load: Number(gl.value), upload: Number(gu.value) },
-          member: { load: Number(ml.value), upload: Number(mu.value) }, uploadMbps: Number(up.value) })();
+          member: { load: Number(ml.value), upload: Number(mu.value) }, uploadCapMbps: Number(up.value) })();
       })]));
   }
 

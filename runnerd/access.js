@@ -58,7 +58,7 @@ const LINE_MAX = 60, GUEST_LINE_MAX = 20;
 const DEFAULTS = {
   guest: { load: 60, upload: 50 },
   member: { load: 85, upload: 85 },
-  uploadMbps: 20,
+  uploadCapMbps: 12,
   turnSec: 60,
   graceSec: 120,
   /* What a run costs before it starts: share of the whole machine's
@@ -111,6 +111,10 @@ class Access {
     this.read = opts.read || readProc;
     this.sent = opts.sent || (() => 0);       /* bytes sent to viewers so far */
     this.other = opts.other || (() => 0);     /* the relay's upload, kbit/s: one home line */
+    /* What this machine sends to the internet itself, kbit/s (upcap.js:
+       not what goes to the relay over the tailnet, which the relay counts
+       on its way out). Without it, everything sent stands in. */
+    this.net = opts.net || (() => this.meter.upKbps);
     this.otherWaiting = opts.otherWaiting || (() => 0);   /* waiting for the relay's browser */
     this.otherAt = opts.otherAt || (() => 0); /* when the relay last reported */
     this.step = 0;                            /* index into STEPS */
@@ -131,7 +135,7 @@ class Access {
     return {
       guest: { load: pick(g.load, 0, 100, DEFAULTS.guest.load), upload: pick(g.upload, 0, 100, DEFAULTS.guest.upload) },
       member: { load: pick(m.load, 0, 100, DEFAULTS.member.load), upload: pick(m.upload, 0, 100, DEFAULTS.member.upload) },
-      uploadMbps: pick(s.uploadMbps, 1, 10000, DEFAULTS.uploadMbps),
+      uploadCapMbps: pick(s.uploadCapMbps, 1, 1000, DEFAULTS.uploadCapMbps),
       turnSec: DEFAULTS.turnSec, graceSec: DEFAULTS.graceSec,
       costs: DEFAULTS.costs, whenWaiting: DEFAULTS.whenWaiting
     };
@@ -139,7 +143,7 @@ class Access {
 
   set(change) {
     const cur = this.settings();
-    const out = { guest: cur.guest, member: cur.member, uploadMbps: cur.uploadMbps };
+    const out = { guest: cur.guest, member: cur.member, uploadCapMbps: cur.uploadCapMbps };
     for (const t of ["guest", "member"]) {
       if (!change[t]) continue;
       for (const k of ["load", "upload"]) {
@@ -152,10 +156,10 @@ class Access {
     if (out.guest.load > out.member.load || out.guest.upload > out.member.upload) {
       throw new Error("guests cannot be let in later than members");
     }
-    if (change.uploadMbps != null) {
-      const n = clampNum(change.uploadMbps, 1, 10000);
-      if (n == null) throw new Error("the upload is in Mbit/s, 1 to 10000");
-      out.uploadMbps = Math.round(n * 10) / 10;
+    if (change.uploadCapMbps != null) {
+      const n = clampNum(change.uploadCapMbps, 1, 1000);
+      if (n == null) throw new Error("FieldKit's upload ceiling is in Mbit/s, 1 to 1000");
+      out.uploadCapMbps = Math.round(n * 10) / 10;
     }
     jf.write(this.settingsFile, out);
     return this.settings();
@@ -191,8 +195,8 @@ class Access {
       this.calmAt = now;
     } else if (now - this.calmAt >= CALM_MS) {
       const up = this.step - 1;
-      const mine = this.meter.upKbps * STEPS[up] / STEPS[this.step];
-      const then = (mine + (this.other() || 0)) / (s.uploadMbps * 10);
+      const more = this.meter.upKbps * (STEPS[up] / STEPS[this.step] - 1);
+      const then = (this.net() + (this.other() || 0) + more) / (s.uploadCapMbps * 10);
       const line = up === 0 ? s.guest.upload : s.member.upload;
       if (then < line - 5 && !(up === 0 && waiting)) {
         this.step = up;
@@ -205,10 +209,11 @@ class Access {
   /* The frame rate that goes with the step videoKbps just chose. */
   videoFps(full) { return Math.max(5, Math.round(full * FPS_STEPS[this.step])); }
 
-  /* Upload as a share of the house line: this machine's, the relay's
-     (its browser), and what the run would add. */
+  /* Upload as a share of FieldKit's ceiling: what this machine sends to
+     the internet, what the relay does (RUNNER through it included), and
+     what the run would add. */
   upPct(extraKbps) {
-    return (this.meter.upKbps + (this.other() || 0) + (extraKbps || 0)) / (this.settings().uploadMbps * 10);
+    return (this.net() + (this.other() || 0) + (extraKbps || 0)) / (this.settings().uploadCapMbps * 10);
   }
 
   /* Would a run of this kind fit under this tier's line right now?
@@ -449,10 +454,10 @@ class Access {
   view(runningCount) {
     const s = this.settings();
     return {
-      meter: Object.assign({}, this.meter, { relayUpKbps: Math.round(this.other() || 0), upPct: Math.round(this.upPct(0) * 10) / 10,
+      meter: Object.assign({}, this.meter, { relayUpKbps: Math.round(this.other() || 0), netKbps: Math.round(this.net()), upPct: Math.round(this.upPct(0) * 10) / 10,
         relaySeenSec: this.otherAt() ? Math.max(0, Math.round((this.now() - this.otherAt()) / 1000)) : null,
         relayWaiting: this.otherWaiting() | 0, videoStep: this.step }),
-      settings: { guest: s.guest, member: s.member, uploadMbps: s.uploadMbps },
+      settings: { guest: s.guest, member: s.member, uploadCapMbps: s.uploadCapMbps },
       line: this.ordered().map((e) => Object.assign({ handle: e.tier === "guest" ? "a guest" : e.handle, tier: e.tier,
         away: !!e.gone, bumped: e.bumped }, this.place(e, runningCount ? runningCount(e.kind) : 1)))
     };

@@ -77,6 +77,9 @@
           var n = FieldKit.service("notices");
           if (n) n.togglePanel();
         } },
+      { title: "SHOW DESKTOP", icon: "▭", sub: "move every window out of the way; again brings them back (Ctrl+Shift+D)", run: function () {
+          if (shell && shell.showDesktop) shell.showDesktop();
+        } },
       { title: "CLOSE ALL WINDOWS", icon: "✕", sub: "clear the desktop", run: function () {
           if (!shell) return;
           shell.openWindows().slice().forEach(function (id) { shell.close(id); });

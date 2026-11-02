@@ -9,7 +9,7 @@
 (function (global) {
   "use strict";
 
-  var VERSION = "0.6.0";
+  var VERSION = "0.7.0";
   var SCHEMA_VERSION = 1;
 
   var modules = {};      // id -> module definition

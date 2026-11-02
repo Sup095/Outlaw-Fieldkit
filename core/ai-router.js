@@ -47,7 +47,7 @@
   async function availability() {
     var out = {
       server: { name: "SERVER MODEL", available: false, detail: "", models: [] },
-      1: { name: "RELAY / LM STUDIO", available: false, detail: "" },
+      1: { name: "RELAY'S MODEL SERVERS", available: false, detail: "" },
       2: { name: "IN-BROWSER MODEL", available: false, detail: "not built yet" },
       3: { name: "HEURISTIC", available: true, detail: "always available" }
     };

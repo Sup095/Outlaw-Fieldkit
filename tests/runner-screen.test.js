@@ -191,12 +191,12 @@ const frame = (k, body) => { const b = Buffer.from(body), h = Buffer.alloc(5); h
   {
     const A = app.access;
     A.sample = () => A.meter;
-    A.meter.upKbps = 18000;          /* 90% of 20 Mbit/s: past the members' line */
+    A.net = () => 11000;             /* 92% of the 12 Mbit/s ceiling: past the members' line */
     app._internals.tickAccess(false);
     await until(() => /"t":"rate","k":160/.test(said(alice, id)), 5000);
     ok("the running window is told its new bitrate (400 -> 160)", /got \{"t":"rate","k":160,/.test(said(alice, id)));
     ok("and a lower frame rate with it", /"t":"rate","k":160,"fps":15/.test(said(alice, id)), said(alice, id).slice(-200));
-    A.meter.upKbps = 0;              /* room to start one; the step holds for 30 s */
+    A.net = () => 0;                 /* room to start one; the step holds for 30 s */
     const up = await alice.put("g2.py", "print(2)");
     const had = runs().length;
     const j2 = await alice.run(up.file.id, [], { screen: true });

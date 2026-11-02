@@ -19,21 +19,8 @@
 
   var WALLPAPER_CAP = 1500000;   // ~1.5 MB as a data URL
 
-  var PRESETS = [
-    { id: "none", name: "NONE", css: null },
-    { id: "grid", name: "GRID", css:
-      "linear-gradient(rgba(255,255,255,.028) 1px, transparent 1px)," +
-      "linear-gradient(90deg, rgba(255,255,255,.028) 1px, transparent 1px)" },
-    { id: "deep", name: "DEEP FIELD", css:
-      "radial-gradient(ellipse at 20% 10%, rgba(var(--accent-glow),.13), transparent 55%)," +
-      "radial-gradient(ellipse at 80% 90%, rgba(40,70,90,.22), transparent 55%)" },
-    { id: "scan", name: "SCANLINES", css:
-      "repeating-linear-gradient(0deg, rgba(255,255,255,.03) 0 1px, transparent 1px 4px)" },
-    { id: "ember", name: "EMBER", css:
-      "radial-gradient(circle at 50% 120%, rgba(var(--accent-glow),.2), transparent 60%)" },
-    { id: "topo", name: "TOPO", css:
-      "repeating-radial-gradient(circle at 30% 40%, transparent 0 18px, rgba(255,255,255,.022) 18px 19px)" }
-  ];
+  /* The presets live in core/ui.js, so OUTPOST offers the same ones. */
+  var PRESETS = [];
 
   function applyWallpaper(value) {
     var shell = FieldKit.service("shell");
@@ -112,7 +99,8 @@
         el("span", { class: "sp-toggle-note", text: "everything inside windows, and the icons" })
       ]), size]),
       toggle("HIGHER CONTRAST", "contrast", "brighter text and lines on black", look),
-      toggle("LESS MOTION", "calm", "no animation or fading", look)
+      toggle("LESS MOTION", "calm", "no animation or fading", look),
+      toggle("24-HOUR CLOCK", "clock24", "off shows the time with AM and PM")
     ]);
   }
 
@@ -206,6 +194,7 @@
       });
 
       /* wallpaper */
+      PRESETS = ui.WALLPAPERS;
       nodes.walls = el("div", { class: "sp-walls" });
       var fileInput = el("input", { type: "file", accept: "image/*", style: { display: "none" },
         onchange: function (e) { handleUpload(e.target.files[0]); e.target.value = ""; } });

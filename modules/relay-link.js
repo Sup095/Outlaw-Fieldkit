@@ -211,6 +211,8 @@
       }
     }
 
+    if (cur) nodes.root.appendChild(rc().askToggle(ctx.settings));
+
     nodes.root.appendChild(el("div", { class: "rl-note" + (bad ? " bad" : ""), text: note ||
       "If the address in use does not answer at boot, the others are tried in turn." }));
   }

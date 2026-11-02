@@ -85,8 +85,13 @@
           ["Ctrl+/", "the keys, listed"],
           ["Ctrl+L", "screen lock, if a PIN is set"],
           ["Escape", "close a dialog, a folder or the window you are in"],
-          ["Ctrl+Shift+arrows", "left and right snap a window, up maximises, down minimises"]
+          ["Ctrl+Shift+arrows", "left and right snap a window, up maximises, down minimises"],
+          ["Ctrl+Shift+D", "show the desktop; press again for the windows back"],
+          ["right-click", "an app: open, pin, how it works. A window's button: snap, close"],
+          ["middle-click", "a window's button: close it"]
         ] },
+        { note: "On a touch screen, hold a finger on an app or a window's button for half a " +
+                "second instead of right-clicking." },
         { note: "Esc does nothing to a window while you are typing in a field, or using a " +
                 "page in BROWSER or a program in RUNNER. Those need it for themselves." },
         { h: "THE DESKTOP" },
@@ -95,6 +100,9 @@
         "starts a search. YOUR APPS, under it, are the ones you use most. That count stays " +
         "on this machine, not in the vault. ALL APPS are four folders: ONLINE, FILES, TOOLS " +
         "and SYSTEM.",
+        "To keep an app in YOUR APPS for good, right-click it and choose PIN TO YOUR APPS. " +
+        "Pinned apps come first, in the order you pinned them, and have a small mark in " +
+        "the corner. Up to eight.",
         { h: "THERE ARE THINGS TO FIND" },
         "They do nothing important and break nothing. One is a sequence most people " +
         "already know; the others are words you type on the desktop with nothing focused.",
@@ -113,6 +121,13 @@
         "title bar maximises it too. After a reload, the desktop offers to open again what " +
         "you had open; it does not do it by itself, because BROWSER and RUNNER each start " +
         "something on the server.",
+        "Each open window has a button in the taskbar. Right-click it to minimise, maximise, " +
+        "snap or close that window; the middle mouse button closes it. Ctrl+Shift+D, or " +
+        "SHOW DESKTOP in Ctrl+K, moves every window out of the way, and the same again " +
+        "brings them back.",
+        { h: "THE CLOCK" },
+        "Rest the pointer on the clock for the date. SETTINGS has a 24-HOUR CLOCK switch: " +
+        "off shows the time with AM and PM.",
         { h: "THE LINE AT THE TOP" },
         "If BROWSER or RUNNER is down, or an admin has something to say, a line appears at " +
         "the top for everyone. It goes away by itself when it stops being true, whether " +
@@ -148,7 +163,9 @@
         { h: "IF YOU ARE ASKED TO WAIT" },
         "There is one line for BROWSER and RUNNER, and it shows your place. Your turn " +
         "comes up by itself; you can leave it open in the background. Who gets in depends " +
-        "on what the server has free at that moment, and there is always room kept for admins.",
+        "on what the server has free at that moment, and there is always room kept for admins. " +
+        "The home internet is shared with other things, so FieldKit never sends more than a " +
+        "set amount; when it is busy, pictures get a little softer before anyone waits.",
         { h: "GAMES" },
         "Approved accounts run on the graphics card when it has room, so games are smooth. " +
         "A game the card cannot draw moves to the processor by itself, and you will see a " +
@@ -266,7 +283,8 @@
           ["TASK BOARD", "a to-do board for you and whoever shares the vault"]
         ] },
         "NOTES has a tag on each note, and the filter at the top shows one tag at a time. " +
-        "Every version of a note is kept. COPY takes the first code block.",
+        "Every version of a note is kept. COPY takes the first code block. DOWNLOAD saves the " +
+        "note as a .md file, and the line under it counts words, characters and lines.",
         { see: ["sharing", "recovery"] }
       ]
     },
@@ -313,7 +331,7 @@
         "One page that says whether everything is all right. It refreshes itself while it " +
         "is open, and only admins can see it.",
         { rows: [
-          ["SERVICES", "the relay, BROWSER and its helpers, RUNNER and updates"],
+          ["SERVICES", "the relay, BROWSER, RUNNER, updates, and the upload"],
           ["PEOPLE", "approve who is waiting, and end a browser session"],
           ["TELL EVERYONE", "a line at the top for everyone, for as long as you choose"],
           ["BLOCKING", "what was refused, reports of wrong blocks, and the allow list"],
@@ -407,7 +425,8 @@
           ["trustProxy", "whose X-Forwarded-For to believe — see below"],
           ["httpProxy", "set when Tailscale runs in userspace mode"],
           ["usageLog", "count requests and AI tiers, on by default"],
-          ["rateLimit", "windowMs, max, vaultMax, authFailMax, actionMax"]
+          ["rateLimit", "windowMs, max, vaultMax, authFailMax, actionMax"],
+          ["uploadCapMbps", "the most FieldKit sends, in Mbit/s; RUNNER's ADMIN can change it"]
         ] },
 
         { warn: "Leave trustProxy as false while the relay is directly internet-exposed. " +
@@ -431,6 +450,10 @@
         "Open RELAY LINK, enter the URL, press TEST. Or from anywhere:",
         { code: "curl https://your-relay/health" },
         "It should answer with JSON saying up: true.",
+        { h: "AT START" },
+        "Each start shows the address in use for a few seconds, so it can be changed " +
+        "before connecting. DON'T ASK AT START skips that from then on; RELAY LINK has " +
+        "the switch to bring it back.",
         { see: ["network", "provision"] }
       ]
     },
@@ -1292,6 +1315,16 @@
         return SECTIONS.length + " sections, all well formed";
       } },
 
+      { name: "EVERY APP'S HOW IT WORKS PAGE EXISTS", critical: false, run: async function () {
+        var ids = {};
+        SECTIONS.forEach(function (s) { ids[s.id] = true; });
+        var broken = Object.keys(APP_PAGE).filter(function (m) { return !ids[APP_PAGE[m]]; });
+        if (broken.length) throw new Error("no page for: " + broken.join(", "));
+        var mods = registered().filter(function (m) { return !APP_PAGE[m.id]; });
+        return Object.keys(APP_PAGE).length + " apps point at a page" +
+          (mods.length ? "; without one: " + mods.map(function (m) { return m.id; }).join(", ") : "");
+      } },
+
       { name: "EVERY CROSS-REFERENCE RESOLVES", critical: false, run: async function () {
         var ids = {};
         SECTIONS.forEach(function (s) { ids[s.id] = true; });
@@ -1416,6 +1449,36 @@
       } }
     ];
   }
+
+  /* Which page tells how each app works, for the HOW IT WORKS item on
+     an app's right-click menu. */
+  var APP_PAGE = {
+    "browser": "app-browser", "messages": "app-messages", "runner": "app-runner",
+    "ai-chat": "app-ask", "ai-local": "ai",
+    "vault-files": "app-files", "scratchpad": "app-files", "task-board": "app-files",
+    "qr-gen": "app-tools", "game-math": "app-tools", "topology": "app-tools",
+    "settings-panel": "app-system", "settings-outpost": "app-system", "updater": "app-system",
+    "relay-config": "app-system", "relay-link": "app-system", "link-doctor": "fixing",
+    "selftest-panel": "app-system", "backup-panel": "recovery", "bastion-status": "app-system",
+    "admin-center": "app-admin", "terminal": "app-terminal", "critter-ref": "scripting",
+    "help": "start"
+  };
+  FieldKit.provide("manual", {
+    pageFor: function (moduleId) {
+      var id = APP_PAGE[moduleId];
+      return id && SECTIONS.some(function (s) { return s.id === id; }) ? id : null;
+    },
+    /* Opens the manual on that page, or brings it forward and turns to it. */
+    open: function (pageId) {
+      if (!SECTIONS.some(function (s) { return s.id === pageId; })) return false;
+      current = pageId;
+      var shell = FieldKit.service("shell");
+      if (shell) shell.open("help");
+      if (nodes.body) show(pageId);
+      return true;
+    },
+    pages: function () { return Object.keys(APP_PAGE); }
+  });
 
   FieldKit.register("help", {
     group: "SYSTEM",
