@@ -235,7 +235,7 @@ function start(opts) {
     if (!c || typeof c.who !== "string" || !c.who || ["guest", "member", "admin"].indexOf(c.tier) < 0) return no();
     /* Said here too: the relay decides, this makes sure. */
     if (onCard && c.tier === "guest") return no();
-    browserRoute.serve(req, sock, head, c.who, c.tier, { linkBase: "/browser/via/" + (c.via | 0) + "/" }).catch((e) => {
+    browserRoute.serve(req, sock, head, c.who, c.tier, { linkBase: "/browser/via/" + (c.via | 0) + "/", trusted: c.trusted === true }).catch((e) => {
       log("WARN", "helper: stream failed — " + e.message);
       try { sock.destroy(); } catch (x) {}
     });

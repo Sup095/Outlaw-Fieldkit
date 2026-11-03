@@ -167,6 +167,8 @@
         "those who have it. FULL MODE is remembered; LIGHT MODE under ⋯ goes back.",
         "In FULL MODE, type an address or a search in the bar. Signed in to MESSAGES, it " +
         "remembers your sign-ins for a while.",
+        "FULL MODE keeps your session while you are away: a video goes on playing, and if " +
+        "the connection drops, BROWSER connects again by itself and carries on where it was.",
         "DATA SAVER under ⋯ lowers FULL MODE's video, to about a third. AUTO does it for YouTube " +
         "only; ON always; OFF never. It is remembered.",
         "A new tab shows your bookmarks and the sites you were last on. ↩TAB appears once " +
@@ -231,8 +233,8 @@
         "It is held in memory only, so it goes when you sign out or close the page. The " +
         "box at the top of a conversation finds words in it.",
         { rows: [
-          ["guest", "chat. BROWSER and RUNNER forget everything when you leave."],
-          ["member", "sign-ins and RUNNER files that stay, and the server's AI models"],
+          ["guest", "chat, and BROWSER's lighter mode"],
+          ["member", "the server's AI models; FULL MODE and RUNNER once an admin allows"],
           ["admin", "approves people under PEOPLE, and gets the TERMINAL"]
         ] },
         { warn: "There is no reset. Your password makes your key, so a forgotten password " +
@@ -248,6 +250,8 @@
         "Upload a program, press RUN, and it runs on the server. A console program shows " +
         "its text here. A window program or a Windows .exe shows its window here, and you " +
         "use it with your mouse and keyboard.",
+        "RUNNER uses the home internet, so it is for admins and the members an admin allows " +
+        "(PEOPLE, in ADMIN CENTER or MESSAGES).",
         { steps: [
           "Sign in to MESSAGES.",
           "Choose a file, or a .zip of a whole program.",
@@ -257,8 +261,7 @@
         "with the same arguments.",
         "A program runs in a sealed box: it cannot see the server's files, other people's " +
         "programs or your computer. It gets a limited share of the machine and a time limit.",
-        { note: "A guest's files go when they leave. A member's stay until nobody has " +
-                "run them for a while. Keep your own copy." },
+        { note: "Your files stay until nobody has run them for a while. Keep your own copy." },
         { see: ["limits"] }
       ]
     },
@@ -351,15 +354,15 @@
         "is open, and only admins can see it.",
         { rows: [
           ["SERVICES", "the relay, BROWSER and its lighter mode, RUNNER, updates, the upload"],
-          ["PEOPLE", "approve people, allow FULL MODE, end a browser session"],
+          ["PEOPLE", "approve people, allow FULL MODE and RUNNER, end a session"],
           ["TELL EVERYONE", "a line at the top for everyone, for as long as you choose"],
           ["BLOCKING", "what was refused, reports of wrong blocks, and the allow list"],
           ["WHAT DEVICES ALLOW", "the answers from /probe, a page anyone can open"],
           ["WHAT WENT WRONG LATELY", "warnings and errors since the relay started"]
         ] },
-        "FULL MODE (HOME BROWSER) under PEOPLE: ALLOW gives a member BROWSER's FULL MODE, which " +
-        "runs on the home machines and uses the home internet; TAKE AWAY leaves them the lighter " +
-        "mode. Admins always have it. " +
+        "FULL MODE AND RUNNER under PEOPLE: ALLOW gives a member BROWSER's FULL MODE and RUNNER, " +
+        "which run on the home machines and use the home internet; TAKE AWAY leaves them the " +
+        "lighter mode and no RUNNER. Admins always have both. " +
         "ALLOW on a blocked site takes effect for everyone at once, on every browser machine. COPY A REPORT " +
         "puts a summary on the clipboard for asking for help; no message or page address " +
         "is in it.",

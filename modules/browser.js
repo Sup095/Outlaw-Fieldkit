@@ -147,6 +147,10 @@
      and its stylesheet. */
   var TICKET_FRESH_MS = 20 * 60 * 1000;
 
+  /* A dropped stream connects again by itself this many times (about
+     ten minutes, at most 15 s apart) before the panel asks for ↻. */
+  var RETRY_MAX = 45;
+
   function relayBase() {
     /* Also asked before the panel is mounted (prewarm), when there is
        no ctx yet. */
@@ -1267,7 +1271,8 @@
     canvas.tabIndex = 0;
 
     live = { sock: null, ro: null, offKeys: null, offVis: null, drawing: false, queued: null,
-      video: false, dec: null, keyWait: true, ts: 0, zoom: 1, hidden: false, startUrl: startUrl || null };
+      video: false, dec: null, keyWait: true, ts: 0, zoom: 1, hidden: false, startUrl: startUrl || null,
+      retries: 0, ended: false };
 
     /* A minimised window or a hidden tab: tell the relay, which stops
        sending (and, if nobody else is looking, stops encoding). Shown
@@ -1428,8 +1433,20 @@
     (async function connect() {
       var t;
       try { t = await getStreamTicket(); }
-      catch (e) { stat.textContent = e.message; stat.className = "br-status bad"; return; }
-      if (!alive()) return;
+      catch (e) {
+        if (!alive() || !live) return;
+        /* Reconnecting and the network is still away: keep trying. A
+           refusal (403) is an answer, not a dropped line. */
+        if (live.retries && live.retries < RETRY_MAX && e.status !== 403 && e.status !== 401) {
+          var wait = Math.min(15000, 1000 * Math.pow(2, live.retries++));
+          stat.textContent = "still offline — trying again in " + Math.round(wait / 1000) + " s…";
+          stat.className = "br-status warn";
+          setTimeout(function () { if (alive() && live) connect(); }, wait);
+          return;
+        }
+        stat.textContent = e.message; stat.className = "br-status bad"; return;
+      }
+      if (!alive() || !live) return;
 
       var sock;
       try { sock = new WebSocket(wsUrlFor(t)); }
@@ -1471,6 +1488,7 @@
         } else if (m.t === "sound") {
           drawSound(!!m.on);
         } else if (m.t === "ready") {
+          live.retries = 0;
           live.soundHere = !!m.sound && canSound();
           soundBtn.style.display = live.soundHere ? "" : "none";
           drawSound(live.soundHere && soundPref());
@@ -1556,19 +1574,34 @@
           stat.textContent = "cookies forgotten";
           stat.className = "br-status ok";
         } else if (m.t === "gone") {
+          live.ended = true;
           stat.textContent = "session ended: " + (m.why || "");
           stat.className = "br-status warn";
         } else if (m.t === "error") {
+          live.ended = true;
           stat.textContent = m.why || "something went wrong";
           stat.className = "br-status bad";
         }
       };
 
+      /* A dropped connection (school Wi-Fi, a sleeping Chromebook) is
+         not the end: the session and its video carry on at the relay, so
+         the panel connects again by itself, waiting a little longer each
+         time. Only an ended session or a refusal stops it. */
       sock.onclose = function () {
-        if (!alive() || !live) return;
+        if (!alive() || !live || live.sock !== sock) return;
         if (live.moving) { live.moving = false; connect(); return; }
-        stat.textContent = "the stream closed — press ↻ to reconnect";
+        if (live.ended || live.retries >= RETRY_MAX) {
+          stat.textContent = live.ended ? stat.textContent : "the stream closed — press ↻ to reconnect";
+          stat.className = "br-status warn";
+          return;
+        }
+        var wait = Math.min(15000, 1000 * Math.pow(2, live.retries++));
+        stat.textContent = "connection lost — reconnecting in " + Math.round(wait / 1000) + " s…";
         stat.className = "br-status warn";
+        if (live.dec) { try { live.dec.close(); } catch (e) {} live.dec = null; }
+        live.video = false;
+        setTimeout(function () { if (alive() && live && live.sock === sock) connect(); }, wait);
       };
     })();
 

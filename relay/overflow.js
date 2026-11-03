@@ -266,12 +266,12 @@ class Overflow {
      ticket. Until the helper has said "101", nothing has been written
      to the panel, so a helper that cannot be reached or says no
      leaves fallback() to serve it here instead. */
-  pipe(h, req, sock, head, who, tier, count, fallback) {
+  pipe(h, req, sock, head, who, tier, count, fallback, trusted) {
     const lines = ["GET /browser/stream HTTP/1.1", "Host: " + h.host + ":" + h.port,
       "Upgrade: websocket", "Connection: Upgrade",
       "Sec-WebSocket-Key: " + String(req.headers["sec-websocket-key"] || ""),
       "Sec-WebSocket-Version: " + String(req.headers["sec-websocket-version"] || "13"),
-      "X-FieldKit-Pass: " + this.pass({ what: "stream", who: String(who), tier: tier, via: h.id })];
+      "X-FieldKit-Pass: " + this.pass({ what: "stream", who: String(who), tier: tier, trusted: !!trusted, via: h.id })];
     const up = net.connect({ host: h.host, port: h.port });
     let stage = "asking", counted = false, first = Buffer.alloc(0);
     const uncount = () => { if (counted) { counted = false; h.piped = Math.max(0, h.piped - 1); } };

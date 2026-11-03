@@ -869,13 +869,13 @@
         b.push(ui.button("APPROVE", function () { act(p.handle, "approve"); }));
       }
       if (p.tier === "member") {
-        /* The home browser (BROWSER's FULL MODE) uses the home
+        /* The home browser (BROWSER's FULL MODE) and RUNNER use the home
            connection: for admins, and the members allowed here. */
         b.push(p.home
-          ? ui.button("TAKE FULL MODE", function () { act(p.handle, "deny-home"); }, { danger: true })
-          : ui.button("ALLOW FULL MODE", function () {
-              act(p.handle, "allow-home", "Let " + p.handle + " use BROWSER's FULL MODE?\n\n" +
-                "It runs on the home machines and uses the home internet. They can sign in to sites there.");
+          ? ui.button("TAKE FULL MODE + RUNNER", function () { act(p.handle, "deny-home"); }, { danger: true })
+          : ui.button("ALLOW FULL MODE + RUNNER", function () {
+              act(p.handle, "allow-home", "Let " + p.handle + " use BROWSER's FULL MODE and RUNNER?\n\n" +
+                "They run on the home machines and use the home internet. They can sign in to sites there.");
             }));
         b.push(ui.button("MAKE ADMIN", function () {
           act(p.handle, "promote", "Make " + p.handle + " an admin?\n\n" +
@@ -912,7 +912,7 @@
           return (order[a.tier] - order[b.tier]) || a.handle.localeCompare(b.handle);
         }).forEach(function (p) {
           var tag = p.tier.toUpperCase() + (p.root ? " (CONFIG)" : "") +
-            (p.tier === "member" && p.home ? " + FULL MODE" : "") +
+            (p.tier === "member" && p.home ? " + FULL MODE, RUNNER" : "") +
             (p.banned ? "  BANNED" : "") + (p.handle === session.handle ? "  (YOU)" : "");
           box.appendChild(el("div", { class: "mg-report" }, [
             el("div", { class: "mg-conv-name", text: p.handle + "  [" + tag + "]" }),

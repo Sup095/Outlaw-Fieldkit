@@ -375,14 +375,20 @@ const NOISY = "setInterval(() => process.stdout.write('x'.repeat(1000)), 5);";
     ok("no account, no ticket", (await call("POST", "/runner/ticket")).status === 401);
     who = { banned: { until: null, reason: "x" } };
     ok("a banned account, no ticket", (await call("POST", "/runner/ticket")).status === 403);
-    who = { handle: "carol", tier: "guest", user: {} };
+    who = { handle: "dave", tier: "member", user: {}, home: false };
+    const no = await call("POST", "/runner/ticket");
+    ok("a member an admin has not allowed: no ticket, and told why",
+      no.status === 403 && no.body.homeOnly === true && /allowed/.test(no.body.error), JSON.stringify(no.body));
+    who = { handle: "dave", tier: "guest", user: {}, home: false };
+    ok("nor a guest", (await call("POST", "/runner/ticket")).status === 403);
+    who = { handle: "carol", tier: "member", user: { homeBrowser: 1 }, home: true };
     const t = await call("POST", "/runner/ticket");
-    ok("an account gets one, with where to take it", t.status === 201 && t.body.tier === "guest" &&
+    ok("an allowed member gets one, with where to take it", t.status === 201 && t.body.tier === "member" &&
       t.body.url === "http://127.0.0.1:" + port, JSON.stringify(t.body).slice(0, 80));
     const c = await connect(port, t.body.ticket);
     c.say({ t: "hello" });
     const r = await c.next("ready");
-    ok("and the run server takes it at its word", r.handle === "carol" && r.tier === "guest");
+    ok("and the run server takes it at its word", r.handle === "carol" && r.tier === "member");
     await c.close();
 
     /* RUNNER through the relay's own address: innerUrl is the run

@@ -143,11 +143,12 @@ function sweep() {
 }
 
 /* tier: guest, member or admin (the vault holder owns this relay, so
-   admin). It decides whether a new session may have to wait. */
-function issue(who, tier) {
+   admin). It decides whether a new session may have to wait. trusted:
+   allowed FULL MODE, so the session is kept (browser-engine.js). */
+function issue(who, tier, trusted) {
   sweep();
   const id = crypto.randomBytes(24).toString("hex");
-  tickets.set(id, { who, tier: tier || "admin", expires: Date.now() + TICKET_MS });
+  tickets.set(id, { who, tier: tier || "admin", trusted: !!trusted, expires: Date.now() + TICKET_MS });
   return id;
 }
 
@@ -298,7 +299,7 @@ async function route(req, res, url, helpers) {
     }
     /* The tier is said so the panel knows to offer admin things (USAGE);
        the relay checks it again on every one of them. */
-    send(res, 201, { ticket: issue(who, tier), expiresIn: TICKET_MS / 1000, tier: tier });
+    send(res, 201, { ticket: issue(who, tier, home), expiresIn: TICKET_MS / 1000, tier: tier });
     return true;
   }
 
@@ -347,7 +348,7 @@ async function upgrade(req, sock, head, url) {
   if (!cfg.enabled) { try { sock.destroy(); } catch (e) {} return; }
 
   const t = take(url.searchParams.get("t"));
-  const who = t ? t.who : null, tier = t ? t.tier : null;
+  const who = t ? t.who : null, tier = t ? t.tier : null, trusted = !!(t && t.trusted);
   if (!who) {
     try {
       sock.end("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
@@ -360,9 +361,9 @@ async function upgrade(req, sock, head, url) {
   const h = placeOf(String(who), tier);
   if (h) {
     return overflow.pipe(h, req, sock, head, who, tier, fair ? (n) => fair.count(n) : null,
-      () => serve(req, sock, head, who, tier, {}).catch(() => { try { sock.destroy(); } catch (e) {} }));
+      () => serve(req, sock, head, who, tier, { trusted }).catch(() => { try { sock.destroy(); } catch (e) {} }), trusted);
   }
-  return serve(req, sock, head, who, tier, {});
+  return serve(req, sock, head, who, tier, { trusted });
 }
 
 /* Which helper a new socket for this account goes to, or null for here
@@ -581,7 +582,7 @@ async function serve(req, sock, head, who, tier, opts) {
   }
 
   try {
-    session = await engine.sessionFor(who, { over: tier === "admin", tier: tier || "admin" });
+    session = await engine.sessionFor(who, { over: tier === "admin", tier: tier || "admin", trusted: !!opts.trusted });
   } catch (e) {
     tell({ t: "error", why: e.message });
     socket.close(1011, "no session");

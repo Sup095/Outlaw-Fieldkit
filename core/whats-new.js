@@ -10,6 +10,11 @@
   "use strict";
 
   var NOTES = [
+    { v: "0.10.1", items: [
+      "FULL MODE keeps going: a video no longer stops when nobody has looked for a while, and your session is not ended to make room for someone else.",
+      "If the connection drops, FULL MODE connects again by itself and carries on where it was.",
+      "RUNNER is now for admins and the members an admin allows, like FULL MODE. The ALLOW button under PEOPLE gives both."
+    ] },
     { v: "0.10.0", items: [
       "YouTube plays in BROWSER's lighter mode, in your own browser, without using the home internet.",
       "The lighter mode is not private: it says so at the top, and again if you click a password box. Do not sign in to anything there.",

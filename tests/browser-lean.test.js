@@ -153,6 +153,37 @@ function connectVia(port, target) {
     eng.stop();
   }
 
+  section("a trusted session (FULL MODE: admins and allowed members) is kept");
+  {
+    const eng = new Engine({ config: { enabled: true, freezeAfterSec: 1, idleMinutes: 1, maxSessions: 1, parkMinutes: 0 }, log: () => {} });
+    const { s, t1 } = mk(eng, { trusted: true });
+    s.lastSeen = Date.now() - 5000;
+    await eng._life(s);
+    ok("nobody watching for a few seconds: its video is not frozen", t1.life === "active");
+    s.lastSeen = Date.now() - 31 * 60000;
+    await eng._life(s);
+    ok("but after half an hour it is", t1.life === "frozen");
+
+    const ended = [];
+    eng.destroy = async (key, why) => { ended.push(key + " " + why); eng.sessions.delete(key); return true; };
+    const plain = mk(eng, { key: "p", lastSeen: Date.now() - 5 * 60000 }).s;
+    s.lastSeen = Date.now() - 24 * 3600000;
+    eng.ready = true;
+    eng.evictIdle();
+    ok("idle: an ordinary session ends, a trusted one does not, even after a day",
+      ended.length === 1 && /^p idle/.test(ended[0]) && eng.sessions.has("k"), ended.join(" | "));
+    void plain;
+
+    let err = null;
+    try { await eng.sessionFor("someone-else", { tier: "member" }); } catch (e) { err = e; }
+    ok("full: a trusted session is not ended to make room for another",
+      err && /every browser session is in use/.test(err.message) && eng.sessions.has("k") && ended.length === 1, err && err.message);
+    eng.cfg.trustedIdleMinutes = 60;
+    eng.evictIdle();
+    ok("trustedIdleMinutes, when set, does end it", !eng.sessions.has("k"));
+    eng.stop();
+  }
+
   section("how pages are drawn, and what happens when that fails");
   {
     const has = (...names) => (f) => names.includes(f);

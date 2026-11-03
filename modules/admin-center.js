@@ -168,11 +168,11 @@
         ]));
       });
     }
-    /* BROWSER's FULL MODE uses the home connection: admins have it, and
-       the members allowed here. Everyone else has the lighter mode. */
+    /* BROWSER's FULL MODE and RUNNER use the home connection: admins have
+       them, and the members allowed here. Everyone else has the lighter mode. */
     var members = people && people.people ? people.people.filter(function (p) { return p.tier === "member" && !p.banned; }) : [];
     if (members.length) {
-      kids.push(el("div", { class: "ac-sub", text: "FULL MODE (HOME BROWSER) FOR MEMBERS" }));
+      kids.push(el("div", { class: "ac-sub", text: "FULL MODE AND RUNNER FOR MEMBERS" }));
       members.slice(0, 40).forEach(function (p) {
         kids.push(el("div", { class: "ac-line" }, [
           el("span", { class: "n", text: p.handle + (p.home ? "  ·  allowed" : "  ·  lighter mode only") }),
@@ -181,8 +181,8 @@
                 act(function () { return api("POST", "/msg/role", { handle: p.handle, action: "deny-home" }); }, p.handle + ": LIGHTER MODE ONLY");
               }, { danger: true })
             : ui.button("ALLOW", function () {
-                if (!window.confirm("Let " + p.handle + " use BROWSER's FULL MODE? It runs on the home machines and uses the home internet.")) return;
-                act(function () { return api("POST", "/msg/role", { handle: p.handle, action: "allow-home" }); }, p.handle + ": FULL MODE ALLOWED");
+                if (!window.confirm("Let " + p.handle + " use BROWSER's FULL MODE and RUNNER? They run on the home machines and use the home internet.")) return;
+                act(function () { return api("POST", "/msg/role", { handle: p.handle, action: "allow-home" }); }, p.handle + ": FULL MODE AND RUNNER ALLOWED");
               })
         ]));
       });

@@ -366,7 +366,14 @@ const until = async (fn, ms) => { const end = Date.now() + (ms || 3000); while (
     ok("and when the relay closes that socket it connects again by itself", socks.length === 5);
     socks[4].onclose();
     await wait(10);
-    ok("an ordinary close still waits for ↻", socks.length === 5 && /press ↻ to reconnect/.test(text()));
+    ok("a dropped connection says it is reconnecting", socks.length === 5 && /reconnecting in 1 s/.test(text()), text().slice(0, 200));
+    await until(() => socks.length === 6, 3000);
+    ok("and connects again by itself", socks.length === 6);
+    await wait(30);
+    socks[5].say({ t: "gone", why: "idle" });
+    socks[5].onclose();
+    await wait(1200);
+    ok("an ended session does not", socks.length === 6 && /session ended: idle/.test(text()), socks.length + " " + text().slice(0, 300));
     def.unmount();
   }
 

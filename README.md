@@ -436,6 +436,17 @@ stays, as the fallback and for what lens cannot do.
 - *Next:* a cache for pages you open twice, which the test showed would
   roughly halve what a second visit costs.
 
+**Done in 0.10.1: FULL MODE that keeps going, and RUNNER for the same
+people.** Videos in FULL MODE stopped part way for some people: a session
+nobody had looked at for a while was frozen after two minutes and ended
+after fifteen, it could be closed to make room for someone else, and a
+dropped connection left the panel waiting for ↻. FULL MODE is only for
+trusted people now, so their sessions are kept: not frozen for half an hour,
+never ended for being idle or to make room, allowed more memory, and the
+panel connects again by itself. The house upload cap is unchanged. RUNNER
+also uses the home upload, so it now has FULL MODE's rule: admins and the
+members an admin allows, with one ALLOW button for both.
+
 **Done in 0.10.0: YouTube in the lighter mode, and the home browsers kept
 for those who need them.** YouTube refuses a rented server's address ("Sign
 in to confirm you're not a bot") and plays for a Cloudflare WARP one, so the

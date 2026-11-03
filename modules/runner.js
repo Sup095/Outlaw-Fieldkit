@@ -288,7 +288,7 @@
     try { t = await account().runnerTicket(); }
     catch (e) {
       if (!guard()) return;
-      phase = e && e.status === 503 ? "offline" : "lost";
+      phase = e && e.status === 503 ? "offline" : e && e.data && e.data.homeOnly ? "notallowed" : "lost";
       problem = (e && e.message) || "the relay would not issue a ticket";
       return render();
     }
@@ -884,6 +884,11 @@
           }, { primary: true }),
           ui.button("I HAVE SIGNED IN", function () { phase = "checking"; render(); refresh(guard); })
         ]));
+    }
+    if (phase === "notallowed") {
+      return void nodes.root.appendChild(notice("RUNNER IS FOR ALLOWED MEMBERS",
+        "RUNNER uses the home connection, so it is for admins and for members an admin has allowed. " +
+        "Ask an admin to allow you in MESSAGES (PEOPLE).", [again]));
     }
     if (phase === "lost" || !conn) {
       return void nodes.root.appendChild(notice("DISCONNECTED", problem,

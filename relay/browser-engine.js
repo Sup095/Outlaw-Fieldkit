@@ -111,6 +111,12 @@ const DEFAULTS = {
   sessionMemMB: 1800,           /* the least one session may reach; on a bigger machine, 60% of it (_watchdog) */
   memHighPct: 90,               /* the container this full: the largest session is ended */
   freezeAfterSec: 120,          /* nobody watching this long: its pages are frozen until someone is */
+  /* FULL MODE is only for admins and members an admin has allowed, so
+     their sessions are trusted: they are never ended to make room, a
+     dropped connection does not stop a video, and they may use more. */
+  trustedIdleMinutes: 0,        /* a trusted session nobody is watching ends after this; 0 = never */
+  trustedFreezeAfterSec: 1800,  /* and its page is frozen after this */
+  trustedMemPct: 85,            /* of the container, the most one trusted session may use */
   render: "auto",               /* how pages are drawn: auto, gpu, cpu or off (renderPlan) */
   renderThreads: 4,             /* processor threads drawing one page, without a graphics card */
   cores: 4,                     /* processors one Chromium sees: it starts threads by that count (see pids below) */
@@ -731,14 +737,19 @@ class Engine {
     this.lastUsed = Date.now();
     const key = String(who);
     const existing = this.sessions.get(key);
-    if (existing) { existing.lastSeen = Date.now(); return existing; }
+    if (existing) {
+      existing.lastSeen = Date.now();
+      if (opts && "trusted" in opts) existing.trusted = !!opts.trusted;
+      return existing;
+    }
 
     if (this.sessions.size >= this.cfg.maxSessions || this._pidsFull()) {
       /* Evict the coldest rather than refusing. Refusing means the
          newest person is the one who cannot browse, which is the
-         wrong way round — the idle session's owner is not looking. */
+         wrong way round — the idle session's owner is not looking.
+         Never a trusted one: its owner may be a moment from coming back. */
       const cold = [...this.sessions.values()]
-        .filter((s) => s.viewers.size === 0)
+        .filter((s) => s.viewers.size === 0 && !s.trusted)
         .sort((a, b) => a.lastSeen - b.lastSeen)[0];
       /* An admin is never refused: past the cap by one at a time. */
       if (!cold && !(opts && opts.over)) throw new Error("every browser session is in use — try again in a minute");
@@ -767,7 +778,7 @@ class Engine {
     }
     const tier = (opts && opts.tier) || "admin";
     const s = {
-      key, who, tier, browserContextId, page: null, active: null, tabs: [], creating: new Set(),
+      key, who, tier, trusted: !!(opts && opts.trusted), browserContextId, page: null, active: null, tabs: [], creating: new Set(),
       host: host, cdp: cdp, audio: null, audioFails: 0,
       viewers: new Set(),
       casting: false,
@@ -1300,7 +1311,8 @@ class Engine {
      listening to its sound. Like a phone does with background tabs. */
   async _life(s) {
     const now = Date.now();
-    const seen = s.viewers.size > 0 || now - (s.lastSeen || now) < this.cfg.freezeAfterSec * 1000 || !!s.audio;
+    const after = s.trusted ? this.cfg.trustedFreezeAfterSec : this.cfg.freezeAfterSec;
+    const seen = s.viewers.size > 0 || now - (s.lastSeen || now) < after * 1000 || !!s.audio;
     for (const tab of s.tabs || []) {
       const want = tab === s.active && seen ? "active" : "frozen";
       if (tab.life === want || !tab.page) continue;
@@ -1319,7 +1331,8 @@ class Engine {
     const box = containerMemory();
     /* As much as this machine can give: a game on a big machine is not
        ended for a number chosen for a small one. */
-    const limit = Math.max(this.cfg.sessionMemMB, box ? Math.round(box.max / 1048576 * 0.6) : 0);
+    const limitOf = (s) => Math.max(this.cfg.sessionMemMB,
+      box ? Math.round(box.max / 1048576 * (s.trusted ? this.cfg.trustedMemPct / 100 : 0.6)) : 0);
     let big = null;
     for (const s of [...this.sessions.values()]) {
       this._life(s).catch(() => {});
@@ -1328,6 +1341,7 @@ class Engine {
       const r = s.host.watch.read(s.host.proc.pid);
       if (!r) continue;
       s.memMb = r.memMb;
+      const limit = limitOf(s);
       if (r.memMb > limit) {
         this.log("WARN", "browser: " + s.who + "'s session used " + r.memMb + " MB, over the " + limit + " MB a session may; ended");
         await this.destroy(s.key, "this page needed " + r.memMb + " MB of memory, more than a session may use (" + limit + " MB). Open the browser again to start fresh.").catch(() => {});
@@ -1343,8 +1357,10 @@ class Engine {
       /* Never an admin's, which is what keeps room for them. Someone not
          looking goes before someone who is. */
       if (s.tier === "admin") continue;
+      /* A trusted one goes only after every other has, then the same way. */
       const idle = !s.viewers.size, wasIdle = big && !big.viewers.size;
-      if (!big || (idle && !wasIdle) || (idle === !!wasIdle && r.memMb > big.memMb)) big = s;
+      if (!big || (big.trusted && !s.trusted) ||
+          (!!big.trusted === !!s.trusted && ((idle && !wasIdle) || (idle === !!wasIdle && r.memMb > big.memMb)))) big = s;
     }
     const pids = containerPids();
     const memFull = box && box.used / box.max * 100 > this.cfg.memHighPct, pidsFull = pct(pids) > this.cfg.pidsEndPct;
@@ -1613,9 +1629,10 @@ class Engine {
       if (s.chooser && now - s.chooser.at > 10 * 60000) s.chooser = null;
     }
     const cutoff = Date.now() - this.cfg.idleMinutes * 60000;
+    const trustedCutoff = this.cfg.trustedIdleMinutes > 0 ? Date.now() - this.cfg.trustedIdleMinutes * 60000 : -Infinity;
     for (const s of [...this.sessions.values()]) {
       if (s.lastSeen > this.lastUsed) this.lastUsed = s.lastSeen;
-      if (s.viewers.size === 0 && s.lastSeen < cutoff) {
+      if (s.viewers.size === 0 && s.lastSeen < (s.trusted ? trustedCutoff : cutoff)) {
         this.destroy(s.key, "idle").catch(() => {});
         this.log("INFO", "browser: evicted idle session for " + s.who);
       }

@@ -224,6 +224,13 @@ async function route(req, res, url, helpers) {
       send(res, 403, { error: "this account cannot use RUNNER while it is banned", banned: me.banned });
       return true;
     }
+    /* RUNNER spends the home upload, like FULL MODE, so it has the same
+       rule: admins, and members an admin has allowed (messaging.homeOk). */
+    if (!me.home) {
+      send(res, 403, { error: "RUNNER is for admins and members an admin has allowed",
+        detail: "ask an admin to allow you (MESSAGES, PEOPLE: ALLOW FULL MODE AND RUNNER)", homeOnly: true });
+      return true;
+    }
     const st = await status();
     if (!st.online || !st.ready) {
       send(res, 503, { error: st.why || "the run server is offline", offline: true });
