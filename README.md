@@ -112,8 +112,13 @@ accounts wait for a moderator's approval. Tiers: guest, member, admin.
 [lens](lens/README.md) server set up) runs each page in your own browser through
 [Scramjet](https://github.com/MercuryWorkshop/scramjet), and only its bytes pass
 through a small rented server that applies the same block lists. A page costs
-what it weighs. YouTube, which will not play for a rented server, and anything
-you sign in to go to the **full mode**: a real Chromium running on the relay, streamed to the panel as
+what it weighs. YouTube plays there too (0.10.0): it refuses a rented
+server's own address, so its connections leave through Cloudflare WARP, or
+through proxy addresses you buy. Every site in the lighter mode shares one
+server, so it says plainly, and again at any password box, not to sign in to
+anything there. The **full mode**, for signing in and for what the lighter
+mode cannot run, is for admins and for members an admin allows (ADMIN CENTER,
+PEOPLE): a real Chromium running on the relay, streamed to the panel as
 H.264 video and decoded in hardware with WebCodecs, falling back to pictures
 when video is not available. It has:
 - tabs, back/forward, find, zoom, and copy and paste both ways;
@@ -127,11 +132,8 @@ when video is not available. It has:
   refresh themselves, with a DNS filter behind them set by the relay's owner;
 - a warm start: pointing at its tile starts it before you click.
 
-Guests get a throwaway session; members' sign-ins can be kept for a while.
-With a rented server of 4 GB or more (0.9.0), the full mode runs there and the
-panel connects to it directly, so its video does not use the home connection.
-YouTube, which refuses rented servers, still runs at home, with DATA SAVER
-lowering its video.
+Members' sign-ins in the full mode can be kept for a while. DATA SAVER lowers
+its video for YouTube by itself.
 
 **RUNNER.** Upload a program (Python, JavaScript, shell, Linux binaries,
 Windows `.exe` through Wine, or a `.zip` of a whole folder) and it runs in a
@@ -292,7 +294,7 @@ Everything after the relay is optional, and each step works without the next.
 | 4. Streamed browser | BROWSER | the Docker image, [`relay/BROWSER.md`](relay/BROWSER.md) |
 | 5. Run server | RUNNER, on a second Linux machine | `runnerd/setup.sh`, [below](#running-your-own-run-server-runner) |
 | 6. Small AI models | ASK for your members | `sh runnerd/tiny-ai.sh`, [below](#small-ai-models) |
-| Optional: a lens server | BROWSER's lighter mode, off your home connection; with 4 GB or more, the full mode too | a small rented Linux server, `lens/setup.sh`, [`lens/README.md`](lens/README.md) |
+| Optional: a lens server | BROWSER's lighter mode and YouTube, off your home connection | a small rented Linux server, `lens/setup.sh`, [`lens/README.md`](lens/README.md) |
 | Optional: a graphics card | smooth games in BROWSER | `sh runnerd/browser-card.sh`, [`relay/BROWSER.md`](relay/BROWSER.md#a-graphics-card) |
 | 7. A big AI model | ASK with your own PC | LM Studio and `aiTargets`, [`MODELS.md`](MODELS.md) |
 | 8. Accounts | who may use what | `messaging` in the config: `moderators`, `requireApproval` |
@@ -434,15 +436,17 @@ stays, as the fallback and for what lens cannot do.
 - *Next:* a cache for pages you open twice, which the test showed would
   roughly halve what a second visit costs.
 
-**Done in 0.9.0: the full mode off the home connection.** On a rented server
-with 4 GB or more, `lens/setup.sh` also runs the streamed browser, and the
-relay sends new sessions there. The panel connects to it directly with a pass
-the relay signs, so the home upload carries only the decision. The relay
-still decides who, which tier, the block lists and the line, and sends people
-home when the rented one is busy, down or out of its month. YouTube refuses
-rented addresses even in a real browser, so it stays home, where DATA SAVER
-(about 600 kbit/s instead of 1500) is on for it by itself. A network that
-cannot reach the rented server gets the home one.
+**Done in 0.10.0: YouTube in the lighter mode, and the home browsers kept
+for those who need them.** YouTube refuses a rented server's address ("Sign
+in to confirm you're not a bot") and plays for a Cloudflare WARP one, so the
+lens server runs WARP in a small container of its own and sends only
+YouTube's connections through it (`lens/egress.js`); bought proxy addresses
+can stand in or add to it. YouTube then plays in your own browser, with no
+streaming and nothing over the home connection. The full mode, which does
+use the home connection, is now for admins and the members an admin allows;
+everyone else has the lighter mode, which warns at every turn not to sign in
+there. (0.9.0's idea of a bigger rented server running the full mode was
+dropped: about four more browsers for $24 a month was not worth it.)
 
 **After that.**
 - Sound in BROWSER without one Chromium per session (it is the biggest memory
@@ -486,9 +490,14 @@ FieldKit is **source-available**, not open source. The
 - **You may** use it, run your own relay and run server for yourself and
   the people you choose, change it for your own use, use someone else's
   server, and fork it on GitHub to send pull requests.
-- **You may not** sell it or make money with it (no charging for it or for
-  access to a server running it, no ads), or publish copies of it anywhere
-  else: other repositories, mirrors, stores or download sites.
+- **You may** charge for a server you run with it (access fees,
+  subscriptions, donations, sponsors, ads around the service), to pay for
+  the servers and make a reasonable profit, as long as you say it is built
+  on Outlaw FieldKit and link here (license 1.1, section 2(f)).
+- **You may not** sell the software itself, charge for its code or
+  release files, put it or a rebranded copy into a product you sell, or
+  publish copies of it anywhere else: other repositories, mirrors, stores
+  or download sites.
 - Contributions you send are yours, and you allow them to be used in
   FieldKit under its license.
 - Parts that come from other projects, such as `vendor/web-llm.js`

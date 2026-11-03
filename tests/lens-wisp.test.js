@@ -56,7 +56,7 @@ const judge = {
   portOk: (p) => p !== 25,
   place(host) {
     placed.push(host);
-    if (host === "echo.test") return { ok: true, address: "127.0.0.1" };
+    if (host === "echo.test" || host === "www.yt.test") return { ok: true, address: "127.0.0.1" };
     if (host === "adult.test") return { ok: false, kind: "adult", why: "that site is for adults" };
     if (host === "ads.test") return { ok: false, kind: "ads", why: "an ad", quiet: true };
     if (host === "gone.test") return { ok: false, kind: "dns", why: "did not resolve" };
@@ -489,23 +489,112 @@ async function client(port, who) {
     ok("the pass leaves the address bar at once", /history\.replaceState\(null, "", location\.pathname\)/.test(js));
   }
 
-  section("full mode on the same machine");
+  section("egress: YouTube leaves by WARP or a bought address");
   {
-    const dir = path.join(__dirname, "..", "lens");
-    const caddy = fs.readFileSync(path.join(dir, "Caddyfile"), "utf8"), setup = fs.readFileSync(path.join(dir, "setup.sh"), "utf8");
+    const { Egress, hostMatches, parseProxy, ipv6Bytes } = require("../lens/egress");
+    const socks = require("../lens/warp/socks");
+    ok("the list matches a site and its subdomains, not look-alikes",
+      hostMatches("rr3---sn-abc.googlevideo.com", ["googlevideo.com"]) && hostMatches("youtube.com", ["youtube.com"]) &&
+      !hostMatches("notyoutube.com", ["youtube.com"]) && !hostMatches("youtube.com.evil.test", ["youtube.com"]));
+    const pp = parseProxy("socks5://u%40x:p%3Aw@203.0.113.7:1080");
+    ok("a proxy address keeps its login out of its name", pp && pp.user === "u@x" && pp.pass === "p:w" && pp.name === "socks5://203.0.113.7:1080");
+    ok("only socks5:// and http:// with a port", !parseProxy("https://x:1") && !parseProxy("socks5://x") && !parseProxy("nonsense"));
+    ok("IPv6 addresses are packed for SOCKS", ipv6Bytes("2001:db8::1").toString("hex") === "20010db8000000000000000000000001");
+    ok("the WARP door refuses anything inside", socks.privateAddress("10.1.2.3") && socks.privateAddress("127.0.0.1") &&
+      socks.privateAddress("169.254.169.254") && socks.privateAddress("192.168.0.1") && socks.privateAddress("100.64.0.9") &&
+      socks.privateAddress("::1") && socks.privateAddress("fd00::1") && !socks.privateAddress("142.250.1.1") && !socks.privateAddress("2607:f8b0::1"));
+
+    /* The real WARP door (warp/socks.js), told to allow loopback so the
+       echo site can stand in for YouTube. */
+    let viaDoor = 0;
+    const door = socks.createServer({ allowLocal: true });
+    door.on("connection", () => viaDoor++);
+    await new Promise((r) => door.listen(0, "127.0.0.1", r));
+    const strict = socks.createServer();
+    await new Promise((r) => strict.listen(0, "127.0.0.1", r));
+    /* A bought-style proxy: HTTP CONNECT with a login. */
+    let viaHttp = 0, sawAuth = "";
+    const hp = net.createServer((c) => {
+      viaHttp++;
+      c.once("data", (d) => {
+        const head = String(d);
+        sawAuth = (/Proxy-Authorization: Basic (\S+)/.exec(head) || [])[1] || "";
+        const m = /^CONNECT ([\d.]+):(\d+)/.exec(head);
+        if (!m || Buffer.from(sawAuth, "base64").toString() !== "ana:secret") return c.end("HTTP/1.1 407 Proxy Authentication Required\r\n\r\n");
+        const up = net.connect({ host: m[1], port: Number(m[2]) }, () => { c.write("HTTP/1.1 200 Connection established\r\n\r\n"); c.pipe(up); up.pipe(c); });
+        up.on("error", () => c.destroy());
+      });
+      c.on("error", () => {});
+    });
+    await new Promise((r) => hp.listen(0, "127.0.0.1", r));
+    const DOOR = door.address().port, HP = hp.address().port, STRICT = strict.address().port;
+    const dead = await new Promise((r) => { const s = net.createServer(); s.listen(0, "127.0.0.1", () => { const p = s.address().port; s.close(() => r(p)); }); });
+
+    const roundTrip = async (egress, who, host) => {
+      const S = await start({ egress });
+      const k = await client(S.port, who);
+      k.connect(1, host, ECHO);
+      k.data(1, "ping");
+      await k.want((p) => p.type === W.T.DATA && p.id === 1, 4000);
+      const said = k.dataOf(1).toString();
+      k.c.close();
+      S.httpServer.close();
+      return { said, stats: S.server.stats };
+    };
+
+    const e1 = new Egress({ hosts: ["yt.test"], proxies: ["socks5://127.0.0.1:" + DOOR] });
+    let r = await roundTrip(e1, "ana", "www.yt.test");
+    ok("a listed site goes through the WARP door, and works", r.said === "ping" && viaDoor === 1 && r.stats.viaProxy === 1, JSON.stringify(r));
+    r = await roundTrip(e1, "ana", "echo.test");
+    ok("…any other site does not", r.said === "ping" && viaDoor === 1 && r.stats.viaProxy === 0);
+
+    const e2 = new Egress({ hosts: ["yt.test"], proxies: ["http://ana:secret@127.0.0.1:" + HP] });
+    r = await roundTrip(e2, "bo", "www.yt.test");
+    ok("a bought address over HTTP CONNECT, with its login", r.said === "ping" && viaHttp === 1 && r.stats.viaProxy === 1);
+    const e3 = new Egress({ hosts: ["yt.test"], proxies: ["http://ana:wrong@127.0.0.1:" + HP] });
+    r = await roundTrip(e3, "bo", "www.yt.test");
+    ok("a refused login rests that proxy and the site still opens directly", r.said === "ping" && r.stats.proxyMissed === 1 && !e3.usable());
+
+    const e4 = new Egress({ hosts: ["yt.test"], proxies: ["socks5://127.0.0.1:" + dead, "socks5://127.0.0.1:" + DOOR] });
+    const before = viaDoor;
+    r = await roundTrip(e4, "cy", "www.yt.test");
+    const firstWas = e4.order("cy")[0];
+    ok("a proxy that is down is passed over for the next", r.said === "ping" && viaDoor === before + 1 && e4.usable());
+    ok("…and is tried last until its minute is up", firstWas.name === "socks5://127.0.0.1:" + DOOR);
+
+    const e5 = new Egress({ hosts: ["yt.test"], proxies: ["socks5://127.0.0.1:" + STRICT] });
+    r = await roundTrip(e5, "dee", "www.yt.test");
+    ok("the real WARP door will not open an address inside (lens then goes direct)", r.said === "ping" && r.stats.proxyMissed === 1);
+
+    const many = new Egress({ proxies: ["socks5://198.51.100.1:1", "socks5://198.51.100.2:1", "socks5://198.51.100.3:1"] });
+    ok("one person keeps one address (a video is tied to the address that asked)",
+      many.order("ana")[0] === many.order("ana")[0] && ["a", "b", "c", "d", "e", "f", "g", "h"].map((w) => many.order(w)[0].name).filter((v, i, a) => a.indexOf(v) === i).length > 1);
+    ok("with no list given, it is YouTube's hosts", many.wants("www.youtube.com") && many.wants("rr1---sn-x.googlevideo.com") && !many.wants("www.google.com"));
+    ok("no proxies: nothing is sent anywhere else", !new Egress({ proxies: [] }).wants("www.youtube.com"));
+
+    door.close(); strict.close(); hp.close();
+  }
+
+  section("the lens page: YouTube here when it can, and the sign-in warning");
+  {
+    const js = fs.readFileSync(path.join(__dirname, "..", "lens", "client", "lens.js"), "utf8");
+    const page = fs.readFileSync(path.join(__dirname, "..", "lens", "client", "index.html"), "utf8");
+    const srv = fs.readFileSync(path.join(__dirname, "..", "lens", "server.js"), "utf8");
+    ok("the server says whether YouTube can play here", /youtube: !!\(egress && egress\.usable\(\)\)/.test(srv));
+    ok("…and the page plays it here when so, handing it over only when not", /youtubeHere = !!\(st && st\.youtube\)/.test(js) && /if \(youtubeHere \|\| !HANDOFF/.test(js));
+    ok("the bar always says not to sign in", /id="warn"[^>]*>⚠ Not private: do not sign in/.test(page));
+    ok("…and a password box says it again, loudly", /String\(t\.type\)\.toLowerCase\(\) !== "password"/.test(js) && /STOP: do not type a password here/.test(js));
+    const setup = fs.readFileSync(path.join(__dirname, "..", "lens", "setup.sh"), "utf8");
+    ok("setup runs WARP in a container of its own, its door on loopback only",
+      /docker run -d --name fk-warp/.test(setup) && /-p 127\.0\.0\.1:1080:1080/.test(setup) && /--cap-drop ALL --cap-add NET_ADMIN/.test(setup));
+    ok("…and writes the egress file once, never over one with bought addresses", /if \[ ! -f "\$ETC\/egress\.json" \]/.test(setup) && /chmod 600 "\$ETC\/egress\.json"/.test(setup));
+    ok("…and takes 0.9.0's full mode off this machine", /docker rm -f fk-full/.test(setup) && !/fk-full --restart/.test(setup));
+    const start = fs.readFileSync(path.join(__dirname, "..", "lens", "warp", "start.sh"), "utf8");
+    ok("the WARP container runs nothing fetched from elsewhere, and drops to an ordinary user",
+      /exec setpriv --reuid=node/.test(start) && !/github\.com|wgcf/.test(start) &&
+      !/curl[^\n]*\| *(sh|bash)/.test(start + fs.readFileSync(path.join(__dirname, "..", "lens", "warp", "Dockerfile"), "utf8")));
     const deploy = fs.readFileSync(path.join(__dirname, "..", "tools", "make-deploy.js"), "utf8");
-    ok("Caddy sends the browser's paths to full mode, the rest to lens",
-      /@full path \/browser\/\* \/helper\/\*/.test(caddy) && /handle @full \{[^}]*127\.0\.0\.1:8090/.test(caddy) && /handle \{[^}]*127\.0\.0\.1:8080/.test(caddy));
-    ok("full mode runs only on the 4 GB plan or larger, and is taken away below it",
-      /"\$MEM_MB" -ge 3500/.test(setup) && /docker rm -f fk-full[^\n]*\n\s*echo "full mode: off/.test(setup));
-    ok("…listening on this machine only, behind Caddy", /-p 127\.0\.0\.1:8090:8080/.test(setup) && !/-p 8090|--network host[^\n]*fk-full/.test(setup));
-    ok("…read-only, without privileges, its memory capped", /--read-only --user 999:999 --cap-drop ALL --security-opt no-new-privileges/.test(setup) &&
-      /--memory "\$\{FULL_MB\}m"/.test(setup));
-    ok("…at this server's own name", setup.includes('\\"publicUrl\\": \\"https://$HOST\\"'));
-    ok("the month's ceiling rises to 6 TB only on the bigger plan, and only from the old default",
-      /-ge 3500 \] && grep -q '"capBytes": 1700000000000'/.test(setup) && /"capBytes": 6000000000000/.test(setup));
-    ok("the deploy puts the relay's image in lens/full, with a cloud helper's config", /copyDir\(b1, path\.join\(lensOut, "full"\)\)/.test(deploy) &&
-      /cloudCfg\.helper\.publicUrl = "https:\/\/"/.test(deploy));
+    ok("the deploy carries egress and the WARP container", /"lens\/egress\.js"/.test(deploy) && /"lens\/warp\/start\.sh"/.test(deploy) && /"lens\/warp\/socks\.js"/.test(deploy));
   }
 
   section("a client that sends first");

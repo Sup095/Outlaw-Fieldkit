@@ -222,6 +222,21 @@ const tagOf = (au) => au.readUInt32BE(au.length - 4);
         clientIp: () => "127.0.0.1", authorise: () => "u-admin", tierOf: () => tier });
       return out;
     };
+    /* FULL MODE is for admins and allowed members (messaging homeOk). */
+    const asks = async (what, home) => {
+      let out = null;
+      await route.route({ method: "POST", headers: {} }, {}, new URL("http://x/browser/" + what), {
+        send: (res, code, body) => { out = { code, body }; }, readBody: async () => null,
+        clientIp: () => "127.0.0.1", authorise: () => "msg:fay", tierOf: () => "member", homeOf: () => home });
+      return out;
+    };
+    const refused = await asks("ticket", false);
+    ok("a member without FULL MODE gets no ticket, and is told it is the lighter mode for them",
+      refused.code === 403 && refused.body.lightOnly === true && /admins and members an admin has allowed/.test(refused.body.error));
+    const let_in = await asks("ticket", true);
+    ok("…an allowed one is not refused for it", let_in.code !== 403 && !let_in.body.lightOnly, JSON.stringify(let_in));
+    ok("the panel is told with the lens offer", (await asks("lens", false)).body.home === false && (await asks("lens", true)).body.home === true);
+
     const no = await usage("member");
     ok("USAGE is refused to anyone but an admin", no.code === 403 && /admins only/.test(no.body.error));
     const yes = await usage("admin");

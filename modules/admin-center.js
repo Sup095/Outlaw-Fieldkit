@@ -20,7 +20,6 @@
   var data = null, people = null, problem = null, timer = null;
   var said = "";            /* the announcement being written; it survives a refresh */
   var lensDraft = null;     /* the lens address being typed, likewise */
-  var cloudDraft = null;    /* and the rented full mode's */
   var REFRESH_MS = 15000;
 
   function api(method, path, body) {
@@ -109,7 +108,7 @@
     (b.helpers || []).forEach(function (h) {
       kids.push(row(h.name.toUpperCase() + (h.gpu ? " (CARD)" : ""), h.up ? h.sessions + " sessions, room for " + h.free : "not answering", h.up ? "" : "bad"));
     });
-    if (b.enabled) kids = kids.concat(lensRows(b.lens), cloudRows(b));
+    if (b.enabled) kids = kids.concat(lensRows(b.lens));
     var r = d.runner;
     kids.push(row("RUNNER", !r || !r.enabled ? "switched off" : (r.online ? (r.jobs || 0) + " running, " + (r.sessions || 0) + " connected" : (r.why || "offline")), r && r.enabled && !r.online ? "bad" : ""));
     var u = d.updates;
@@ -150,33 +149,6 @@
     return kids;
   }
 
-  /* FULL MODE on a rented server (a cloud helper): panels connect to it
-     directly, so its pictures skip the home connection. POST /admin/cloud. */
-  function cloudRows(b) {
-    var kids = [];
-    var where = (b.cloud || [])[0] || "";
-    var h = (b.helpers || []).filter(function (x) { return x.cloud; })[0];
-    kids.push(row("FULL MODE, RENTED", !where ? "not set up: full mode runs at home"
-      : h && h.up ? h.sessions + " sessions, room for " + h.free + "  ·  YouTube still runs at home"
-      : "not answering (sessions run at home meanwhile)", where && !(h && h.up) ? "warn" : ""));
-    var addr = el("input", { class: "ac-in", type: "text", placeholder: "its address, such as https://lens.example.com", spellcheck: "false" });
-    addr.value = cloudDraft === null ? where : cloudDraft;
-    addr.addEventListener("input", function () { cloudDraft = addr.value; });
-    kids.push(el("div", { class: "ac-line" }, [addr,
-      ui.button("SAVE", function () {
-        var u = addr.value.trim();
-        cloudDraft = null;
-        if (u) act(function () { return api("POST", "/admin/cloud", { url: u }); }, "RENTED FULL MODE SET");
-      }),
-      where ? ui.button("TURN IT OFF", function () {
-        if (!window.confirm("Stop sending new full-mode sessions to the rented server? They will run at home.")) return;
-        cloudDraft = null;
-        act(function () { return api("POST", "/admin/cloud", { url: "" }); }, "RENTED FULL MODE OFF");
-      }) : null
-    ].filter(Boolean)));
-    return kids;
-  }
-
   function peopleBox(d) {
     var c = d.people;
     if (!c) return box("PEOPLE", [el("div", { class: "ac-none", text: "Accounts are switched off on this relay." })]);
@@ -193,6 +165,25 @@
           ui.button("APPROVE", function () {
             act(function () { return api("POST", "/msg/role", { handle: p.handle, action: "approve" }); }, p.handle + " APPROVED");
           })
+        ]));
+      });
+    }
+    /* BROWSER's FULL MODE uses the home connection: admins have it, and
+       the members allowed here. Everyone else has the lighter mode. */
+    var members = people && people.people ? people.people.filter(function (p) { return p.tier === "member" && !p.banned; }) : [];
+    if (members.length) {
+      kids.push(el("div", { class: "ac-sub", text: "FULL MODE (HOME BROWSER) FOR MEMBERS" }));
+      members.slice(0, 40).forEach(function (p) {
+        kids.push(el("div", { class: "ac-line" }, [
+          el("span", { class: "n", text: p.handle + (p.home ? "  ·  allowed" : "  ·  lighter mode only") }),
+          p.home
+            ? ui.button("TAKE AWAY", function () {
+                act(function () { return api("POST", "/msg/role", { handle: p.handle, action: "deny-home" }); }, p.handle + ": LIGHTER MODE ONLY");
+              }, { danger: true })
+            : ui.button("ALLOW", function () {
+                if (!window.confirm("Let " + p.handle + " use BROWSER's FULL MODE? It runs on the home machines and uses the home internet.")) return;
+                act(function () { return api("POST", "/msg/role", { handle: p.handle, action: "allow-home" }); }, p.handle + ": FULL MODE ALLOWED");
+              })
         ]));
       });
     }

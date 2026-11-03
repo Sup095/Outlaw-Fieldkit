@@ -198,28 +198,48 @@ class Session {
   _dial(s, address) {
     const server = this.server;
     server.stats.opened++;
-    const tcp = net.connect({ host: address, port: s.port });
+    /* Sites that refuse this server's address (YouTube) leave through
+       an upstream proxy (egress.js); if every proxy fails, direct. */
+    const egress = server.egress;
+    if (egress && egress.wants(s.host)) {
+      egress.open(this.who, address, s.port, (err, tcp, rest) => {
+        if (!s.open) { if (tcp) { try { tcp.destroy(); } catch (e) {} } return; }
+        if (err) { server.stats.proxyMissed++; return this._wire(s, net.connect({ host: address, port: s.port }), false); }
+        server.stats.viaProxy++;
+        this._wire(s, tcp, true, rest);
+      });
+      return;
+    }
+    this._wire(s, net.connect({ host: address, port: s.port }), false);
+  }
+
+  /* A TCP connection to the site, or a tunnel to it already open. */
+  _wire(s, tcp, open, rest) {
+    const server = this.server;
     s.tcp = tcp;
     if (this.paused) tcp.pause();
     let ready = false;
-    const late = setTimeout(() => this._close(s, WHY.TIMEOUT), server.connectMs);
-    if (late.unref) late.unref();
+    const late = open ? null : setTimeout(() => this._close(s, WHY.TIMEOUT), server.connectMs);
+    if (late && late.unref) late.unref();
 
-    tcp.on("connect", () => {
+    const onReady = () => {
       ready = true;
       clearTimeout(late);
       try { tcp.setNoDelay(true); } catch (e) {}
       tcp.setTimeout(server.idleMs, () => this._close(s, WHY.DATA_TIMEOUT));
       for (const b of s.queue) tcp.write(b);
       s.queue = [];
-    });
-    tcp.on("data", (chunk) => {
+    };
+    const onData = (chunk) => {
       if (!s.open) return;
       this.down += chunk.length;
       server.stats.bytesDown += chunk.length;
       if (server.meter) server.meter.add(this.who, chunk.length + 5);
       this._send(packet(T.DATA, s.id, chunk));
-    });
+    };
+    if (open) onReady(); else tcp.on("connect", onReady);
+    tcp.on("data", onData);
+    if (rest) onData(rest);
     tcp.on("end", () => this._close(s, WHY.VOLUNTARY));
     tcp.on("error", (e) => this._close(s, ready ? WHY.NETWORK : whyFromError(e)));
     tcp.on("close", () => { clearTimeout(late); this._close(s, ready ? WHY.VOLUNTARY : WHY.UNREACHABLE); });
@@ -294,6 +314,7 @@ class WispServer {
        judge   { place(host) -> {ok, address, kind, why, quiet}, portOk(port) }
                — a relay/guard.js Guard (ports: "browser"), required.
        meter   lens/meter.js Meter, optional.
+       egress  lens/egress.js Egress, optional: sites that leave by a proxy.
        buffer  DATA packets a stream may send before waiting (128).
        maxStreams     per WebSocket (128): a page opens dozens at once.
        maxPerWho      WebSockets one person may hold (4: a few tabs).
@@ -307,6 +328,7 @@ class WispServer {
     if (!opts.judge || typeof opts.judge.place !== "function") throw new Error("lens wisp: a judge (guard) is required");
     this.judge = opts.judge;
     this.meter = opts.meter || null;
+    this.egress = opts.egress || null;
     this.log = opts.log || (() => {});
     this.buffer = opts.buffer || 128;
     this.maxStreams = opts.maxStreams || 128;
@@ -316,7 +338,8 @@ class WispServer {
     this.highWater = opts.highWater || 1024 * 1024;
     this.maxPayload = opts.maxPayload || 1024 * 1024;
     this.sessions = new Set();
-    this.stats = { sessions: 0, opened: 0, blocked: 0, throttled: 0, invalid: 0, unreachable: 0, pauses: 0, bytesUp: 0, bytesDown: 0 };
+    this.stats = { sessions: 0, opened: 0, blocked: 0, throttled: 0, invalid: 0, unreachable: 0, pauses: 0, bytesUp: 0, bytesDown: 0,
+      viaProxy: 0, proxyMissed: 0 };
     /* who -> the last site refused for them (never ads: a page asks for
        dozens), so their page can say why a site did not open. In memory,
        a few seconds' worth, and only ever handed back to that person. */

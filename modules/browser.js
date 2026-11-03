@@ -539,22 +539,17 @@
     var store = FieldKit.service("store");
     if (relay && typeof relay.streamTicket === "function" &&
         store && store.isUnlocked && store.isUnlocked()) {
-      sources.push({ what: "the vault", get: function (prefer) { return relay.streamTicket(prefer); } });
+      sources.push({ what: "the vault", get: function () { return relay.streamTicket(); } });
     }
     var msg = FieldKit.service("messages");
     if (msg && typeof msg.streamTicket === "function" && msg.signedIn && msg.signedIn()) {
-      sources.push({ what: "your MESSAGES account", get: function (prefer) { return msg.streamTicket(prefer); } });
+      sources.push({ what: "your MESSAGES account", get: function () { return msg.streamTicket(); } });
     }
     return sources;
   }
 
-  /* The relay's answer: { ticket, where, stream? }. `stream` is a cloud
-     helper's own address (SIMPLIFY_PLAN.md §14), with its pass in it:
-     the panel connects there, and the pictures skip the home connection.
-     prefer "home": YouTube, which refuses rented servers' addresses. */
-  async function getStreamTicket(fresh, prefer) {
-    if (!fresh && warm.ticket && Date.now() - warm.ticketAt < WARM_TICKET_MS &&
-        !(prefer === "home" && warm.ticket.where === "cloud")) {
+  async function getStreamTicket(fresh) {
+    if (!fresh && warm.ticket && Date.now() - warm.ticketAt < WARM_TICKET_MS) {
       var t = warm.ticket;
       warm.ticket = null;            /* it works once */
       if (warm.tier) liveTier = warm.tier;
@@ -567,8 +562,8 @@
     var last = null;
     for (var i = 0; i < sources.length; i++) {
       try {
-        var d = await sources[i].get(prefer);
-        if (d && d.ticket) { liveTier = d.tier || null; showAdmin(); return d; }
+        var d = await sources[i].get();
+        if (d && d.ticket) { liveTier = d.tier || null; showAdmin(); return d.ticket; }
         throw new Error("the relay returned no ticket");
       } catch (e) { last = e; }
     }
@@ -598,29 +593,25 @@
     for (var i = 0; i < sources.length; i++) {
       try {
         var o = await sources[i]();
-        if (o && o.mode) return o;
+        if (o && o.mode) { homeAllowed = o.home !== false; return o; }
       } catch (e) { /* an older relay, or the other credential */ }
     }
     return null;
   }
-  function useLens() { return !!(lens && lens.mode === "lens" && lens.pass && lens.page && modePref() === "light"); }
+  /* The home browsers (FULL MODE, and the old proxy) cost the home
+     connection, so the relay keeps them for admins and members an admin
+     has allowed; it says which with the lens offer (home). Everyone
+     else has the lighter mode only, whatever FULL MODE was remembered. */
+  var homeAllowed = true;
+  var NO_HOME = "FULL MODE is for admins and members an admin has allowed; ask an admin if you need it.";
+  function fullOk() { return liveReady && homeAllowed; }
+  function useLens() { return !!(lens && lens.mode === "lens" && lens.pass && lens.page && (modePref() === "light" || !homeAllowed)); }
 
   function wsUrlFor(t) {
-    if (t && typeof t.stream === "string" && /^wss:\/\//.test(t.stream)) return t.stream;
     var base = relayBase();
     var ws = base.replace(/^http:/i, "ws:").replace(/^https:/i, "wss:");
-    return ws + "/browser/stream?t=" + encodeURIComponent(t && t.ticket ? t.ticket : t);
+    return ws + "/browser/stream?t=" + encodeURIComponent(t);
   }
-
-  /* A download or file link from the stream: the relay's path, or a
-     cloud helper's whole address. */
-  function linkUrl(u) {
-    u = String(u || "");
-    return /^https:\/\//.test(u) ? u : relayBase() + u;
-  }
-
-  var YT = /(^|\.)(youtube\.com|youtu\.be|youtube-nocookie\.com)$/;
-  function isYouTube(u) { try { return YT.test(new URL(u).hostname); } catch (e) { return false; } }
 
   /* The same steps as Chrome's own zoom, and as the relay's list. */
   var ZOOMS = [0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2];
@@ -739,9 +730,9 @@
   }
 
   /* DATA SAVER: the stream's video at its lowest rate, about 600 kbit/s
-     instead of 1500. AUTO (the default) turns it on only for YouTube on
-     the home browser, where every bit of it crosses the home upload and
-     moving pictures matter more than sharp text. Remembered here. */
+     instead of 1500. AUTO (the default) turns it on only for YouTube,
+     where every bit of it crosses the home upload and moving pictures
+     matter more than sharp text. Remembered here. */
   var SAVER_KEY = "fieldkit.browser.saver";
   function saverPref() {
     try { var v = localStorage.getItem(SAVER_KEY); return v === "on" || v === "off" ? v : "auto"; } catch (e) { return "auto"; }
@@ -749,11 +740,12 @@
   function setSaverPref(v) {
     try { localStorage.setItem(SAVER_KEY, v); } catch (e) {}
   }
+  var YT = /(^|\.)(youtube\.com|youtu\.be|youtube-nocookie\.com)$/;
+  function isYouTube(u) { try { return YT.test(new URL(u).hostname); } catch (e) { return false; } }
 
   /* startUrl: where to go once connected (lens handing over a site it
-     cannot play). prefer: "home" or "cloud", where the relay should put
-     the session if it can; YouTube goes home by itself. */
-  function renderLive(host, status, startUrl, prefer) {
+     cannot play). */
+  function renderLive(host, status, startUrl) {
     ui.clear(host);
     closeLive();
     closeLens();
@@ -883,7 +875,7 @@
       return b >= 1048576 ? (b / 1048576).toFixed(1) + " MB" : b >= 1024 ? Math.round(b / 1024) + " KB" : (b | 0) + " B";
     }
     async function fetchDownload(m) {
-      var r = await fetch(linkUrl(m.url), { cache: "no-store" });
+      var r = await fetch(relayBase() + m.url, { cache: "no-store" });
       if (!r.ok) throw new Error(r.status === 404 ? "the download expired; download it again" : "the relay said " + r.status);
       return r.blob();
     }
@@ -938,7 +930,7 @@
         (async function () {
           var ids = [];
           for (var i = 0; i < list.length; i++) {
-            var r = await fetch(linkUrl(m.url) + "?name=" + encodeURIComponent(list[i].name),
+            var r = await fetch(relayBase() + m.url + "?name=" + encodeURIComponent(list[i].name),
               { method: "POST", body: list[i], headers: { "Content-Type": "application/octet-stream" } });
             var d = await r.json().catch(function () { return {}; });
             if (!r.ok) throw new Error(d.error || "the relay said " + r.status);
@@ -1154,7 +1146,7 @@
 
     function saverWanted(url) {
       var p = saverPref();
-      return p === "on" || (p === "auto" && !!live && live.where === "home" && isYouTube(url));
+      return p === "on" || (p === "auto" && isYouTube(url));
     }
     function applySaver(url) {
       if (!live) return;
@@ -1162,7 +1154,7 @@
       if (want !== !!live.saver) { live.saver = want; cmd({ t: "saver", on: want }); }
     }
     var SAVER_WORDS = { auto: "DATA SAVER: AUTO", on: "DATA SAVER: ON", off: "DATA SAVER: OFF" };
-    var saverBtn = btn(SAVER_WORDS[saverPref()], "AUTO: lower video for YouTube at home. ON: always. OFF: never.", function () {
+    var saverBtn = btn(SAVER_WORDS[saverPref()], "AUTO: lower video for YouTube. ON: always. OFF: never.", function () {
       var next = { auto: "on", on: "off", off: "auto" }[saverPref()];
       setSaverPref(next);
       saverBtn.textContent = SAVER_WORDS[next];
@@ -1275,8 +1267,7 @@
     canvas.tabIndex = 0;
 
     live = { sock: null, ro: null, offKeys: null, offVis: null, drawing: false, queued: null,
-      video: false, dec: null, keyWait: true, ts: 0, zoom: 1, hidden: false, startUrl: startUrl || null,
-      prefer: prefer || (startUrl && isYouTube(startUrl) ? "home" : "cloud"), where: null };
+      video: false, dec: null, keyWait: true, ts: 0, zoom: 1, hidden: false, startUrl: startUrl || null };
 
     /* A minimised window or a hidden tab: tell the relay, which stops
        sending (and, if nobody else is looking, stops encoding). Shown
@@ -1436,10 +1427,9 @@
 
     (async function connect() {
       var t;
-      try { t = await getStreamTicket(false, live.prefer); }
+      try { t = await getStreamTicket(); }
       catch (e) { stat.textContent = e.message; stat.className = "br-status bad"; return; }
       if (!alive()) return;
-      live.where = t && t.where === "cloud" ? "cloud" : "home";
 
       var sock;
       try { sock = new WebSocket(wsUrlFor(t)); }
@@ -1481,13 +1471,12 @@
         } else if (m.t === "sound") {
           drawSound(!!m.on);
         } else if (m.t === "ready") {
-          live.wasReady = true;
           live.soundHere = !!m.sound && canSound();
           soundBtn.style.display = live.soundHere ? "" : "none";
           drawSound(live.soundHere && soundPref());
           live.zoom = m.zoom || 1;
           zoomBtn.textContent = Math.round(live.zoom * 100) + "%";
-          stat.textContent = live.where === "cloud" ? "connected · on FieldKit's cloud server" : "connected";
+          stat.textContent = "connected";
           stat.className = "br-status ok";
           if (isHidden()) setHidden(true);
           if (live.startUrl) { cmd({ t: "nav", url: live.startUrl }); live.startUrl = null; }
@@ -1521,11 +1510,11 @@
         } else if (m.t === "files-set") {
           stat.textContent = "sent " + m.n + " file" + (m.n === 1 ? "" : "s") + " to the page";
           stat.className = "br-status ok";
-        } else if (m.t === "cursor") {
-          canvas.style.cursor = CURSORS.indexOf(m.c) >= 0 ? m.c : "default";
         } else if (m.t === "saver") {
           stat.textContent = m.on ? "data saver on" + (m.kbps ? ": video at " + m.kbps + " kbit/s" : "") : "data saver off";
           stat.className = "br-status ok";
+        } else if (m.t === "cursor") {
+          canvas.style.cursor = CURSORS.indexOf(m.c) >= 0 ? m.c : "default";
         } else if (m.t === "quality") {
           /* The relay turned this panel's video down to fit its connection, or back up. */
           stat.textContent = m.step ? "video turned down to " + m.kbps + " kbit/s to fit " + (m.why || "the connection")
@@ -1538,13 +1527,6 @@
           offerHere(m.url || "");
         } else if (m.t === "nav") {
           if (live) live.url = m.url || "";
-          /* YouTube asks a rented server's visitors to sign in to prove
-             they are not a bot; the home browser plays it. */
-          if (live && live.where === "cloud" && isYouTube(m.url || "")) {
-            note("yt", [el("span", { class: "br-ask-t", text: "YouTube will not play on the cloud server unless you sign in to Google. The home browser plays it." }),
-              btn("PLAY AT HOME", "open this in the home browser", function () { note("yt", null); renderLive(host, status, m.url, "home"); }),
-              btn("✕", "stay here", function () { note("yt", null); })]);
-          } else note("yt", null);
           applySaver(m.url || "");
           if (document.activeElement !== addr) addr.value = m.url || "";
           drawStar();
@@ -1585,15 +1567,6 @@
       sock.onclose = function () {
         if (!alive() || !live) return;
         if (live.moving) { live.moving = false; connect(); return; }
-        /* The rented server never answered: this network may block it.
-           Home instead, so FULL MODE still works here. */
-        if (live.where === "cloud" && !live.wasReady) {
-          live.prefer = "home";
-          stat.textContent = "this network did not reach FieldKit's cloud server — connecting at home…";
-          stat.className = "br-status warn";
-          connect();
-          return;
-        }
         stat.textContent = "the stream closed — press ↻ to reconnect";
         stat.className = "br-status warn";
       };
@@ -1871,6 +1844,7 @@
       window.open(lens.page + "#p=" + encodeURIComponent(lens.pass) + (view.url ? "&u=" + encodeURIComponent(view.url) : ""), "_blank", "noopener");
     }
     function toFull(url) {
+      if (!homeAllowed) return say(NO_HOME, "warn");
       setModePref("full");
       if (!liveReady) return say("this relay has no full mode, so this stays in the lighter one", "warn");
       renderLive(host, liveInfo, url);
@@ -1886,7 +1860,7 @@
         if (open) { drawPlaces(); findIn.focus(); }
       }),
       btn("TAB", "open this page in a browser tab of its own", openTab),
-      liveReady ? btn("FULL MODE", "a real browser on the relay, shown as video: for YouTube, and for sites the lighter mode cannot run", function () { toFull(view.url); }) : null,
+      fullOk() ? btn("FULL MODE", "a real browser on the relay, shown as video: for YouTube, and for sites the lighter mode cannot run", function () { toFull(view.url); }) : null,
       ui.button("FULLSCREEN", function () {
         var sh = FieldKit.service("shell");
         if (sh && sh.fullscreen) sh.fullscreen("browser");
@@ -1920,8 +1894,8 @@
         if (lensView !== view) return;
         if (o && o.mode === "lens" && o.pass) { lens = o; post({ t: "pass", pass: o.pass }); return; }
         lens = o;
-        say("the lighter mode stopped" + (o && o.why ? " (" + o.why + ")" : "") + (liveReady ? "; switching to the full mode" : ""), "warn");
-        if (liveReady) renderLive(host, liveInfo, view.url);
+        say("the lighter mode stopped" + (o && o.why ? " (" + o.why + ")" : "") + (fullOk() ? "; switching to the full mode" : ""), "warn");
+        if (fullOk()) renderLive(host, liveInfo, view.url);
       } finally { renewing = false; }
     }
 
@@ -1930,7 +1904,7 @@
        mode, this time only. */
     var readyTimer = setTimeout(function () {
       if (lensView !== view || view.ready) return;
-      if (!liveReady) return say("the lighter mode is not loading on this network", "bad");
+      if (!fullOk()) return say("the lighter mode is not loading on this network", "bad");
       renderLive(host, liveInfo);
       ui.toast("THE LIGHTER MODE DID NOT LOAD ON THIS NETWORK: FULL MODE", "warn");
     }, 25000);
@@ -1955,11 +1929,11 @@
       } else if (m.t === "expired") {
         renew();
       } else if (m.t === "stream") {
-        if (liveReady) renderLive(host, liveInfo, String(m.url || ""));
-        else say("this page needs the full mode, which this relay does not have", "warn");
+        if (fullOk()) renderLive(host, liveInfo, String(m.url || ""));
+        else say(homeAllowed ? "this page needs the full mode, which this relay does not have" : "this page needs FULL MODE. " + NO_HOME, "warn");
       } else if (m.t === "failed") {
         say(String(m.why || "the lighter mode could not start"), "bad");
-        if (liveReady) notes.appendChild(el("div", { class: "br-ask" }, [
+        if (fullOk()) notes.appendChild(el("div", { class: "br-ask" }, [
           el("span", { class: "br-ask-t warn", text: "The lighter mode could not start in this window." }),
           btn("TAB", "try it in a browser tab of its own", openTab),
           btn("FULL MODE", "use the full mode instead", function () { toFull(""); })
@@ -1991,6 +1965,15 @@
        A relay with no chromium in its container falls through to
        everything below, which is the proxy, unchanged. */
     if (useLens()) return renderLens(host);
+    /* Not allowed the home browsers, and the lighter mode is not up:
+       say so, rather than open what the relay will refuse. */
+    if (!homeAllowed) {
+      host.appendChild(el("div", { class: "br-wrap" }, [
+        el("div", { class: "br-status warn", text: "BROWSER's lighter mode is not available right now" +
+          (lens && lens.why ? " (" + lens.why + ")" : "") + ". It comes back by itself; close and open BROWSER to try again. " + NO_HOME })
+      ]));
+      return;
+    }
     if (liveReady) return renderLive(host, liveInfo);
 
     var frame = el("iframe", {

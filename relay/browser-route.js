@@ -269,31 +269,24 @@ async function route(req, res, url, helpers) {
 
   /* Which browser this person's panel should use: lens, with a pass
      and its address, or the streamed one and why. */
+  /* home: whether this person may use the home browser (FULL MODE). */
+  const home = helpers.homeOf ? !!helpers.homeOf(req) : true;
   if (what === "lens" && method === "POST") {
     const tier = helpers.tierOf ? helpers.tierOf(req) : (who === "vault" ? "admin" : "guest");
-    send(res, 200, lens ? lens.offer(who, tier) : { mode: "stream", why: "not set up" });
+    send(res, 200, Object.assign(lens ? lens.offer(who, tier) : { mode: "stream", why: "not set up" }, { home: home }));
     return true;
   }
 
   if (what === "ticket" && method === "POST") {
+    if (!home) {
+      send(res, 403, { error: "FULL MODE is for admins and members an admin has allowed",
+        detail: "BROWSER's lighter mode is yours to use; ask an admin if you need FULL MODE", lightOnly: true });
+      return true;
+    }
     /* Starting the engine here rather than at the socket means the
        "chromium will not start" failure arrives as a JSON error the
        panel can print, instead of as a socket that closes. */
     const tier = helpers.tierOf ? helpers.tierOf(req) : (who === "vault" ? "admin" : "guest");
-    /* A CLOUD helper first (SIMPLIFY_PLAN.md §14): a rented server the
-       panel connects to directly, so the pictures never cross the home
-       connection. Not for a session already open here, nor when the
-       panel asks for home (YouTube, which refuses rented addresses), nor
-       once the rented servers' month is used up. The ticket is issued as
-       well, for a panel too old to know `stream`; it is served here. */
-    const body = await readBody(req).catch(() => null);
-    const prefer = body && body.prefer === "home" ? "home" : "cloud";
-    const h = prefer === "cloud" && overflow && !engine.sessions.has(String(who)) && cloudOk() ? overflow.pickCloud(who, tier) : null;
-    if (h) {
-      send(res, 201, { ticket: issue(who, tier), stream: overflow.streamFor(h, who, tier), where: "cloud",
-        expiresIn: TICKET_MS / 1000, tier: tier });
-      return true;
-    }
     /* Going to the card: no Chromium is needed here, and it would sit
        there, with a spare, costing memory until it parked. */
     const away = !!(overflow && !engine.sessions.has(String(who)) && overflow.pick(who, tier, fair, "gpu"));
@@ -305,7 +298,7 @@ async function route(req, res, url, helpers) {
     }
     /* The tier is said so the panel knows to offer admin things (USAGE);
        the relay checks it again on every one of them. */
-    send(res, 201, { ticket: issue(who, tier), expiresIn: TICKET_MS / 1000, tier: tier, where: "home" });
+    send(res, 201, { ticket: issue(who, tier), expiresIn: TICKET_MS / 1000, tier: tier });
     return true;
   }
 
@@ -395,20 +388,10 @@ function lineAnswer(a) {
   for (const e of fair.line) if (e.tell) e.tell(fair.place(e));
 }
 
-/* The rented servers' month (lens's meter reads the provider's count for
-   the whole account, which the cloud helpers share): used up, no more
-   sessions go to them. */
-function cloudOk() {
-  const s = lens && lens.status;
-  return !(s && s.up && s.state === "over");
-}
-
 function placeOf(who, tier) {
   if (!overflow || !overflow.any() || engine.sessions.has(who)) return null;
   const held = overflow.holding(who);
-  /* A cloud helper's session is reached directly, never piped. A panel
-     that came here anyway (an old one) is served here. */
-  if (held) return held.direct ? null : held;
+  if (held) return held;
   /* A helper is not a way round the line, unless the line just sent
      them there. */
   if (!moved.delete(who) && fair && tier !== "admin" && fair.shared() && fair.someoneAhead(tier)) return null;
@@ -453,7 +436,7 @@ async function serve(req, sock, head, who, tier, opts) {
   };
   /* This viewer's step: { own, strains, at (last step), last (last strain) },
      and DATA SAVER: the panel asked for less (on its own, or for
-     YouTube at home), and gets the lowest step whatever else is free. */
+     YouTube), and gets the lowest step whatever else is free. */
   const q = { own: 0, strains: [], at: 0, last: 0, saver: false };
   const kbpsNow = () => Math.round((cfg.videoKbps || 1500) * Math.min(fair ? STEPS[fair.step] : STEPS[houseStep] || 1, OWN[q.own],
     q.saver ? SAVER : 1));

@@ -10,6 +10,13 @@
   "use strict";
 
   var NOTES = [
+    { v: "0.10.0", items: [
+      "YouTube plays in BROWSER's lighter mode, in your own browser, without using the home internet.",
+      "The lighter mode is not private: it says so at the top, and again if you click a password box. Do not sign in to anything there.",
+      "FULL MODE is now for admins and the members an admin allows (ADMIN CENTER or MESSAGES, PEOPLE). Everyone else has the lighter mode.",
+      "DATA SAVER under ⋯ in FULL MODE lowers the video, by itself for YouTube.",
+      "0.9.0's FULL MODE on a rented server is gone: it cost too much for what it added."
+    ] },
     { v: "0.9.0", items: [
       "FULL MODE can run on FieldKit's cloud server: its video then does not use the home internet, which stays free for everything else.",
       "YouTube still plays at home, because it refuses rented servers. PLAY AT HOME on the note moves a video there.",

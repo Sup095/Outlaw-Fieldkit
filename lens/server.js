@@ -41,6 +41,7 @@ const { verify } = require("../relay/overflow");
 const { passOptions, AUD, PASS_MS } = require("../relay/lens-link");
 const { WispServer } = require("./wisp");
 const { Meter } = require("./meter");
+const { Egress } = require("./egress");
 
 const OPENS_PER_MIN = 30;
 
@@ -61,7 +62,11 @@ const DEFAULTS = {
   /* A file holding a read-only Linode API token. With it, Linode's own
      count of the month's traffic is read every ten minutes and the
      meter catches up to it (meter.seen), a second stop on the bill. */
-  providerTokenFile: ""
+  providerTokenFile: "",
+  /* Sites that refuse this server's address (YouTube) leave through an
+     upstream proxy (egress.js): a JSON file { hosts, proxies }, kept out
+     of config.json because bought proxies come with a login. */
+  egressFile: ""
 };
 
 const ALLOW_EVERY_MS = 5 * 60 * 1000;
@@ -99,7 +104,17 @@ function start(opts) {
     words: { place: "lens server", who: "a page" } });
   const meter = opts.meter || new Meter({ file: path.join(config.dataDir, "meter.json"), log: say,
     capBytes: config.capBytes, personDayBytes: config.personDayBytes });
-  const wisp = new WispServer({ judge, meter, log: say, maxPerWho: config.maxPerWho });
+  let egress = opts.egress || null;
+  if (!egress && config.egressFile) {
+    try {
+      const e = JSON.parse(fs.readFileSync(config.egressFile, "utf8"));
+      egress = new Egress({ hosts: e.hosts, proxies: e.proxies, log: say });
+      say("INFO", "lens: " + egress.proxies.length + " egress proxy(ies) for " + egress.hosts.length + " site(s)");
+    } catch (e) {
+      if (e.code !== "ENOENT") say("WARN", "lens: " + config.egressFile + " could not be read (" + e.message + "); every site leaves directly");
+    }
+  }
+  const wisp = new WispServer({ judge, meter, egress, log: say, maxPerWho: config.maxPerWho });
 
   /* The person's address, for the per-address limit. */
   const clientIp = (req) => {
@@ -162,7 +177,7 @@ function start(opts) {
       const m = meter.view();
       res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store", "Access-Control-Allow-Origin": "*" });
       return res.end(JSON.stringify({ up: true, state: m.state, month: m.month, fraction: m.fraction,
-        open: wisp.sessions.size, key: !!relayKey.key }));
+        open: wisp.sessions.size, key: !!relayKey.key, youtube: !!(egress && egress.usable()) }));
     }
     /* Why the site this person just tried did not open: asked by their
        own lens page, with their own pass, about one host. */
@@ -224,7 +239,7 @@ function start(opts) {
     server.listen(config.port, config.host, () => {
       say("INFO", "lens: listening on " + config.host + ":" + server.address().port);
       resolve({
-        server, wisp, meter, judge, port: server.address().port,
+        server, wisp, meter, judge, egress, port: server.address().port,
         close() { clearInterval(keyTimer); clearInterval(allowTimer); clearInterval(providerTimer); wisp.close(); meter.close(); if (lists && lists.stop) lists.stop(); server.close(); }
       });
     });

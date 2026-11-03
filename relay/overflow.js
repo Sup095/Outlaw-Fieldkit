@@ -50,7 +50,6 @@
 const fs = require("fs");
 const path = require("path");
 const http = require("http");
-const https = require("https");
 const net = require("net");
 const crypto = require("crypto");
 
@@ -63,9 +62,6 @@ const TIMEOUT_MS = 4000;
 /* What a helper's new session is guessed to cost, as in fairness.js. */
 const { COST_MAX } = require("./fairness");
 const COST = { cpu: 10, mem: 6, gpu: 8 };
-/* A cloud helper takes a new session while its own processor and memory
-   are under this (percent). It has no one else on it to leave room for. */
-const CLOUD_LINE = 85;
 
 const b64u = (b) => Buffer.from(b).toString("base64url");
 
@@ -125,18 +121,13 @@ function loadKeys(dir) {
   return { privateKey, publicPem: crypto.createPublicKey(privateKey).export({ type: "spki", format: "pem" }) };
 }
 
-/* "http://host:port": a helper on the home network or the tailnet,
-   whose pictures this relay pipes. "https://name": a CLOUD helper, a
-   rented server on the internet (SIMPLIFY_PLAN.md §14). The panel
-   connects to it directly with a pass, so its pictures never cross the
-   home connection; this relay only decides, signs and polls. Anything
-   else in the list is a mistake to say aloud. */
+/* "http://host:port" only: a helper is on the home network or the
+   tailnet, and anything else in the list is a mistake to say aloud. */
 function parseUrl(u) {
   let x;
   try { x = new URL(String(u || "")); } catch (e) { return null; }
-  if (!/^https?:$/.test(x.protocol) || !x.hostname || x.pathname.replace(/\/+$/, "") || x.search || x.username) return null;
-  const tls = x.protocol === "https:";
-  return { host: x.hostname.replace(/^\[|\]$/g, ""), port: Number(x.port) || (tls ? 443 : 80), url: x.origin, tls: tls, direct: tls };
+  if (x.protocol !== "http:" || !x.hostname || x.pathname.replace(/\/+$/, "") || x.search) return null;
+  return { host: x.hostname.replace(/^\[|\]$/g, ""), port: Number(x.port) || 80, url: x.origin };
 }
 
 class Overflow {
@@ -148,42 +139,16 @@ class Overflow {
     this.allow = [];
     this.allowV = 1;
     this.helpers = [];
-    this.nextId = 0;
-    (opts.urls || []).forEach((u) => this.add(u, false));
-    this.setCloud(opts.cloud || []);
+    (opts.urls || []).forEach((u, i) => {
+      const p = parseUrl(typeof u === "string" ? u : u && u.url);
+      if (!p) { this.log("WARN", "browser: helper " + JSON.stringify(u) + " is not an http://address:port, so it is not used"); return; }
+      this.helpers.push(Object.assign(p, { id: i, name: (u && u.name) || "helper " + (i + 1), state: null, at: 0,
+        down: null, piped: 0, polling: false }));
+    });
     this.step = 0;               /* the house video step, passed on so helpers follow it */
     this.timer = null;
     this.lastPoll = 0;
   }
-
-  /* One helper from config (browser.helpers) or ADMIN CENTER (cloud). */
-  add(u, cloud) {
-    const p = parseUrl(typeof u === "string" ? u : u && u.url);
-    if (!p || (cloud && !p.direct)) {
-      this.log("WARN", "browser: helper " + JSON.stringify(u) + " is not " + (cloud ? "an https:// address" : "an http://address:port or https:// address") + ", so it is not used");
-      return null;
-    }
-    const n = this.nextId++;
-    const h = Object.assign(p, { id: n, name: (u && u.name) || (p.direct ? "cloud " : "helper ") + (n + 1), state: null, at: 0,
-      down: null, piped: 0, polling: false });
-    this.helpers.push(h);
-    return h;
-  }
-
-  /* The cloud helpers ADMIN CENTER names (admin.js keeps them in
-     data/cloud.json), replacing the ones before. Sessions already open
-     on one that is dropped keep running there until they end. Returns
-     false if an address is not an https one. */
-  setCloud(urls) {
-    const list = (Array.isArray(urls) ? urls : [urls]).map((u) => String(u || "").trim()).filter(Boolean);
-    if (list.some((u) => { const p = parseUrl(u); return !p || !p.direct; })) return false;
-    this.helpers = this.helpers.filter((h) => !h.direct);
-    list.forEach((u) => this.add(u, true));
-    if (this.busy && !this.timer) this.start(this.busy);
-    return true;
-  }
-
-  cloudUrls() { return this.helpers.filter((h) => h.direct).map((h) => h.url); }
 
   any() { return this.helpers.length > 0; }
 
@@ -207,15 +172,10 @@ class Overflow {
      sign-ins first, then the least busy. `only`: "gpu" for helpers with
      a graphics card, "plain" for those without, nothing for either. */
   pick(who, tier, fair, only) {
-    /* A cloud helper is judged by itself alone: it is not on the home
-       connection or on Bastion 2, so neither the house upload nor
-       runnerd's reading of the machine has anything to say about it. */
-    if (only === "cloud") return this.pickCloud(who, tier);
     const t = fair ? fair.settings()[tier] || fair.settings().guest : null;
     if (fair && tier !== "admin" && fair.upPct(800) > t.upload) return null;
     const box = fair && fair.machine ? fair.machine() : null;
     const ok = this.helpers.filter((h) => {
-      if (h.direct) return false;
       if (!this.fresh(h) || !h.state.ready || !(h.state.free > 0)) return false;
       if (h.state.gpu && tier === "guest") return false;
       if ((only === "gpu" && !h.state.gpu) || (only === "plain" && h.state.gpu)) return false;
@@ -231,36 +191,11 @@ class Overflow {
     return kept || ok.sort((a, b) => (b.state.free - a.state.free) || (a.state.cpu - b.state.cpu))[0] || null;
   }
 
-  anyCloud() { return this.helpers.some((h) => h.direct); }
-
-  /* A cloud helper for this account: the one already holding its session
-     or its sign-ins, else one with a free session under CLOUD_LINE of its
-     own processor and memory (an admin only needs a free session). */
-  pickCloud(who, tier) {
-    who = String(who);
-    const ok = this.helpers.filter((h) => h.direct && this.fresh(h) && h.state.ready);
-    const mine = ok.find((h) => h.state.sessions.indexOf(who) >= 0) ||
-      ok.find((h) => (h.state.kept || []).indexOf(who) >= 0 && h.state.free > 0);
-    if (mine) return mine;
-    const room = ok.filter((h) => h.state.free > 0 &&
-      (tier === "admin" || (h.state.cpu < CLOUD_LINE && h.state.mem < CLOUD_LINE)));
-    return room.sort((a, b) => (a.state.cpu - b.state.cpu) || (b.state.free - a.state.free))[0] || null;
-  }
-
-  /* Where the panel connects for a session on a cloud helper: its own
-     address, with a pass in the query (a browser cannot set a header on
-     a WebSocket). Spent on use, a minute long, for this account only. */
-  streamFor(h, who, tier) {
-    const ws = h.url.replace(/^https:/, "wss:").replace(/^http:/, "ws:");
-    return ws + "/browser/stream?p=" + encodeURIComponent(this.pass({ what: "stream", who: String(who), tier: tier, via: h.id, direct: true }));
-  }
-
   /* ---- talking to a helper ---- */
 
   request(h, method, p, claims, body) {
     return new Promise((resolve, reject) => {
-      const req = (h.tls ? https : http).request({ host: h.host, port: h.port, method: method, path: p, timeout: TIMEOUT_MS,
-        servername: h.tls ? h.host : undefined,
+      const req = http.request({ host: h.host, port: h.port, method: method, path: p, timeout: TIMEOUT_MS,
         headers: Object.assign({ "X-FieldKit-Pass": this.pass(claims) },
           body ? { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body) } : {}) }, (res) => {
         const chunks = [];
@@ -283,9 +218,7 @@ class Overflow {
     if (h.polling) return;
     h.polling = true;
     try {
-      /* The house video step is about the home upload: a cloud helper
-         never follows it. */
-      const s = await this.request(h, "GET", "/helper/state", { what: "state", step: h.direct ? 0 : this.step });
+      const s = await this.request(h, "GET", "/helper/state", { what: "state", step: this.step });
       if (!s || typeof s !== "object") throw new Error("the helper said nothing useful");
       /* A helper that has restarted has lost it: said again whenever
          its version is not this one. */
@@ -312,7 +245,6 @@ class Overflow {
 
   /* busy(): is anyone on a helper or waiting here. */
   start(busy) {
-    this.busy = busy;
     if (!this.any() || this.timer) return;
     const tick = () => {
       const now = this.now();
@@ -423,11 +355,9 @@ class Overflow {
   }
 
   view() {
-    /* A cloud helper's address is public (panels connect to it), so it
-       is shown; a home helper's tailnet address is not. */
-    return this.helpers.map((h) => Object.assign({ name: h.name, up: this.fresh(h), cloud: !!h.direct, free: h.state ? h.state.free : 0,
+    return this.helpers.map((h) => ({ name: h.name, up: this.fresh(h), free: h.state ? h.state.free : 0,
       sessions: h.state ? h.state.sessions.length : 0, gpu: !!(h.state && h.state.gpu),
-      who: h.state ? h.state.sessions.slice() : [], blocked: h.state ? h.state.blocked : {} }, h.direct ? { url: h.url } : {}));
+      who: h.state ? h.state.sessions.slice() : [], blocked: h.state ? h.state.blocked : {} }));
   }
 
   /* The names an admin has allowed (admin.js), for every helper's lists. */

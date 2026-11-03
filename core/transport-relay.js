@@ -94,8 +94,8 @@
        opens a websocket, where the browse one named a proxy session.
        Separate route so that turning one browser off does not hand
        out passes for the other. */
-    async streamTicket(prefer) {
-      return call("POST", "/browser/ticket", prefer ? { prefer: String(prefer) } : undefined, { timeout: 20000 });
+    async streamTicket() {
+      return call("POST", "/browser/ticket", undefined, { timeout: 20000 });
     },
 
     /* And the lighter one (lens, SIMPLIFY_PLAN.md §11): which mode to

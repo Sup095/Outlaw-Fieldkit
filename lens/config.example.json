@@ -14,5 +14,7 @@
   "_trustProxy": "\"loopback\" behind Caddy on the same machine: the person's address is read from X-Forwarded-For. Empty trusts no header.",
   "trustProxy": "loopback",
   "_providerTokenFile": "A read-only Linode API token, in a file. Linode's own traffic count is then read every ten minutes, and the meter catches up to it: a second stop on the bill.",
-  "providerTokenFile": "/etc/lens/provider-token"
+  "providerTokenFile": "/etc/lens/provider-token",
+  "_egressFile": "Proxies for the sites that refuse this server's address (YouTube): { \"proxies\": [\"socks5://127.0.0.1:1080\", \"socks5://USER:PASS@host:port\"], \"hosts\": [...] }. setup.sh writes it once, with the fk-warp container. Kept out of this file because bought proxies carry a login.",
+  "egressFile": "/etc/lens/egress.json"
 }

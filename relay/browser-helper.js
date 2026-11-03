@@ -10,18 +10,10 @@
    block.
 
    It is a browser and nothing else: no vault, no accounts, no
-   messaging, no tunnel. On Bastion 2 it is never reached from the
-   internet: the relay (overflow.js) connects to it over the home
-   network or the tailnet and passes a panel's socket straight through.
-
-   A CLOUD helper (helper.publicUrl set, SIMPLIFY_PLAN.md §14) is the
-   same program on a rented server behind https. Panels connect to it
-   themselves, with a pass the relay signed into the address
-   (/browser/stream?p=…), so its pictures never cross the home
-   connection. Downloads and a page's files go straight to it too, by
-   their single-use links. It holds no FieldKit secret: only the
-   relay's public key, and while someone is signed in to a site, that
-   session's cookies, in memory.
+   messaging, no tunnel. It is never reached from the internet. The
+   relay (overflow.js) connects to it over the home network or the
+   tailnet and passes a panel's socket straight through, so a panel
+   only ever talks to the relay's own address.
 
    Everything it is asked must carry a PASS signed by the relay, whose
    public key it fetches by itself from helper.relayUrl (the relay's
@@ -73,8 +65,7 @@ function readConfig(file) {
     catch (e) { log("ERROR", "config.json is not valid JSON: " + e.message); process.exit(1); }
   }
   const c = Object.assign({ host: "0.0.0.0", port: 8080 }, raw);
-  c.helper = Object.assign({ relayUrl: "", publicUrl: "", upKbps: 0 }, raw.helper || {});
-  c.helper.publicUrl = String(c.helper.publicUrl || "").trim().replace(/\/+$/, "");
+  c.helper = Object.assign({ relayUrl: "" }, raw.helper || {});
   c.browser = Object.assign({}, raw.browser || {}, { enabled: true });
   delete c.browser.helpers;
   c.browse = Object.assign({}, raw.browse || {});
@@ -143,14 +134,9 @@ function start(opts) {
   if (!relayKey.base) log("ERROR", "helper: helper.relayUrl is empty, so no pass can ever be checked — set it to the relay's https address");
   browse.init({ dataDir: config.dataDir, config: config.browse, log: log });
   /* What its pages send out leaves Bastion 2 directly, not through the
-     relay: held to a small total that the ceiling sets aside (upcap.js).
-     A cloud helper is not on the home connection, so it may be given
-     more (helper.upKbps). */
-  const cloud = /^https:\/\//.test(config.helper.publicUrl) ? config.helper.publicUrl : "";
-  const upBps = config.helper.upKbps > 0 ? config.helper.upKbps * 125 : HELPER_UP_BPS;
+     relay: held to a small total that the ceiling sets aside (upcap.js). */
   const engine = browserRoute.init({ config: config.browser, log: log, filter: (host) => browse.hostVerdict(host), dataDir: config.dataDir,
-    upTotal: new Bucket(upBps) });
-  if (cloud) log("INFO", "helper: a cloud helper at " + cloud + ": panels connect here directly");
+    upTotal: new Bucket(HELPER_UP_BPS) });
   meter.sessions = () => engine.sessions.size;
   let allowV = 0;
   const onCard = engine.render.mode === "gpu";
@@ -158,8 +144,8 @@ function start(opts) {
   log("INFO", "helper: pages are drawn " + (onCard ? "on the graphics card; guests are not sent here" : engine.render.mode === "cpu" ? "on the processor (llvmpipe)" : "the old way (SwiftShader)"));
 
   /* The claims of a good pass for `what`, or null. */
-  async function passOf(req, what, fromQuery) {
-    const text = req.headers["x-fieldkit-pass"] || fromQuery;
+  async function passOf(req, what) {
+    const text = req.headers["x-fieldkit-pass"];
     if (!text) return null;
     if (relayKey.due(false)) await relayKey.load();
     if (!relayKey.key) return null;
@@ -194,12 +180,6 @@ function start(opts) {
       if (p === "/health" && req.method === "GET") {
         return send(res, 200, { ok: true, service: "fieldkit-browser-helper", key: !!relayKey.key });
       }
-      /* DIAGNOSTICS and PREFLIGHT ask this from the device: does this
-         network reach the rented server? Nothing in it but yes. */
-      if (cloud && p === "/helper/hello" && req.method === "GET") {
-        res.setHeader("Access-Control-Allow-Origin", "*");
-        return send(res, 200, { ok: true, service: "fieldkit-browser-helper", cloud: true });
-      }
       if (p === "/helper/state" && req.method === "GET") {
         const c = await passOf(req, "state");
         if (!c) return send(res, 401, { error: "no pass" });
@@ -232,15 +212,7 @@ function start(opts) {
         return;
       }
       if (/^\/browser\/(file|put)\/[0-9a-f]+$/.test(p)) {
-        /* On a cloud helper the panel asks itself, from another origin;
-           the link is the permission (48 random hex, single use). */
-        if (cloud) {
-          res.setHeader("Access-Control-Allow-Origin", "*");
-          if (req.method === "OPTIONS") {
-            res.writeHead(204, { "Access-Control-Allow-Methods": "GET, POST", "Access-Control-Allow-Headers": "Content-Type", "Access-Control-Max-Age": "600" });
-            return res.end();
-          }
-        } else if (!await passOf(req, "link")) return send(res, 401, { error: "no pass" });
+        if (!await passOf(req, "link")) return send(res, 401, { error: "no pass" });
         await browserRoute.route(req, res, url, { send, readBody, authorise: () => null });
         return;
       }
@@ -259,14 +231,11 @@ function start(opts) {
     let url;
     try { url = new URL(req.url, "http://helper"); } catch (e) { return no(); }
     if (!browserRoute.isStreamUpgrade(url)) return no();
-    /* A cloud helper's panels bring the pass in the address; a piped one
-       comes in the header. A direct pass only works on a cloud helper. */
-    const c = await passOf(req, "stream", cloud ? url.searchParams.get("p") : null);
+    const c = await passOf(req, "stream");
     if (!c || typeof c.who !== "string" || !c.who || ["guest", "member", "admin"].indexOf(c.tier) < 0) return no();
-    if (!!c.direct !== !!cloud) return no();
     /* Said here too: the relay decides, this makes sure. */
     if (onCard && c.tier === "guest") return no();
-    browserRoute.serve(req, sock, head, c.who, c.tier, { linkBase: cloud ? cloud + "/browser/" : "/browser/via/" + (c.via | 0) + "/" }).catch((e) => {
+    browserRoute.serve(req, sock, head, c.who, c.tier, { linkBase: "/browser/via/" + (c.via | 0) + "/" }).catch((e) => {
       log("WARN", "helper: stream failed — " + e.message);
       try { sock.destroy(); } catch (x) {}
     });

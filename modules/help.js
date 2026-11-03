@@ -150,23 +150,25 @@
       body: [
         "BROWSER has two modes, and picks the lighter one by itself when the relay has it.",
         { rows: [
-          ["BROWSER · LIGHT", "pages run in your own browser, through FieldKit's lens server"],
-          ["FULL MODE", "a real browser on the server, shown as video; YouTube plays"]
+          ["BROWSER · LIGHT", "pages and YouTube run in your own browser; for everyone"],
+          ["FULL MODE", "a real browser at home, as video; admins and allowed members"]
         ] },
         "In the lighter mode, the address bar and back and forward are in the page. ★ keeps a " +
         "bookmark, PLACES opens bookmarks and history, and TAB opens the page in a tab of its " +
-        "own. YouTube opens in FULL MODE by itself: it will not play for a rented server. " +
-        "Every site in the lighter mode shares one origin, so do not sign in to anything " +
-        "private there; use FULL MODE. If the lighter mode does not load on a network, " +
-        "BROWSER moves to FULL MODE by itself. FULL MODE is remembered; LIGHT MODE under ⋯ goes back.",
-        "In FULL MODE, type an address or a search in the bar. Sign in to MESSAGES and it " +
-        "remembers your sign-ins; as a guest it keeps nothing.",
-        "When the relay has FieldKit's cloud server, FULL MODE runs there, and its video does " +
-        "not use the home internet; the line under the page says \"on FieldKit's cloud server\". " +
-        "YouTube refuses rented servers, so it runs at home: PLAY AT HOME on the note moves it. " +
-        "If a network does not reach the cloud server, FULL MODE runs at home by itself.",
+        "own. YouTube plays there when the lens server has its way past YouTube's check; if not, " +
+        "it opens in FULL MODE for those who have it.",
+        { note: "The lighter mode is NOT private. Every site in it shares one server, and sites can " +
+                "read each other's sign-ins. Do not sign in to anything there: no email, no school " +
+                "account, no social media, no shopping. It says so at the top, and again if you " +
+                "click a password box." },
+        "FULL MODE uses the home internet, so it is for admins and the members an admin allows " +
+        "(PEOPLE, in ADMIN CENTER or MESSAGES). If you have it, it is where to sign in to things. " +
+        "If the lighter mode does not load on a network, BROWSER moves to FULL MODE by itself for " +
+        "those who have it. FULL MODE is remembered; LIGHT MODE under ⋯ goes back.",
+        "In FULL MODE, type an address or a search in the bar. Signed in to MESSAGES, it " +
+        "remembers your sign-ins for a while.",
         "DATA SAVER under ⋯ lowers FULL MODE's video, to about a third. AUTO does it for YouTube " +
-        "at home only; ON always; OFF never. It is remembered.",
+        "only; ON always; OFF never. It is remembered.",
         "A new tab shows your bookmarks and the sites you were last on. ↩TAB appears once " +
         "you have closed a tab, and opens it again. PLACES lists them all. In FIELDKIT they " +
         "are encrypted in your vault. OUTPOST has no vault, so there they sit on this " +
@@ -349,15 +351,16 @@
         "is open, and only admins can see it.",
         { rows: [
           ["SERVICES", "the relay, BROWSER and its lighter mode, RUNNER, updates, the upload"],
-          ["PEOPLE", "approve who is waiting, and end a browser session"],
+          ["PEOPLE", "approve people, allow FULL MODE, end a browser session"],
           ["TELL EVERYONE", "a line at the top for everyone, for as long as you choose"],
           ["BLOCKING", "what was refused, reports of wrong blocks, and the allow list"],
           ["WHAT DEVICES ALLOW", "the answers from /probe, a page anyone can open"],
           ["WHAT WENT WRONG LATELY", "warnings and errors since the relay started"]
         ] },
-        "FULL MODE, RENTED under SERVICES sets the cloud server FULL MODE runs on (an https " +
-        "address); TURN IT OFF puts FULL MODE back at home. " +
-        "ALLOW takes effect for everyone at once, on every browser machine. COPY A REPORT " +
+        "FULL MODE (HOME BROWSER) under PEOPLE: ALLOW gives a member BROWSER's FULL MODE, which " +
+        "runs on the home machines and uses the home internet; TAKE AWAY leaves them the lighter " +
+        "mode. Admins always have it. " +
+        "ALLOW on a blocked site takes effect for everyone at once, on every browser machine. COPY A REPORT " +
         "puts a summary on the clipboard for asking for help; no message or page address " +
         "is in it.",
         { note: "The blocking counts are by site and never by person. RUNNER's own admin " +

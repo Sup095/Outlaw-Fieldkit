@@ -869,6 +869,14 @@
         b.push(ui.button("APPROVE", function () { act(p.handle, "approve"); }));
       }
       if (p.tier === "member") {
+        /* The home browser (BROWSER's FULL MODE) uses the home
+           connection: for admins, and the members allowed here. */
+        b.push(p.home
+          ? ui.button("TAKE FULL MODE", function () { act(p.handle, "deny-home"); }, { danger: true })
+          : ui.button("ALLOW FULL MODE", function () {
+              act(p.handle, "allow-home", "Let " + p.handle + " use BROWSER's FULL MODE?\n\n" +
+                "It runs on the home machines and uses the home internet. They can sign in to sites there.");
+            }));
         b.push(ui.button("MAKE ADMIN", function () {
           act(p.handle, "promote", "Make " + p.handle + " an admin?\n\n" +
             "They will be able to read reported conversations, ban people, approve " +
@@ -904,6 +912,7 @@
           return (order[a.tier] - order[b.tier]) || a.handle.localeCompare(b.handle);
         }).forEach(function (p) {
           var tag = p.tier.toUpperCase() + (p.root ? " (CONFIG)" : "") +
+            (p.tier === "member" && p.home ? " + FULL MODE" : "") +
             (p.banned ? "  BANNED" : "") + (p.handle === session.handle ? "  (YOU)" : "");
           box.appendChild(el("div", { class: "mg-report" }, [
             el("div", { class: "mg-conv-name", text: p.handle + "  [" + tag + "]" }),
@@ -1115,9 +1124,9 @@
     /* And the streamed one. The account IS the browser session on
        that side — your cookies, your history — which is what makes
        one sign-in serve both apps. */
-    streamTicket: async function (prefer) {
+    streamTicket: async function () {
       if (!session) throw new Error("not signed in to MESSAGES");
-      return api("POST", "/browser/ticket", prefer ? { prefer: String(prefer) } : undefined);
+      return api("POST", "/browser/ticket");
     },
     /* The lighter mode's pass, or which mode to use instead. */
     lensPass: async function () {

@@ -318,6 +318,15 @@ function tierOf(handle, user, roles) {
   return user && user.approved ? "member" : "guest";
 }
 
+/* The home browsers (BROWSER's FULL MODE, streamed from the relay and
+   Bastion 2) cost the home connection, so they are for admins and for
+   members an admin has allowed (user.homeBrowser). Everyone else has the
+   lighter mode, which runs on the rented server. */
+function homeOk(handle, user, roles) {
+  const t = tierOf(handle, user, roles);
+  return t === "admin" || (t === "member" && !!(user && user.homeBrowser));
+}
+
 function audit(roles, by, action, target) {
   roles.audit.push({ at: new Date().toISOString(), by: by, action: action, target: target });
   /* A ring, for the same reason the sign-in failures are one. */
@@ -373,7 +382,7 @@ function whoami(req) {
 
   const tier = tierOf(s.handle, user);
   return { handle: s.handle, user: user, moderator: tier === "admin",
-    root: isRoot(s.handle), tier: tier };
+    root: isRoot(s.handle), tier: tier, home: homeOk(s.handle, user) };
 }
 
 setInterval(() => {
@@ -1065,6 +1074,8 @@ async function route(req, res, url, helpers) {
       root: isRoot(h),
       approved: users[h].approved || null,
       madeAdmin: roles.admins[h] || null,
+      home: homeOk(h, users[h], roles),
+      homeBrowser: users[h].homeBrowser || null,
       banned: banState(users[h])
     }));
     return send(res, 200, { people: people, me: me.handle, root: me.root,
@@ -1078,9 +1089,9 @@ async function route(req, res, url, helpers) {
 
     const target = String(body.handle || "").toLowerCase().trim();
     const action = String(body.action || "");
-    if (["approve", "unapprove", "promote", "demote"].indexOf(action) < 0) {
+    if (["approve", "unapprove", "promote", "demote", "allow-home", "deny-home"].indexOf(action) < 0) {
       return send(res, 400, { error: "no such action",
-        detail: "approve, unapprove, promote or demote" }), true;
+        detail: "approve, unapprove, promote, demote, allow-home or deny-home" }), true;
     }
 
     const users = readUsers();
@@ -1105,7 +1116,17 @@ async function route(req, res, url, helpers) {
     if (action === "approve") {
       if (banState(user)) return send(res, 409, { error: "that account is banned" }), true;
       if (!user.approved) user.approved = stamp;
+    } else if (action === "allow-home") {
+      /* The home browser, for an approved member (admins have it already). */
+      if (banState(user)) return send(res, 409, { error: "that account is banned" }), true;
+      if (tierOf(target, user, roles) === "guest") {
+        return send(res, 409, { error: target + " is not approved yet", detail: "approve them first" }), true;
+      }
+      if (!user.homeBrowser) user.homeBrowser = stamp;
+    } else if (action === "deny-home") {
+      user.homeBrowser = null;
     } else if (action === "unapprove") {
+      user.homeBrowser = null;
       if (wasAdmin) {
         return send(res, 409, { error: target + " is an admin", detail: "demote them first" }), true;
       }
@@ -1130,7 +1151,7 @@ async function route(req, res, url, helpers) {
     log("WARN", `messaging: ${me.handle} ${action}d ${target}`);
     cursor++;
     wake();
-    return send(res, 200, { ok: true, handle: target, tier: tierOf(target, user, roles) }), true;
+    return send(res, 200, { ok: true, handle: target, tier: tierOf(target, user, roles), home: homeOk(target, user, roles) }), true;
   }
 
   /* Unreachable unless ROUTES_BY_NAME lists a name and method pair
@@ -1171,4 +1192,4 @@ function counts() {
   return out;
 }
 
-module.exports = { init, route, whoami, LIMITS, counts, flush: () => { if (seenTimer) flushSeen(); }, _internals: { hashSecret, banState, sessions, tierOf, adminList, isRoot } };
+module.exports = { init, route, whoami, LIMITS, counts, flush: () => { if (seenTimer) flushSeen(); }, _internals: { hashSecret, banState, sessions, tierOf, adminList, isRoot, homeOk } };

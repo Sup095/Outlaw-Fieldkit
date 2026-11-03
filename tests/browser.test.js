@@ -213,16 +213,13 @@ FieldKit.provide("transportRelay", {
     ok("…the listener goes when the panel does", /removeEventListener\("message", lensView\.onMsg\)/.test(body) && /closeLive\(\);\s*closeLens\(\);/.test(body));
     ok("FULL MODE is remembered, and LIGHT MODE goes back", /setModePref\("full"\)/.test(body) && /setModePref\("light"\)/.test(body));
 
-    /* Full mode on the rented server, and DATA SAVER. */
-    ok("full mode asks for the rented server, except for YouTube, which it keeps at home",
-      /prefer: prefer \|\| \(startUrl && isYouTube\(startUrl\) \? "home" : "cloud"\)/.test(body) && /getStreamTicket\(false, live\.prefer\)/.test(body));
-    ok("…a cloud ticket's own wss address is used as it is", /\/\^wss:\\\/\\\/\/\.test\(t\.stream\)\) return t\.stream/.test(body));
-    ok("…a warm cloud ticket is not used for YouTube", /prefer === "home" && warm\.ticket\.where === "cloud"/.test(body));
-    ok("…YouTube opened on the rented server offers PLAY AT HOME", /live\.where === "cloud" && isYouTube\(m\.url/.test(body) && /renderLive\(host, status, m\.url, "home"\)/.test(body));
-    ok("…a network that does not reach the rented server gets FULL MODE at home instead",
-      /live\.where === "cloud" && !live\.wasReady\) \{\s*live\.prefer = "home";[\s\S]{0,200}connect\(\);/.test(body) && /live\.wasReady = true;/.test(body));
-    ok("DATA SAVER: AUTO is on for YouTube at home only, and the choice is remembered",
-      /p === "auto" && !!live && live\.where === "home" && isYouTube\(url\)/.test(body) && /setSaverPref\(next\)/.test(body) && /cmd\(\{ t: "saver", on: want \}\)/.test(body));
+    ok("FULL MODE is offered only to people the relay allows it (home), the lighter mode to everyone",
+      /homeAllowed = o\.home !== false/.test(body) && /function fullOk\(\) \{ return liveReady && homeAllowed; \}/.test(body) &&
+      /modePref\(\) === "light" \|\| !homeAllowed/.test(body) && /if \(!homeAllowed\) return say\(NO_HOME/.test(body));
+    ok("…and without it, a lighter mode that is down says so instead of opening the home browser",
+      /if \(!homeAllowed\) \{[\s\S]{0,200}lighter mode is not available right now/.test(body));
+    ok("DATA SAVER: AUTO is on for YouTube, and the choice is remembered",
+      /p === "auto" && isYouTube\(url\)/.test(body) && /setSaverPref\(next\)/.test(body) && /cmd\(\{ t: "saver", on: want \}\)/.test(body));
 
     /* What IS here: starting over, and the engine diagnostic, both
        of which are about the session rather than about a page. */

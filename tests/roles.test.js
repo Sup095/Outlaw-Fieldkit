@@ -210,6 +210,30 @@ const tierOf = async (token, handle) =>
       (await role(owner, "cyd", "promote")).status === 409);
   }
 
+  section("FULL MODE, the home browser: admins, and members allowed");
+  {
+    const fay = (await mk("fay")).data.token;
+    await role(owner, "fay", "approve");
+    const people = async () => (await api("GET", "/msg/people", undefined, owner)).data.people;
+    const homeOf = async (h) => ((await people()).filter((p) => p.handle === h)[0] || {}).home;
+    const browseTicket = (t) => api("POST", "/browse/ticket", {}, t);
+    ok("an approved member has the lighter mode only, at first", (await homeOf("fay")) === false);
+    let r = await browseTicket(fay);
+    ok("…and the relay refuses them a home browser", r.status === 403 && r.data.lightOnly === true, JSON.stringify(r.data));
+    ok("an admin has it without asking", (await homeOf("owner")) === true && (await browseTicket(owner)).status !== 403);
+    ok("a guest cannot be given it", (await role(owner, "dee", "allow-home")).status === 409);
+    ok("a member cannot give it to anyone", (await role(fay, "fay", "allow-home")).status === 403);
+    r = await role(owner, "fay", "allow-home");
+    ok("an admin allows a member", r.status === 200 && r.data.home === true && r.data.tier === "member", JSON.stringify(r.data));
+    ok("…and the relay lets them in", (await browseTicket(fay)).status !== 403 && (await homeOf("fay")) === true);
+    ok("…and takes it away again", (await role(owner, "fay", "deny-home")).data.home === false && (await browseTicket(fay)).status === 403);
+    await role(owner, "fay", "allow-home");
+    await role(owner, "fay", "unapprove");
+    await role(owner, "fay", "approve");
+    ok("unapproving a member takes it with it", (await homeOf("fay")) === false);
+    ok("it is in the audit log", (await api("GET", "/msg/people", undefined, owner)).data.audit.some((a) => a.action === "allow-home" && a.target === "fay"));
+  }
+
   section("it is written down, and it survives a restart");
   {
     const p = (await api("GET", "/msg/people", undefined, owner)).data;

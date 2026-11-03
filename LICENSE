@@ -1,11 +1,17 @@
-Outlaw FieldKit License, version 1.0
+Outlaw FieldKit License, version 1.1
 
 Copyright (c) 2026 Sup095
 
 This is a source-available license. It is NOT an open-source license:
-it lets you use, run and improve the software, but not sell it, earn
-money with it, or publish copies of it elsewhere. Everything not
-allowed below is reserved by the licensor.
+it lets you use, run and improve the software, and charge people for
+a server you run with it, but not sell the software itself or publish
+copies of it elsewhere. Everything not allowed below is reserved by
+the licensor.
+
+What changed from version 1.0: running a server for other people may
+now earn money (section 2(f)), to pay for the servers and to make a
+reasonable profit. Selling or handing out the software itself is still
+not allowed.
 
 
 1. Words used here
@@ -19,11 +25,17 @@ and any copy or changed version of them.
 "You" means the person or organisation using the software under this
 license.
 
-"Commercial use" means using the software for money or for a
-business. That includes: selling or licensing the software or a
-changed version; charging anyone to use it or to use a server that
-runs it; putting ads in or around it; offering it as part of a paid
-product or service; and using it inside a business to make money.
+"Hosting income" means money you take for a server you run with the
+software: access fees, subscriptions, donations, sponsorships, and
+ads shown around the service (not inserted into the pages people
+visit through it).
+
+"Commercial use" means making money from the software itself, or using
+it for money in any way other than hosting income. That includes:
+selling or licensing the software or a changed version; charging for
+its code or its release files; putting it, or a rebranded copy of it,
+into a product you sell or license to others; and selling it to
+businesses to run as their own (white-labelling).
 
 
 2. What you may do
@@ -51,6 +63,23 @@ the software, you may:
   (e) Point people to it. Link to the official repository, its
       releases, or a server running the software.
 
+  (f) Earn hosting income. Run a server with the software, or a
+      changed version of it as allowed in 2(b), for other people, and
+      take hosting income for it: to pay for the servers, the
+      connection and your time, and to make a reasonable profit. If
+      you do:
+        - say, where people pay or sign up, that the service is built
+          on Outlaw FieldKit, with a link to the official repository;
+        - be honest about what people get, and keep to the laws that
+          apply to you, including consumer, privacy and tax law; and
+        - keep to the licenses of the parts that are other people's
+          work (section 5). Some of them, such as libcurl-transport
+          (AGPL-3.0) in the lighter browser, ask that people who use
+          them over a network can get their source; the software
+          already links it, so do not remove those links.
+      The software's own files, the official release files included,
+      stay free of charge: you charge for the service, not for them.
+
 
 3. What you may not do
 
@@ -69,7 +98,7 @@ the software, you may:
       credit to the licensor in the software.
 
   (d) Present a server you run, or a changed version you make, as the
-      official one.
+      official one, or as made by the licensor.
 
   (e) Sublicense the software, or grant anyone more rights in it than
       this license gives you.
@@ -99,6 +128,9 @@ anything their licenses allow. They include:
 
   - vendor/web-llm.js, a build of WebLLM (MLC AI), under the Apache
     License 2.0;
+  - the lighter browser's client files, fetched when its image is
+    built: Scramjet and bare-mux (MIT), libcurl-transport (AGPL-3.0)
+    and libcurl.js (LGPL-3.0);
   - programs fetched or installed when the relay or run server is set
     up or runs, such as Chromium, FFmpeg, PulseAudio, Wine, cloudflared
     and Tailscale;

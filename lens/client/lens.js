@@ -16,6 +16,7 @@
    INSIDE BROWSER (an iframe) the panel and this page talk by
    postMessage, always tagged fk:"lens":
      out: ready, nav {url,title}, blocked {host,kind,why}, expired, failed {why},
+          password {host} (a password box was touched: warned here),
           stream {url} (a site lens cannot play: open it in full mode)
      in:  go {url}, pass {pass}, back, forward, reload
    On its own tab, it works the same with nobody listening.
@@ -92,6 +93,10 @@
     if (passLeft() <= 0) return expired();
     if (!("serviceWorker" in navigator)) return fail("This browser does not allow the service worker lens needs.");
     try {
+      var st = await fetch("/lens/status", { cache: "no-store" }).then(function (r) { return r.json(); });
+      youtubeHere = !!(st && st.youtube);
+    } catch (e) { youtubeHere = false; }
+    try {
       var Loader = window.$scramjetLoadController;
       scramjet = new (Loader().ScramjetController)({
         files: { wasm: V.scram + "scramjet.wasm.wasm", all: V.scram + "scramjet.all.js", sync: V.scram + "scramjet.sync.js" }
@@ -137,12 +142,15 @@
   function hostOf(u) { try { return new URL(u).hostname.toLowerCase(); } catch (e) { return ""; } }
 
   /* YouTube will not play for a rented server's address ("Sign in to
-     confirm you're not a bot", and no video at all), whatever lens does.
-     BROWSER's streamed mode plays it from the relay's own connection, so
-     inside BROWSER it is handed over there; on a tab of its own, said. */
+     confirm you're not a bot"). When the server sends YouTube out through
+     WARP or a bought address (lens/egress.js) its status says youtube,
+     and YouTube plays here like any site. Otherwise BROWSER's streamed
+     mode plays it from home, so inside BROWSER it is handed over there;
+     on a tab of its own, said. */
   var HANDOFF = /(^|\.)(youtube\.com|youtu\.be|youtube-nocookie\.com)$/;
+  var youtubeHere = false;
   function handOff(u) {
-    if (!HANDOFF.test(hostOf(u))) return false;
+    if (youtubeHere || !HANDOFF.test(hostOf(u))) return false;
     if (embedded) {
       tell({ t: "stream", url: u });
       say("YouTube opens in BROWSER's full mode, which can play it.", "warn");
@@ -187,6 +195,7 @@
     frame.frame.addEventListener("load", function () {
       var u = "", title = "";
       try { u = String(frame.url || ""); } catch (x) {}
+      watchPasswords();
       if (!u) return;
       why(hostOf(u));
       /* urlchange comes before the page has a title; now it has one. */
@@ -197,6 +206,30 @@
       }
     });
     return frame;
+  }
+
+  /* Every site here shares this one origin and leaves through a shared
+     server, so a sign-in is not private: anything kept for one site can
+     be read by another. The bar says so all the time; a password box
+     says it again, loudly, the moment it is touched. */
+  var warnedFor = "";
+  function watchPasswords() {
+    var doc = null;
+    try { doc = frame && frame.frame.contentDocument; } catch (x) { doc = null; }
+    if (!doc || doc.fkWatched) return;
+    doc.fkWatched = true;
+    doc.addEventListener("focusin", function (e) {
+      var t = e.target;
+      if (!t || t.tagName !== "INPUT" || String(t.type).toLowerCase() !== "password") return;
+      var h = "";
+      try { h = hostOf(String(frame.url || "")); } catch (x) {}
+      if (warnedFor === h) return;
+      warnedFor = h;
+      say("STOP: do not type a password here. This browser is shared and is not private: sites in it can read " +
+        "each other's sign-ins. Sign in to things only in your own browser" +
+        (embedded ? ", or in BROWSER's FULL MODE if an admin has given you it." : "."), "fail", true);
+      tell({ t: "password", host: h });
+    }, true);
   }
 
   async function go(text) {

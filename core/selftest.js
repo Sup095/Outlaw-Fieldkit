@@ -226,18 +226,6 @@
           (helpers.length ? ", helpers: " + helpers.filter(function (h) { return h.up; }).length + " of " + helpers.length + " up" +
             (helpers.some(function (h) { return h.up && h.gpu; }) ? ", with a graphics card" : "") : "");
       }),
-      /* FULL MODE on the rented server: the panel connects to it
-         directly, so THIS network has to reach it too. */
-      check("FULL MODE, RENTED", false, async function () {
-        var b = await getJson(relayBase() + "/browser/status");
-        var c = (b && Array.isArray(b.helpers) ? b.helpers : []).filter(function (h) { return h.cloud && h.url; });
-        if (!c.length) throw new Error("SKIPPED — not set up on this relay; FULL MODE runs at home");
-        if (!c.some(function (h) { return h.up; })) throw new Error("set up, but the relay cannot reach it right now; FULL MODE runs at home meanwhile");
-        var s = null;
-        try { s = await getJson(c[0].url + "/helper/hello"); } catch (e) { s = null; }
-        if (!s || !s.ok) throw new Error("the relay uses it, but this network did not reach " + c[0].url + " — FULL MODE here will run at home");
-        return "in use, and this network reaches it: FULL MODE's pictures come from it, not the home connection";
-      }),
       /* The lighter mode: what the relay says, then whether THIS network
          reaches the lens server, which a school's filter may not. */
       check("LIGHTER BROWSER", false, async function () {

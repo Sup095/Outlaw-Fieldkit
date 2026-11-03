@@ -196,7 +196,7 @@ var driveChecked = false, relayChecked = false, ranAuto = false;
 var manifestInfo = null;
 /* The FieldKit version this page was written for; a test keeps it
    equal to core/kernel.js, so it is updated with every release. */
-var FOR_VERSION = "0.9.0";
+var FOR_VERSION = "0.10.0";
 /* Next to the drive's files (FIELDKIT.html, core/...), or next to the
    downloaded single-file builds. Decided by whether core/kernel.js loads. */
 var layout = "unknown";
@@ -931,18 +931,6 @@ async function checkServices(G, base) {
       " of " + hs.length + " helper machine(s) up" + (hs.some(function (h) { return h.up && h.gpu; }) ? ", one with a graphics card" : "") : ""));
   } else {
     rec(G, "streamed browser", "INFO", b.v ? "switched off on this relay" : "this relay does not offer it");
-  }
-  /* FULL MODE on the rented server. Like the lighter mode, this page
-     asks only the relay; FieldKit's DIAGNOSTICS checks from the device
-     that this network reaches it (if not, FULL MODE runs at home). */
-  var cl = b.v && Array.isArray(b.v.helpers) ? b.v.helpers.filter(function (h) { return h.cloud; }) : [];
-  if (cl.length) {
-    var cup = cl.some(function (h) { return h.up; });
-    rec(G, "full mode, rented", cup ? "PASS" : "WARN", cup
-      ? "in use: FULL MODE's pictures come from FieldKit's cloud server, not the home connection (DIAGNOSTICS in FieldKit checks this network reaches it)"
-      : "set up, but the relay cannot reach it right now; FULL MODE runs at home meanwhile");
-  } else if (b.v && b.v.enabled) {
-    rec(G, "full mode, rented", "INFO", "not set up on this relay; FULL MODE runs at home");
   }
   /* The lighter mode runs on another server; this page asks only the
      relay, so it says what the relay says. FieldKit's DIAGNOSTICS asks
