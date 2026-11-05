@@ -115,7 +115,8 @@
       ui.clear(nodes.list);
       list.forEach(function (m) {
         nodes.list.appendChild(el("div", { class: "chat-row" }, [
-          el("span", { class: "chat-name", text: m.id + " · needs about " + m.mb + " MB" }),
+          el("span", { class: "chat-name", text: m.id + " · needs about " + m.mb + " MB" +
+            (m.shelf ? " · ON YOUR RELAY (" + m.shelf.mb + " MB download)" : "") }),
           ui.button("INSTALL", function () { installModel(m); })
         ]));
       });
@@ -125,9 +126,9 @@
   async function installModel(m) {
     var guard = alive;
     try {
-      await FieldKit.need("aiInstall").install(m, function (part, name, viaRelay) {
+      await FieldKit.need("aiInstall").install(m, function (part, name, viaRelay, fromShelf) {
         if (guard()) say("Installing " + m.id + ": " + Math.round(part * 100) + "% " + (name || "") +
-          (viaRelay ? " (through your relay, as this network blocks Hugging Face: slower)" : ""));
+          (fromShelf ? " (from your relay)" : viaRelay ? " (through your relay, as this network blocks Hugging Face: slower)" : ""));
       });
       if (!guard()) return;
       say("Installed. Press USE.");

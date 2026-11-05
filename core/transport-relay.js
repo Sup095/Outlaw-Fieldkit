@@ -72,6 +72,10 @@
     name: "relay",
     label: "PTERODACTYL RELAY",
 
+    /* Every address the relay answers on (relay/addresses.js), with the
+       vault's token; null when the vault is not open. */
+    addresses: function () { return token ? call("GET", "/relay/addresses") : Promise.resolve(null); },
+
     configure: function (u, opts) {
       baseUrl = u || "";
       if (opts && typeof opts.provisionToken === "string") provisionToken = opts.provisionToken;

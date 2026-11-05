@@ -23,7 +23,11 @@
 
    Two places, and the newer wins:
      1. GitHub. With updates.githubRepo set, the relay reads the
-        latest release there every mirrorEveryMin minutes. Its notes
+        latest release there every checkEveryMin minutes (10), and
+        at once when anyone asks POST /updates/check (at most once a
+        minute), which is what a release does right after it is made.
+        GitHub's answer carries an ETag, so a check that finds nothing
+        new is a 304 that costs nothing against its rate limit. Its notes
         carry the signed record (between FIELDKIT-RELEASE markers,
         written by `node build.js --release`); the relay downloads
         each file it names, keeps it only if its hash matches, and
@@ -59,7 +63,12 @@ let timer = null;
 /* What the GitHub mirror last did, for /updates/status and DIAGNOSTICS. */
 const mirrorState = { checkedAt: null, version: null, error: null, busy: false };
 
-const CONFIG_DEFAULTS = { enabled: false, githubRepo: "", mirrorEveryMin: 360 };
+/* checkEveryMin replaced mirrorEveryMin (360) in 0.11.0: a release took up
+   to six hours to reach the relay unless it was restarted. The old key is
+   ignored, so a config.json written before then gets the new pace. */
+const CONFIG_DEFAULTS = { enabled: false, githubRepo: "", checkEveryMin: 10 };
+const CHECK_GAP_MS = 60000;
+let etag = null;
 
 /* The signed record inside a release's notes. Kept identical to
    parseReleaseBody() in modules/updater.js; tests/updates.test.js
@@ -87,7 +96,7 @@ function init(opts) {
   if (cfg.githubRepo && !validRepo(cfg.githubRepo)) {
     log("WARN", "updates: githubRepo should look like owner/name; not mirroring");
   } else if (cfg.githubRepo && opts.mirror !== false) {
-    const every = Math.max(10, Number(cfg.mirrorEveryMin) || 360) * 60000;
+    const every = Math.max(5, Number(cfg.checkEveryMin) || 10) * 60000;
     setTimeout(() => { mirror().catch(() => {}); }, 15000).unref();
     timer = setInterval(() => { mirror().catch(() => {}); }, every);
     if (timer.unref) timer.unref();
@@ -160,9 +169,13 @@ async function mirror(fetcher) {
   const get = fetcher || fetchWithin;
   mirrorState.busy = true;
   try {
-    const r = await get("https://api.github.com/repos/" + cfg.githubRepo + "/releases/latest",
-      { headers: { "Accept": "application/vnd.github+json", "User-Agent": "fieldkit-relay" } });
+    const have0 = readRel(MIRROR);
+    const headers = { "Accept": "application/vnd.github+json", "User-Agent": "fieldkit-relay" };
+    if (etag && have0) headers["If-None-Match"] = etag;
+    const r = await get("https://api.github.com/repos/" + cfg.githubRepo + "/releases/latest", { headers });
+    if (r.status === 304) { mirrorState.error = null; return mirrorState; }
     if (!r.ok) throw new Error("GitHub answered " + r.status);
+    const tag = r.headers && typeof r.headers.get === "function" ? r.headers.get("etag") : null;
     const gh = await r.json();
     const rel = parseReleaseBody(gh.body);
     if (!rel) throw new Error("release " + (gh.tag_name || "?") + " carries no signed FieldKit record in its notes");
@@ -172,6 +185,7 @@ async function mirror(fetcher) {
         rel.files.every((f) => fs.existsSync(path.join(MIRROR, f.name)))) {
       mirrorState.version = rel.version;
       mirrorState.error = null;
+      etag = tag;
       return mirrorState;
     }
     const stage = MIRROR + ".incoming";
@@ -201,6 +215,7 @@ async function mirror(fetcher) {
     fs.rmSync(MIRROR + ".old", { recursive: true, force: true });
     mirrorState.version = rel.version;
     mirrorState.error = null;
+    etag = tag;
     log("INFO", "updates: mirrored v" + rel.version + " from GitHub (" + rel.files.length + " file(s))");
     return mirrorState;
   } catch (e) {
@@ -226,7 +241,7 @@ function fileNamed(rel, name) {
   return (rel.files || []).find((f) => f.name === name) || null;
 }
 
-const ROUTES_BY_NAME = { latest: ["GET"], file: ["GET"], status: ["GET"] };
+const ROUTES_BY_NAME = { latest: ["GET"], file: ["GET"], status: ["GET"], check: ["POST"] };
 
 async function route(req, res, url, helpers) {
   const seg = url.pathname.replace(/^\/+|\/+$/g, "").split("/");
@@ -255,6 +270,16 @@ async function route(req, res, url, helpers) {
 
   const cur = current();
 
+  /* Look at GitHub now, rather than at the next tick: anyone may ask,
+     at most once a minute, and it can only fetch what is signed. */
+  if (what === "check") {
+    const last = mirrorState.checkedAt ? Date.parse(mirrorState.checkedAt) : 0;
+    if (cfg.githubRepo && validRepo(cfg.githubRepo) && Date.now() - last >= CHECK_GAP_MS) await mirror();
+    const now = current();
+    send(res, 200, { serving: now ? now.rel.version : null, checkedAt: mirrorState.checkedAt, error: mirrorState.error });
+    return true;
+  }
+
   if (what === "status") {
     send(res, 200, { serving: cur ? cur.rel.version : null, source: cur ? cur.source : null,
       github: cfg.githubRepo ? { repo: cfg.githubRepo, checkedAt: mirrorState.checkedAt,
@@ -264,7 +289,7 @@ async function route(req, res, url, helpers) {
 
   if (!cur) {
     send(res, 503, { error: "this relay has no release to offer yet",
-      detail: cfg.githubRepo ? "it fetches the GitHub release every " + cfg.mirrorEveryMin + " minutes" +
+      detail: cfg.githubRepo ? "it fetches the GitHub release every " + cfg.checkEveryMin + " minutes" +
         (mirrorState.error ? "; last time: " + mirrorState.error : "")
         : "run `node build.js --release` on the SSD and upload release/ into data/updates/" });
     return true;

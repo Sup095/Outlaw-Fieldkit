@@ -247,22 +247,27 @@ function create(cfg, logFn) {
 
   async function fetchKey() {
     if (cfg.ticketPublicKey) return setKey(cfg.ticketPublicKey, "config");
-    if (!cfg.relayUrl) { state.keyWhy = "neither relayUrl nor ticketPublicKey is set"; return false; }
-    try {
-      const res = await fetch(String(cfg.relayUrl).replace(/\/+$/, "") + "/runner/pubkey",
-        { signal: AbortSignal.timeout(8000) });
-      if (!res.ok) throw new Error("the relay answered " + res.status);
-      const body = await res.json();
-      if (!body || !body.publicKey) throw new Error("the relay sent no key");
-      const had = !!state.key;
-      if (setKey(body.publicKey, "the relay") && !had) log("INFO", "runnerd: have the relay's ticket key");
-      return !!state.key;
-    } catch (e) {
-      /* Keep an old key if there is one. A relay that is briefly
-         down should not log everybody out of a machine that is up. */
-      if (!state.key) state.keyWhy = "could not get the relay's key: " + e.message;
-      return false;
+    /* One address, or several ("a, b" or an array): the owner deletes
+       blocked hostnames from the tunnel, so each is tried in turn. */
+    const bases = (Array.isArray(cfg.relayUrl) ? cfg.relayUrl : String(cfg.relayUrl || "").split(/[\s,]+/))
+      .map((s) => String(s).trim().replace(/\/+$/, "")).filter(Boolean);
+    if (!bases.length) { state.keyWhy = "neither relayUrl nor ticketPublicKey is set"; return false; }
+    const why = [];
+    for (const base of bases) {
+      try {
+        const res = await fetch(base + "/runner/pubkey", { signal: AbortSignal.timeout(8000) });
+        if (!res.ok) throw new Error("the relay answered " + res.status);
+        const body = await res.json();
+        if (!body || !body.publicKey) throw new Error("the relay sent no key");
+        const had = !!state.key;
+        if (setKey(body.publicKey, "the relay") && !had) log("INFO", "runnerd: have the relay's ticket key from " + base);
+        return !!state.key;
+      } catch (e) { why.push(base.replace(/^https?:\/\//, "") + ": " + e.message); }
     }
+    /* Keep an old key if there is one. A relay that is briefly
+       down should not log everybody out of a machine that is up. */
+    if (!state.key) state.keyWhy = "could not get the relay's key: " + why.join("; ");
+    return false;
   }
 
   /* ---- counting ---- */
@@ -1049,6 +1054,10 @@ if (require.main === module) {
   let cfg;
   try { cfg = loadConfig(fs.existsSync(file) ? file : null); }
   catch (e) { console.error("runnerd: " + file + " is not valid JSON — " + e.message); process.exit(1); }
+  /* FK_RELAY_URL (compose reads it from /srv/fieldkit/app/.env) beats
+     the file: the file is root's, and the relay's addresses change when
+     a blocked one is deleted. One address or several, "a,b". */
+  if (process.env.FK_RELAY_URL) cfg.relayUrl = process.env.FK_RELAY_URL;
   let app;
   try { app = create(cfg); } catch (e) { console.error("runnerd: " + e.message); process.exit(1); }
   app.listen().catch((e) => { console.error("runnerd: could not start — " + e.message); process.exit(1); });

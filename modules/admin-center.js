@@ -111,6 +111,17 @@
     if (b.enabled) kids = kids.concat(lensRows(b.lens));
     var r = d.runner;
     kids.push(row("RUNNER", !r || !r.enabled ? "switched off" : (r.online ? (r.jobs || 0) + " running, " + (r.sessions || 0) + " connected" : (r.why || "offline")), r && r.enabled && !r.online ? "bad" : ""));
+    /* Every address the relay answers on, read from its tunnel
+       (relay/addresses.js); panels learn these by themselves. */
+    var a = d.addresses;
+    if (a) kids.push(row("ADDRESSES", a.list.length
+      ? a.list.map(function (x) { return x.replace(/^https?:\/\//, ""); }).join(", ") + (a.error ? "  ·  last read failed: " + a.error : "")
+      : (a.error || "none read yet"), a.list.length ? "" : "warn"));
+    /* The tiny models kept on the relay (relay/model-shelf.js). */
+    var sh = d.shelf;
+    if (sh) kids.push(row("MODELS ON THE RELAY", (sh.models.length
+      ? sh.models.map(function (x) { return x.id + " (" + x.mb + " MB)"; }).join(", ") : "none yet") +
+      (sh.filling ? "  ·  fetching " + sh.filling : "") + (sh.error ? "  ·  " + sh.error : ""), sh.error ? "warn" : ""));
     var u = d.updates;
     if (u) kids.push(row("UPDATES", (u.serving ? "serving " + u.serving : "nothing to serve") + (u.error ? "  ·  " + u.error : ""), u.error ? "warn" : ""));
     kids.push(el("div", { class: "ac-btns" }, [

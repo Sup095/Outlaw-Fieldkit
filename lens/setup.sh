@@ -55,7 +55,10 @@ if [ ! -f "$ETC/config.json" ]; then
 EOF
   echo "wrote $ETC/config.json"
 else
-  echo "kept $ETC/config.json"
+  # The relay's addresses change when a blocked one is deleted from the
+  # tunnel, so this run's list replaces the one in the kept file.
+  sed -i "s#\"relayUrl\": *\"[^\"]*\"#\"relayUrl\": \"$RELAY\"#" "$ETC/config.json"
+  echo "kept $ETC/config.json (relayUrl: $RELAY)"
 fi
 TOKEN_MOUNT=""
 if [ -f "$ETC/provider-token" ]; then

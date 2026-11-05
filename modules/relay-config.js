@@ -104,7 +104,7 @@
     settings().set("relayUrl", url);
     settings().set("relayProvisionToken", tok);
     relay().configure(url, { provisionToken: tok });
-    status("SAVED — RESTART FIELDKIT TO CONNECT ON BOOT", "pass");
+    status("SAVED — THE VAULT MOVES TO IT NOW IF IT ANSWERS", "pass");
     ui.toast("RELAY CONFIG SAVED", "ok");
   }
 

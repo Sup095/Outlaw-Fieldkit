@@ -290,6 +290,15 @@
     FieldKit.on("store:overwrote", announceOverwrite);
     renderStoreState({ state: FieldKit.service("store") ? FieldKit.service("store").state() : "INIT" });
     refreshPending();
+    if (onOutpost()) {
+      checkRelay();
+      setInterval(checkRelay, RELAY_CHECK_MS);
+      FieldKit.on("settings:changed", function (e) { if (e && e.key === "relayUrl") { relayAnswers = null; checkRelay(); } });
+    }
+    /* Clicking the state opens RELAY LINK, where the address is changed. */
+    trayStatus.style.cursor = "pointer";
+    trayStatus.title = "open RELAY LINK";
+    trayStatus.addEventListener("click", function () { if (FieldKit.service("shell")) FieldKit.service("shell").open("relay-link"); });
   }
 
   /* Somebody else's work just landed. Say whose, and what — a change
@@ -345,14 +354,43 @@
     var store = FieldKit.service("store");
     var t = store && typeof store.transportName === "function"
       ? store.transportName() : "none";
-    if (t === "relay") return "RELAY ONLINE";
+    if (t === "relay") return "RELAY ONLINE" + relayHostSuffix();
     if (t === "local") return "LOCAL ONLY — NO RELAY";
     if (t === "memory") return "MEMORY ONLY";
     return "ONLINE";
   }
 
+  function relayHostSuffix() {
+    var st = FieldKit.service("settings");
+    var u = st ? String(st.get("relayUrl") || "") : "";
+    try { return u ? " · " + new URL(/^[a-z]+:\/\//i.test(u) ? u : "https://" + u).hostname.toUpperCase() : ""; } catch (e) { return ""; }
+  }
+
+  /* OUTPOST has no vault, so its store is always this machine's and the
+     bar said LOCAL ONLY — NO RELAY with MESSAGES and BROWSER working on
+     the relay all along. There, the bar says whether the relay answers:
+     asked every RELAY_CHECK_MS, and again when the address changes. */
+  var RELAY_CHECK_MS = 60000;
+  var relayAnswers = null;          /* null: not asked yet */
+  async function checkRelay() {
+    var st = FieldKit.service("settings"), rc = FieldKit.service("relayChoice");
+    var u = st ? String(st.get("relayUrl") || "").trim() : "";
+    if (!u || !rc) { relayAnswers = null; return renderStoreState(); }
+    var url = rc.clean(u);
+    var yes = url ? await rc.answers(url) : false;
+    relayAnswers = yes;
+    renderStoreState();
+  }
+
+  function outpostLabel() {
+    var st = FieldKit.service("settings");
+    if (!st || !String(st.get("relayUrl") || "").trim()) return ["warn", "NO RELAY SET"];
+    if (relayAnswers === null) return ["warn", "RELAY: CHECKING"];
+    return relayAnswers ? ["ok", "RELAY ONLINE" + relayHostSuffix()] : ["warn", "RELAY NOT ANSWERING" + relayHostSuffix()];
+  }
+
   function renderStoreState(e) {
-    var s = (e && e.state) || "INIT";
+    var s = (e && e.state) || (FieldKit.service("store") ? FieldKit.service("store").state() : "INIT");
     var map = {
       ONLINE: ["ok", transportLabel],
       OFFLINE: ["warn", "OFFLINE — QUEUED"],
@@ -365,7 +403,8 @@
     if (typeof m[1] === "function") m = [m[0], m[1]()];
     /* Online through something that is not the relay is a true and
        useful thing to say, but it is not the all-clear. */
-    if (s === "ONLINE" && m[1] !== "RELAY ONLINE") m = ["warn", m[1]];
+    if (s === "ONLINE" && m[1].indexOf("RELAY ONLINE") !== 0) m = ["warn", m[1]];
+    if (onOutpost()) m = outpostLabel();
     ui.clear(trayStatus);
     trayStatus.className = "fk-status fk-status-" + m[0];
     trayStatus.appendChild(el("span", { class: "fk-dot" }));

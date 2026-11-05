@@ -195,11 +195,13 @@
     "maxBusy": 4,
     "perIp": 2
   },
-  "_updates": "Signed releases (FIELDKIT_PROJECT.md 14.4, 14.43). This relay NEVER signs anything and holds no key: `node build.js --release` signs on the SSD, and the client checks the signature against a public key built into the client itself, so a relay that is taken over can withhold an update or serve a stale one but cannot forge one. With githubRepo set, the relay fetches the latest GitHub release every mirrorEveryMin minutes, keeps each file only if its hash matches the signed record in the release notes, and serves the copy: the fallback for networks that block GitHub, and how a page gets the bytes to check. A release/ folder uploaded into data/updates/ still works; the newer of the two is served. Public: the builds are public anyway, and OUTPOST needs them.",
+  "_addresses": "Every hostname of this relay's Cloudflare tunnel, read from cloudflared itself and checked, is given to signed-in panels, which keep their spare addresses in step (relay/addresses.js). extra: addresses the tunnel does not list. private: hostnames never given out, such as one kept only for the servers (lens, browser helpers, runnerd) so it is never seen on a school network and blocked.",
+  "addresses": { "enabled": true, "everyMin": 5, "extra": [], "private": [] },
+  "_updates": "Signed releases (FIELDKIT_PROJECT.md 14.4, 14.43). This relay NEVER signs anything and holds no key: `node build.js --release` signs on the SSD, and the client checks the signature against a public key built into the client itself, so a relay that is taken over can withhold an update or serve a stale one but cannot forge one. With githubRepo set, the relay fetches the latest GitHub release every checkEveryMin minutes, and at once on POST /updates/check (at most once a minute), keeps each file only if its hash matches the signed record in the release notes, and serves the copy: the fallback for networks that block GitHub, and how a page gets the bytes to check. A release/ folder uploaded into data/updates/ still works; the newer of the two is served. Public: the builds are public anyway, and OUTPOST needs them.",
   "updates": {
     "enabled": true,
     "githubRepo": "Sup095/Outlaw-Fieldkit",
-    "mirrorEveryMin": 360
+    "checkEveryMin": 10
   },
 
   "rateLimit": {

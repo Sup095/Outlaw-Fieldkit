@@ -282,9 +282,11 @@
         { h: "GET A MODEL FOR THIS BROWSER" },
         { steps: [
           "Open MODELS, then press GET A TINY MODEL.",
-          "Press INSTALL on the smallest one. It downloads a few hundred MB, once.",
+          "Press INSTALL on one marked ON YOUR RELAY. It downloads a few hundred MB, once.",
           "Press USE. After that it needs no internet."
         ] },
+        "ON YOUR RELAY ones come from the relay alone, never from Hugging Face, so a " +
+        "network that blocks Hugging Face does not stop them. " +
         "It lives in this browser on this machine, and needs a browser with WebGPU. " +
         "Models that run here cost the server nothing, which is why anyone may use them.",
         { note: "Small models are quick, and wrong about a lot. Check anything that matters." },
@@ -478,7 +480,14 @@
         { h: "AT START" },
         "Each start shows the address in use for a few seconds, so it can be changed " +
         "before connecting. DON'T ASK AT START skips that from then on; RELAY LINK has " +
-        "the switch to bring it back.",
+        "the switch to bring it back. If no saved address answers (it may be blocked), " +
+        "the question comes back anyway, for 30 seconds, so a new address can be typed.",
+        { h: "NEW ADDRESSES BY THEMSELVES" },
+        "After you sign in (MESSAGES, or the vault), FieldKit asks the relay for every " +
+        "address it answers on: new ones are saved, and ones the relay no longer has are " +
+        "forgotten. If the one in use was deleted, it moves to one that answers. GET THE " +
+        "RELAY'S ADDRESSES in RELAY LINK asks at once. The bar at the bottom says which " +
+        "address is in use; click it to open RELAY LINK.",
         { see: ["network", "provision"] }
       ]
     },

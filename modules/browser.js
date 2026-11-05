@@ -147,6 +147,14 @@
      and its stylesheet. */
   var TICKET_FRESH_MS = 20 * 60 * 1000;
 
+  /* lens/client/lens.js CODEC.encode, the same pattern: an address
+     written so that a monitor reading it sees letters, not a site. */
+  function lensMask(u) {
+    var b = new TextEncoder().encode(String(u)), s = "";
+    for (var i = 0; i < b.length; i++) s += String.fromCharCode(b[i] ^ ((i * 31 + 7) & 255));
+    return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
+
   /* A dropped stream connects again by itself this many times (about
      ten minutes, at most 15 s apart) before the panel asks for ↻. */
   var RETRY_MAX = 45;
@@ -1872,9 +1880,12 @@
     findIn.addEventListener("input", drawPlaces);
     findIn.addEventListener("keydown", function (e) { e.stopPropagation(); if (e.key === "Escape") placesBar.style.display = "none"; });
 
-    /* The same page in a browser tab of its own, with the same pass. */
+    /* The same page in a browser tab of its own, with the same pass. The
+       site goes as x=, masked the way lens masks its own addresses
+       (lens/client/lens.js CODEC), so the new tab's address does not
+       name it either. */
     function openTab() {
-      window.open(lens.page + "#p=" + encodeURIComponent(lens.pass) + (view.url ? "&u=" + encodeURIComponent(view.url) : ""), "_blank", "noopener");
+      window.open(lens.page + "#p=" + encodeURIComponent(lens.pass) + (view.url ? "&x=" + lensMask(view.url) : ""), "_blank", "noopener");
     }
     function toFull(url) {
       if (!homeAllowed) return say(NO_HOME, "warn");

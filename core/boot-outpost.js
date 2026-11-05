@@ -115,8 +115,7 @@
   async function relayAddress() {
     var choice = FieldKit.service("relayChoice");
     if (!choice) return;
-    if (settings.get("relayAskAtBoot") !== false) await choice.ask(consoleEl);
-    var r = await choice.reachable(line);
+    var r = await choice.choose(consoleEl, line);
     var row = pair("RELAY", "");
     setValue(row,!r.url ? "NONE SET" : (r.ok ? "ANSWERS — " : "NO ANSWER — ") + r.url.replace(/^https?:\/\//, ""),
       !r.url ? "dim" : r.ok ? "pass" : "warn");

@@ -106,6 +106,7 @@
       async changePassword() {
         throw new Error("a guest session has no vault password to change");
       },
+      async reconnect() { return false; },
       async attachTransport() {
         throw new Error("a guest session has no vault to put on a transport");
       },

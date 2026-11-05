@@ -10,6 +10,15 @@
   "use strict";
 
   var NOTES = [
+    { v: "0.11.0", items: [
+      "New relay addresses arrive by themselves: after you sign in, the relay's list is saved and deleted addresses are forgotten.",
+      "If the address in use is blocked, the address question at start comes back even if you turned it off.",
+      "Changing the address no longer needs a restart, and the bar at the bottom names the address in use. Click it for RELAY LINK.",
+      "In OUTPOST the bar now says whether the relay answers, instead of always LOCAL ONLY.",
+      "A few tiny models are kept on the relay: GET A TINY MODEL lists them first (ON YOUR RELAY), and they never touch Hugging Face.",
+      "BROWSER's lighter mode no longer shows the site you are on in its addresses or the tab's title.",
+      "A new version is noticed while FieldKit stays open, not only at start, and the relay picks up a release within minutes."
+    ] },
     { v: "0.10.1", items: [
       "FULL MODE keeps going: a video no longer stops when nobody has looked for a while, and your session is not ended to make room for someone else.",
       "If the connection drops, FULL MODE connects again by itself and carries on where it was.",

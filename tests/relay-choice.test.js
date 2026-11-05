@@ -34,7 +34,7 @@ const asked = [];
 global.fetch = async (url) => {
   asked.push(String(url));
   const base = String(url).replace(/\/health$/, "");
-  if (up.has(base)) return { ok: true, status: 200 };
+  if (up.has(base)) return { ok: true, status: 200, json: async () => ({ service: "fieldkit-relay" }) };
   throw new Error("no answer");
 };
 
@@ -177,12 +177,70 @@ const input = (h) => all(h).find((n) => n.tagName === "INPUT");
       /askToggle\(/.test(read("modules/relay-link.js")) && /askToggle\(/.test(read("modules/relay-config.js")));
   }
 
+  section("a filter's page is not a relay");
+  {
+    const was = global.fetch;
+    global.fetch = async () => ({ ok: true, status: 200, json: async () => { throw new Error("html"); } });
+    ok("a 200 that is not JSON does not count", (await rc.answers("https://blocked.example")) === false);
+    global.fetch = async () => ({ ok: true, status: 200, json: async () => ({ blocked: true }) });
+    ok("nor JSON that is not FieldKit's", (await rc.answers("https://blocked.example")) === false);
+    global.fetch = was;
+  }
+
+  section("a blocked address offers the choice even with DON'T ASK AT START");
+  {
+    settings.set("relayAskAtBoot", false);
+    settings.set("relayUrl", "https://blocked.example.com");
+    settings.set("relayUrls", []);
+    up = new Set(["https://new.example.com"]);
+    const host = fakeElement("div"), said = [];
+    let r = null;
+    rc.choose(host, (t) => said.push(t)).then((x) => { r = x; });
+    await wait(30);
+    ok("it says the address may be blocked", said.some((t) => /may be blocked/.test(t)));
+    ok("and shows the choice, though it was turned off", /Connecting to blocked\.example\.com/.test(text(host)));
+    press("c");
+    await wait(10);
+    input(host).value = "new.example.com";
+    button(host, "ADD AND USE").click();
+    button(host, "CONTINUE").click();
+    await wait(30);
+    ok("the new one is used, and answers", r && r.url === "https://new.example.com" && r.ok === true, JSON.stringify(r));
+    settings.set("relayAskAtBoot", true);
+  }
+
+  section("learning the relay's own addresses");
+  {
+    const m = rc.merge(["https://old.x.com", "https://keep.x.com", "https://mine.other.org"], "https://old.x.com",
+      ["https://keep.x.com", "https://new.x.com"]);
+    ok("given ones are kept and added", m.list.indexOf("https://keep.x.com") >= 0 && m.list.indexOf("https://new.x.com") >= 0);
+    ok("a saved one on the same domain that is no longer given is dropped", m.list.indexOf("https://old.x.com") < 0 && m.dropped[0] === "https://old.x.com");
+    ok("one on another domain is left alone", m.list.indexOf("https://mine.other.org") >= 0);
+    ok("and the one in use, dropped, must be replaced", m.current === null);
+
+    settings.set("relayUrl", "https://old.x.com");
+    settings.set("relayUrls", ["https://mine.other.org"]);
+    let signedIn = false;
+    FieldKit.provide("messages", { signedIn: () => signedIn,
+      relayAddresses: async () => ({ addresses: ["https://keep.x.com", "https://new.x.com"] }) });
+    ok("not signed in: nothing is asked or changed", (await rc.learn({ force: true })) === null && settings.get("relayUrl") === "https://old.x.com");
+    signedIn = true;
+    up = new Set(["https://new.x.com"]);
+    const r = await rc.learn({ force: true });
+    ok("signed in: the deleted address in use is left for the first given one that answers",
+      settings.get("relayUrl") === "https://new.x.com", JSON.stringify(r));
+    ok("with the other given one and the other domain's kept as spares",
+      ["https://keep.x.com", "https://mine.other.org"].every((u) => settings.get("relayUrls").indexOf(u) >= 0) &&
+      settings.get("relayUrls").indexOf("https://old.x.com") < 0);
+    ok("asked again with nothing new, nothing changes", (await rc.learn({ force: true })).switched === null);
+  }
+
   section("both builds ask before connecting");
   {
     const read = (f) => fs.readFileSync(path.join(__dirname, "..", f), "utf8");
     ok("FIELDKIT and OUTPOST load it", ["FIELDKIT.html", "OUTPOST.html"].every((f) => /"core\/relay-choice\.js"/.test(read(f))));
-    ok("the full boot asks before its first connection", /choice\.ask\(consoleEl\)[\s\S]*var relayUrl = settings\.get\("relayUrl"\)/.test(read("core/boot.js")));
-    ok("OUTPOST asks too", /relayAddress\(\)/.test(read("core/boot-outpost.js")) && /choice\.ask\(consoleEl\)/.test(read("core/boot-outpost.js")));
+    ok("the full boot asks before its first connection", /choice\.choose\(consoleEl, line\)[\s\S]*var relayUrl = settings\.get\("relayUrl"\)/.test(read("core/boot.js")));
+    ok("OUTPOST asks too", /relayAddress\(\)/.test(read("core/boot-outpost.js")) && /choice\.choose\(consoleEl, line\)/.test(read("core/boot-outpost.js")));
     ok("spare addresses travel on the drive", /"relayUrls"/.test(read("core/drive-profile.js")));
   }
 

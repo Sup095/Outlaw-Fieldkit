@@ -41,6 +41,8 @@ const { Fairness } = require("./fairness");
 const { UpCap, Rate, paceFor, RESERVE_KBPS } = require("./upcap");
 const tinyAi = require("./tiny-ai");
 const modelMirror = require("./model-mirror");
+const modelShelf = require("./model-shelf");
+const addresses = require("./addresses");
 const topology = require("./topology");
 const { Overflow, loadKeys } = require("./overflow");
 const { LensLink } = require("./lens-link");
@@ -110,7 +112,7 @@ const DEFAULTS = {
   updates: {
     enabled: false,
     githubRepo: "",         // owner/name: mirror its latest signed release (14.43)
-    mirrorEveryMin: 360
+    checkEveryMin: 10
   },
   httpProxy: "",              // e.g. http://127.0.0.1:1055 for Tailscale userspace mode
   /* Whose X-Forwarded-For do we believe? Default: nobody. When the
@@ -1151,6 +1153,7 @@ const ROUTES = [
   "WS   /browser/stream",
   "GET  /updates/latest", "GET  /updates/file", "GET  /updates/status",
   "GET  /ai/tiny", "POST /ai/tiny/chat", "GET  /ai/engine.js", "GET  /ai/mirror", "GET  /topology",
+  "GET  /k/list", "GET  /k/<n>/<i>", "GET  /k/e.js", "GET  /relay/addresses",
   "GET  /notices", "GET  /probe", "POST /probe/result", "GET  /admin/overview", "POST /admin/announce", "POST /admin/block",
   "POST /admin/session", "POST /admin/report"
 ];
@@ -1265,6 +1268,29 @@ async function route(req, res, url) {
     if (await tinyAi.route(req, res, url, { send, readBody })) return;
     /* A tiny model's files, for a network that blocks Hugging Face. */
     if (await modelMirror.route(req, res, url, { send, clientIp })) return;
+  }
+
+  /* The models kept on the relay, under addresses that say nothing
+     (relay/model-shelf.js), and the engine under the same. */
+  if (seg[0] === "k") {
+    if (!hit("tiny:" + clientIp(req), config.rateLimit.runnerMax)) {
+      return send(res, 429, { error: "slow down", detail: "too many requests" });
+    }
+    if (seg[1] === "e.js" && !seg[2] && method === "GET") {
+      const u = new URL(url.href); u.pathname = "/ai/engine.js";
+      if (await tinyAi.route(req, res, u, { send, readBody })) return;
+    }
+    if (await modelShelf.route(req, res, url, { send, clientIp })) return;
+  }
+
+  /* Every address this relay answers on, read from its tunnel
+     (relay/addresses.js): for anyone signed in. */
+  if (seg[0] === "relay") {
+    if (!hit("addr:" + clientIp(req), config.rateLimit.updateMax)) {
+      return send(res, 429, { error: "slow down", detail: "too many requests" });
+    }
+    const signedIn = (r) => checkAuth(r).ok || !!((messaging.whoami(r) || {}).handle && !(messaging.whoami(r) || {}).banned);
+    if (await addresses.route(req, res, url, { send, authorise: signedIn })) return;
   }
 
   if (seg[0] === "topology" && !seg[1] && method === "GET") {
@@ -2075,6 +2101,9 @@ server.listen(config.port, config.host, () => {
     whoami: (r) => messaging.whoami(r) });
   if (ta.enabled) log("INFO", "tiny-ai: " + ta.models + " model(s) for members");
   modelMirror.init({ dataDir: DATA_DIR, config: config.modelMirror, log: log, engineFiles: tinyAi.enginePaths });
+  const sh = modelShelf.init({ dataDir: DATA_DIR, config: config.modelShelf, log: log, engineFiles: tinyAi.enginePaths });
+  log("INFO", sh.enabled ? "model-shelf: " + sh.models + " model(s) ready, the rest are fetched in the background" : "model-shelf: off");
+  addresses.init({ config: config.addresses, log: log, port: config.port });
 
   const rn = runner.init({ dataDir: DATA_DIR, config: config.runner || {}, log: log,
     whoami: (r) => messaging.whoami(r) });
@@ -2118,6 +2147,7 @@ server.listen(config.port, config.host, () => {
   notices = new Notices({ file: path.join(DATA_DIR, "announcement.json"), log: log });
   admin.init({ dataDir: DATA_DIR, engine: bw, overflow: overflow, fairness: fairness, runner: runner,
     messaging: messaging, updates: updates, notices: notices, config: config, log: log, lens: lens,
+    addresses: addresses, shelf: modelShelf,
     upload: () => ({ capMbps: fairness.settings().uploadCapMbps, relayKbps: relayNet.kbps, runnerKbps: Math.round(fairness.peerUp()),
       paceKbps: upcap.view().kbps, waited: upcap.view().waited }) });
   watchServices(bw, overflow, lens);

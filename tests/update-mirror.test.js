@@ -178,8 +178,8 @@ async function ask(pathname, query) {
     const settings = FieldKit.need("settings");
     settings.set("relayUrl", "https://one.example");
     settings.set("relayUrls", ["https://two.example"]);
-    const answers = { "https://one.example/health": { up: true, vaultProvisioned: true, features: ["records"] },
-      "https://two.example/health": { up: true },
+    const answers = { "https://one.example/health": { service: "fieldkit-relay", up: true, vaultProvisioned: true, features: ["records"] },
+      "https://two.example/health": { service: "fieldkit-relay", up: true },
       "https://one.example/browser/status": { enabled: true, available: true, sessions: 1, maxSessions: 4 },
       "https://one.example/runner/status": { enabled: true, online: true, ready: true },
       "https://one.example/updates/status": { serving: "0.3.0", source: "github" } };

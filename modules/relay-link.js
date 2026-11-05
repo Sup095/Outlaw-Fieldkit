@@ -156,6 +156,21 @@
     } catch (e) { return null; }
   }
 
+  function ago(iso) {
+    var s = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 1000));
+    return s < 90 ? "just now" : s < 5400 ? Math.round(s / 60) + " minutes ago" : s < 129600 ? Math.round(s / 3600) + " hours ago" : Math.round(s / 86400) + " days ago";
+  }
+
+  async function getAddresses() {
+    render("asking the relay for its addresses…");
+    var r = null;
+    try { r = await rc().learn({ force: true }); } catch (e) { r = null; }
+    if (!r) return render("the relay gave no list: sign in to MESSAGES (or unlock the vault) first, or this relay is older than 0.11.0", true);
+    render(r.added.length || r.dropped.length || r.switched
+      ? "added " + r.added.length + ", forgot " + r.dropped.length + (r.switched ? ", now using " + host(r.switched) : "")
+      : "the list was already up to date");
+  }
+
   function render(note, bad) {
     if (!nodes.root) return;
     ui.clear(nodes.root);
@@ -192,8 +207,15 @@
         ui.button("COPY ADDRESS", function () {
           ui.copy(cur, { title: "relay address" }).then(function (how) { if (how) ui.toast("ADDRESS COPIED", "ok"); });
         }),
+        /* The relay's own list (core/relay-choice.js learn()): it is
+           also asked by itself after every sign-in. */
+        ui.button("GET THE RELAY'S ADDRESSES", getAddresses, { title: "every address the relay answers on; needs a sign-in" }),
         ui.button("RELOAD FIELDKIT", function () { location.reload(); }, { title: "so open windows use the address in use" })
       ].filter(Boolean)));
+      var at = ctx.settings.get("relayAddressesAt");
+      nodes.root.appendChild(el("div", { class: "rl-p", text: at
+        ? "The list was last brought up to date by the relay " + ago(at) + ". New addresses are added and deleted ones forgotten by themselves after you sign in."
+        : "Sign in to MESSAGES (or unlock the vault) and this list fills itself from the relay: new addresses are added and deleted ones forgotten." }));
     }
 
     if (services && services.base === cur) {

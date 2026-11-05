@@ -34,13 +34,55 @@
   var RENEW_MS = 10 * 60 * 1000;
   var embedded = window.parent !== window;
 
+  /* ---- addresses that do not say where they go ---------------------
+     A school's monitor (Linewise and the like) reads every address a
+     tab and its frames load. Scramjet's default puts the site in plain
+     text, /scramjet/https%3A%2F%2Fwww.youtube.com%2F..., and a filter
+     that sees YouTube there blocks the lens address itself. So the site
+     is mixed with a fixed pattern and written as base64url under /c/:
+     the monitor sees lens.<domain>/c/<letters> and nothing else. This
+     is masking, not secrecy: anyone with this file can read it back.
+
+     Scramjet runs these two as text (it sends them to its service
+     worker), so each must stand alone. decode() keeps what a page adds
+     after the letters: a GET form replaces the query, as a browser
+     would, and a #fragment replaces the fragment. */
+  var CODEC = {
+    encode: function (e) {
+      if (!e) return e;
+      var b = new TextEncoder().encode(e), s = "";
+      for (var i = 0; i < b.length; i++) s += String.fromCharCode(b[i] ^ ((i * 31 + 7) & 255));
+      return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    },
+    decode: function (e) {
+      if (!e) return e;
+      var cut = e.search(/[?#]/), head = cut < 0 ? e : e.slice(0, cut), tail = cut < 0 ? "" : e.slice(cut);
+      var out;
+      try {
+        var s = atob(head.replace(/-/g, "+").replace(/_/g, "/")), b = new Uint8Array(s.length);
+        for (var i = 0; i < s.length; i++) b[i] = s.charCodeAt(i) ^ ((i * 31 + 7) & 255);
+        out = new TextDecoder().decode(b);
+      } catch (x) {
+        try { return decodeURIComponent(e); } catch (y) { return e; }
+      }
+      if (!/^[a-z][a-z0-9+.-]*:/i.test(out)) { try { return decodeURIComponent(e); } catch (y) { return e; } }
+      if (!tail) return out;
+      var hashAt = out.indexOf("#");
+      if (tail.charAt(0) === "#") return (hashAt < 0 ? out : out.slice(0, hashAt)) + tail;
+      var base = hashAt < 0 ? out : out.slice(0, hashAt), q = base.indexOf("?");
+      return (q < 0 ? base : base.slice(0, q)) + tail;
+    }
+  };
+  var PREFIX = "/c/";
+  function unmask(x) { return x ? CODEC.decode(x) : ""; }
+
   var $ = function (id) { return document.getElementById(id); };
   var addr = $("addr"), note = $("note"), view = $("view"), start = $("start"), state = $("state");
 
   /* ---- the pass ---------------------------------------------------- */
   var hash = new URLSearchParams(location.hash.slice(1));
   var pass = hash.get("p") || "";
-  var first = hash.get("u") || "";
+  var first = hash.get("u") || unmask(hash.get("x") || "");
   try {
     if (pass) sessionStorage.setItem(PASS_KEY, pass);
     else pass = sessionStorage.getItem(PASS_KEY) || "";
@@ -99,6 +141,8 @@
     try {
       var Loader = window.$scramjetLoadController;
       scramjet = new (Loader().ScramjetController)({
+        prefix: PREFIX,
+        codec: { encode: CODEC.encode, decode: CODEC.decode },
         files: { wasm: V.scram + "scramjet.wasm.wasm", all: V.scram + "scramjet.all.js", sync: V.scram + "scramjet.sync.js" }
       });
       await scramjet.init();
@@ -165,7 +209,8 @@
   async function why(host) {
     if (!host) return;
     try {
-      var r = await fetch("/lens/why?host=" + encodeURIComponent(host) + "&pass=" + encodeURIComponent(pass), { cache: "no-store" });
+      var r = await fetch("/lens/why", { method: "POST", cache: "no-store", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ host: host, pass: pass }) });
       if (r.status === 401) return expired();
       var j = await r.json();
       if (!j || !j.host) return;
@@ -189,7 +234,7 @@
       if (document.activeElement !== addr) addr.value = u;
       var title = "";
       try { title = frame.frame.contentDocument.title || ""; } catch (x) {}
-      document.title = (title || hostOf(u) || "BROWSER") + " — FieldKit";
+      /* The tab's title stays FieldKit's: a monitor reads titles too. */
       tell({ t: "nav", url: u, title: title });
     });
     frame.frame.addEventListener("load", function () {
@@ -201,7 +246,6 @@
       /* urlchange comes before the page has a title; now it has one. */
       try { title = frame.frame.contentDocument.title || ""; } catch (x) {}
       if (title) {
-        document.title = title + " — FieldKit";
         tell({ t: "nav", url: u, title: title });
       }
     });
@@ -229,6 +273,28 @@
         "each other's sign-ins. Sign in to things only in your own browser" +
         (embedded ? ", or in BROWSER's FULL MODE if an admin has given you it." : "."), "fail", true);
       tell({ t: "password", host: h });
+    }, true);
+    /* A GET form (a site's search box) is sent by the browser itself as
+       <masked address>?q=what+was+typed, in plain text before Scramjet
+       sees it. So it is caught here and opened as one masked address. */
+    doc.addEventListener("submit", function (e) {
+      var f = e.target;
+      if (!f || String(f.method || "get").toLowerCase() !== "get" || (f.target && f.target !== "_self") || e.defaultPrevented) return;
+      var real = "";
+      try {
+        /* Scramjet shows a page its real addresses, so .action is usually
+           the site's own; the masked one is read back if not. */
+        var a = new URL(f.action, doc.baseURI);
+        real = a.origin === location.origin && a.pathname.indexOf(PREFIX) === 0 ? CODEC.decode(a.pathname.slice(PREFIX.length)) : a.href;
+        var u = new URL(real);
+        if (u.protocol !== "https:" && u.protocol !== "http:") return;
+        u.search = new URLSearchParams(new FormData(f, e.submitter || undefined)).toString();
+        u.hash = "";
+        real = u.href;
+      } catch (x) { return; }
+      e.preventDefault();
+      addr.value = real;
+      frame.go(real);
     }, true);
   }
 

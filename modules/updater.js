@@ -525,6 +525,7 @@
     return box;
   }
 
+  var announced = null;          /* the version this sitting has already been told of */
   async function startCheck() {
     if (setting("updateCheckAtStart") === false || typeof fetch !== "function") return null;
     var rel = await newestVerified();
@@ -532,11 +533,29 @@
     /* Also in ◉, for whoever closed the popup without reading it. */
     var u = FieldKit.service("ui");
     if (u && u.toast) u.toast("UPDATE AVAILABLE — " + rel.version, "ok");
+    announced = rel.version;
     return popup(rel);
   }
 
+  /* And again every few hours while it stays open: a Chromebook left
+     on all week otherwise heard about a release only at its next start.
+     The same version is not announced twice in one sitting. */
+  var AGAIN_MS = 3 * 3600000;
+  async function againCheck() {
+    if (popNode) return;
+    var rel = await newestVerified();
+    if (!rel || rel.version === announced || !announceable(rel.version, currentVersion(), store(SKIP_KEY))) return;
+    announced = rel.version;
+    popup(rel);
+  }
+
   FieldKit.on("boot:done", function () {
-    setTimeout(function () { startCheck().catch(function () { /* says nothing: there is no news */ }); }, START_DELAY_MS);
+    setTimeout(function () {
+      startCheck().catch(function () { /* says nothing: there is no news */ });
+    }, START_DELAY_MS);
+    setInterval(function () {
+      if (setting("updateCheckAtStart") !== false) againCheck().catch(function () {});
+    }, AGAIN_MS);
   });
 
   FieldKit.provide("updateCheck", { startCheck: startCheck, announceable: announceable, popup: popup, close: closePopup });

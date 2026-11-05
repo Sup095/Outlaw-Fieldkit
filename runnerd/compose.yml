@@ -21,6 +21,12 @@ services:
       dockerfile: runnerd/Dockerfile
     image: fieldkit-runnerd:${FK_TAG:-1}
     restart: unless-stopped
+    # FK_RELAY_URL=https://a,https://b in runnerd/relay.env (beside this
+    # file, not in the repository) overrides runnerd.json's relayUrl: the
+    # relay's addresses change when a blocked one is deleted (server.js).
+    env_file:
+      - path: ./runnerd/relay.env
+        required: false
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${FK_STORE:-/srv/fieldkit/store}:/srv/fieldkit/store

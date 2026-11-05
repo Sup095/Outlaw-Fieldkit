@@ -45,6 +45,11 @@
      asking the user to retype a URL the store already knows. */
   var unprovisioned = null;
 
+  /* The relay transport this session was given, if any, and whether
+     anything was written to the local copy instead of it: see reconnect(). */
+  var relayT = null;
+  var localWrites = false;
+
   function setState(s, detail) {
     if (state === s) return;
     state = s;
@@ -89,6 +94,8 @@
 
     var list = transports && transports.length ? transports : [localT];
     var online = false;
+    relayT = list.filter(function (t) { return t && t.name === "relay"; })[0] || null;
+    localWrites = false;
 
     for (var i = 0; i < list.length; i++) {
       var t = list[i];
@@ -414,6 +421,7 @@
     meta.author = authorName();
     cache.set(id, { meta: meta, data: data });
 
+    if (transport === localT && relayT) localWrites = true;
     if (state === STATE.ONLINE) {
       try {
         await transport.putRecord(rec);
@@ -529,6 +537,7 @@
   async function remove(id) {
     requireVault();
     cache.delete(id);
+    if (transport === localT && relayT) localWrites = true;
     if (state === STATE.ONLINE) {
       try { await transport.deleteRecord(id); }
       catch (e) { await queue.push({ kind: "delete", id: id, at: new Date().toISOString() }); }
@@ -578,6 +587,53 @@
     }
     FieldKit.emit("store:synced", { pushed: pushed, failed: failed });
     return { pushed: pushed, failed: failed };
+  }
+
+  /* ---- reconnecting without a restart -------------------------
+     The relay's address changed (RELAY LINK, or relay-choice moving off
+     an address the owner deleted), or the network came back. The vault
+     used to stay OFFLINE, or on the local copy, until FieldKit was
+     restarted, while BROWSER and MESSAGES were already using the new
+     address: the bar said "not connected" when everything else was.
+
+     Only the same vault: a relay whose header has another salt holds
+     someone else's, and is never attached. And never over writes made
+     to the local copy this session (the relay was not answering at
+     boot): switching would hide them, so that waits for a restart. */
+  var reconnecting = null;
+  async function reconnect() {
+    if (!vault || !relayT || reconnecting) return false;
+    if (transport === relayT && state === STATE.ONLINE) return true;
+    if (transport === localT && localWrites) return false;
+    reconnecting = (async function () {
+      var ok = false;
+      try { ok = await relayT.ping(); } catch (e) { ok = false; }
+      if (!ok) return false;
+      var h = null;
+      try { h = await relayT.loadHeader(); } catch (e) { return false; }
+      if (!h || !header || !h.kdf || !header.kdf || h.kdf.salt !== header.kdf.salt) return false;
+      if (typeof relayT.setToken === "function") relayT.setToken(vault.authToken);
+      var was = transport;
+      transport = relayT;
+      unprovisioned = null;
+      var r = await sync();
+      if (r.skipped) { transport = was; return false; }
+      if (state === STATE.ONLINE && !r.pushed) { try { await hydrate(); } catch (e) { /* what we have will do */ } }
+      if (state === STATE.ONLINE) startAutoPull();
+      /* The state may not have changed (ONLINE on the local copy, then on
+         the relay), but what the bar should say has. */
+      FieldKit.emit("store:state", { state: state, detail: "reconnected to the relay" });
+      return state === STATE.ONLINE;
+    })();
+    try { return await reconnecting; } finally { reconnecting = null; }
+  }
+
+  /* OFFLINE on the relay: tried again every RETRY_MS, quietly. */
+  var RETRY_MS = 30000;
+  if (typeof setInterval === "function") {
+    setInterval(function () {
+      if (vault && relayT && (state === STATE.OFFLINE || transport === localT)) reconnect().catch(function () {});
+    }, RETRY_MS);
   }
 
   async function pendingCount() {
@@ -697,6 +753,7 @@
     importRecords: importRecords,
     transport: currentTransport,
     attachTransport: attachTransport,
+    reconnect: reconnect,
     /* The transport that answered but has no vault on it, if any.
        Null once it has been provisioned or if there never was one. */
     unprovisionedTransport: function () { return unprovisioned; },

@@ -84,7 +84,10 @@
     if (!buf) {
       var base = relayBase();
       if (!base) throw new Error("add a relay in RELAY LINK first: the engine comes from there");
-      var res = await fetch(base + "/ai/engine.js", { cache: "no-store" });
+      /* /k/e.js first: an address that does not say "ai" (relay/model-shelf.js).
+         /ai/engine.js is where a relay older than 0.11.0 keeps it. */
+      var res = await fetch(base + "/k/e.js", { cache: "no-store" }).catch(function () { return null; });
+      if (!res || !res.ok) res = await fetch(base + "/ai/engine.js", { cache: "no-store" });
       if (!res.ok) throw new Error("the relay does not have the engine (" + res.status + ")");
       buf = await res.arrayBuffer();
     }
@@ -93,16 +96,35 @@
     await runEngine(new TextDecoder().decode(buf));
   }
 
+  /* The models the relay keeps whole on its own disk (relay/model-shelf.js),
+     or none: an older relay, or none set up. */
+  async function shelf() {
+    var base = relayBase();
+    if (!base) return [];
+    try {
+      var r = await fetch(base + "/k/list", { cache: "no-store" });
+      if (!r.ok) return [];
+      var j = await r.json();
+      return Array.isArray(j.models) ? j.models : [];
+    } catch (e) { return []; }
+  }
+
   /* What the engine knows how to run, smallest first. Embedding models
-     cannot chat, so they are left out. */
+     cannot chat, so they are left out. The relay's own come first, and
+     carry .shelf: they are fetched from the relay alone, never from
+     Hugging Face, so a filter sees nothing but the relay's address. */
   async function catalogue() {
     await ensureEngine();
     var g = engineGlobal();
     var cfg = g.prebuiltAppConfig || (g.default && g.default.prebuiltAppConfig);
     var list = (cfg && cfg.model_list) || [];
+    var onShelf = await shelf();
     return list.filter(function (m) { return m.vram_required_MB && m.vram_required_MB <= MAX_MB && !/embed/i.test(m.model_id); })
-      .sort(function (a, b) { return a.vram_required_MB - b.vram_required_MB; })
-      .map(function (m) { return { id: m.model_id, url: m.model, lib: m.model_lib, mb: Math.round(m.vram_required_MB) }; });
+      .map(function (m) {
+        var s = onShelf.filter(function (x) { return x.id === m.model_id; })[0] || null;
+        return { id: m.model_id, url: m.model, lib: m.model_lib, mb: Math.round(m.vram_required_MB), shelf: s };
+      })
+      .sort(function (a, b) { return (b.shelf ? 1 : 0) - (a.shelf ? 1 : 0) || a.mb - b.mb; });
   }
 
   function installed() { return tx("models", "readonly", function (st) { return st.getAll(); }); }
@@ -131,7 +153,30 @@
       ((j && j.error) || "answered " + m.status));
   }
 
+  /* From the relay's shelf: each file by number, checked against the
+     size and SHA-256 the relay wrote down when it fetched it. */
+  async function installFromShelf(model, onProgress) {
+    var base = relayBase(), files = model.shelf.files, size = 0;
+    if (navigator.storage && navigator.storage.persist) { try { await navigator.storage.persist(); } catch (e) {} }
+    for (var i = 0; i < files.length; i++) {
+      if (onProgress) onProgress(i / files.length, files[i].name, false, true);
+      var r = await fetch(base + "/k/" + model.shelf.n + "/" + files[i].i, { cache: "no-store" });
+      if (!r.ok) throw new Error(files[i].name + ": the relay answered " + r.status + (r.status === 429 ? " (busy: try again in a minute)" : ""));
+      var buf = await r.arrayBuffer();
+      if (buf.byteLength !== files[i].size || (files[i].sha256 && await sha256(buf) !== files[i].sha256)) {
+        throw new Error(files[i].name + " arrived changed: a network may be replacing it. Nothing was installed.");
+      }
+      size += buf.byteLength;
+      await putFile(model.id + "/" + files[i].name, new Blob([buf]));
+    }
+    await tx("models", "readwrite", function (st) {
+      return st.put({ id: model.id, bytes: size, files: files.map(function (f) { return f.name; }), at: Date.now() });
+    });
+    if (onProgress) onProgress(1, "");
+  }
+
   async function install(model, onProgress) {
+    if (model.shelf && model.shelf.files && model.shelf.files.length) return installFromShelf(model, onProgress);
     var repo = String(model.url).replace(HF, "").replace(/\/?(resolve\/main\/?)?$/, "");
     var how = { relay: false };
     var res = await fetchModelFile(HF + "api/models/" + repo + "?blobs=true", how);
@@ -196,7 +241,7 @@
   FieldKit.provide("aiInstall", {
     ENGINE_SHA256: ENGINE_SHA256,
     gpu: function () { return !!(navigator.gpu && navigator.gpu.requestAdapter); },
-    catalogue: catalogue, installed: installed, install: install, remove: remove, use: use,
+    catalogue: catalogue, shelf: shelf, installed: installed, install: install, remove: remove, use: use,
     fetchModelFile: fetchModelFile
   });
 })(window.FieldKit);

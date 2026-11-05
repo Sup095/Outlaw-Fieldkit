@@ -1149,6 +1149,11 @@
        and says where the run server is; the panel takes that
        straight there. Same reasoning as the two above: the
        session token stays in this module. */
+    /* Every address the relay answers on (core/relay-choice.js learn()). */
+    relayAddresses: async function () {
+      if (!session) return null;
+      return api("GET", "/relay/addresses");
+    },
     runnerTicket: async function () {
       if (!session) throw new Error("not signed in to MESSAGES");
       return api("POST", "/runner/ticket");

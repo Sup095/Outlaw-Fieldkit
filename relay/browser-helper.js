@@ -90,10 +90,20 @@ function cardMeter() {
   };
 }
 
-/* The relay's public key, from the relay. */
+/* The relay's addresses: one, or several as an array or "a, b". The
+   owner deletes blocked hostnames from the tunnel, so a server that
+   knew only one lost the relay with it (relay. went, 2026-11-05). */
+function relayBases(v) {
+  return (Array.isArray(v) ? v : String(v || "").split(/[\s,]+/))
+    .map((s) => String(s).trim().replace(/\/+$/, "")).filter(Boolean);
+}
+
+/* The relay's public key, from the relay: the address that answered
+   last is asked first, then the others in turn. */
 class RelayKey {
   constructor(base, fetchFn) {
-    this.base = String(base || "").trim().replace(/\/+$/, "");
+    this.bases = relayBases(base);
+    this.base = this.bases[0] || "";
     this.fetch = fetchFn || ((u) => fetch(u, { signal: AbortSignal.timeout(8000), redirect: "error" }));
     this.key = null;
     this.at = 0;
@@ -102,18 +112,24 @@ class RelayKey {
   }
   async load() {
     this.tried = Date.now();
-    try {
-      const r = await this.fetch(this.base + "/browser/helper-key");
-      if (!r.ok) throw new Error("it answered " + r.status + (r.status === 404 ? " (is browser.helpers set in the relay's config?)" : ""));
-      const j = await r.json();
-      this.key = crypto.createPublicKey(String(j && j.key || ""));
-      this.at = Date.now();
-      if (this.said !== "ok") log("INFO", "helper: have the relay's key from " + this.base);
-      this.said = "ok";
-    } catch (e) {
-      if (this.said !== e.message) log("WARN", "helper: could not fetch the relay's key from " + this.base + " — " + e.message);
-      this.said = e.message;
+    const order = [this.base].concat(this.bases.filter((b) => b !== this.base)).filter(Boolean);
+    const why = [];
+    for (const b of order) {
+      try {
+        const r = await this.fetch(b + "/browser/helper-key");
+        if (!r.ok) throw new Error("it answered " + r.status + (r.status === 404 ? " (is browser.helpers set in the relay's config?)" : ""));
+        const j = await r.json();
+        this.key = crypto.createPublicKey(String(j && j.key || ""));
+        this.at = Date.now();
+        if (this.said !== "ok" || this.base !== b) log("INFO", "helper: have the relay's key from " + b);
+        this.base = b;
+        this.said = "ok";
+        return true;
+      } catch (e) { why.push(b.replace(/^https?:\/\//, "") + ": " + e.message); }
     }
+    const msg = why.join("; ");
+    if (this.said !== msg) log("WARN", "helper: could not fetch the relay's key — " + (msg || "no address is set"));
+    this.said = msg;
     return !!this.key;
   }
   /* Again every ten minutes, or sooner after a pass did not match. */
@@ -272,4 +288,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { start, readConfig, RelayKey };
+module.exports = { start, readConfig, RelayKey, relayBases };

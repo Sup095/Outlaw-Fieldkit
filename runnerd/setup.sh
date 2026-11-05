@@ -101,6 +101,9 @@ say "3/7  The copy of the app"
 # Kept in one fixed place so an update is "unpack and run this again".
 rm -rf "$APP.new" && mkdir -p "$APP.new"
 cp -a "$HERE/relay" "$HERE/runnerd" "$APP.new/"
+# The relay's addresses for runnerd (compose.yml env_file), written on this
+# machine and not shipped: kept across the swap.
+[ -f "$APP/runnerd/relay.env" ] && cp -a "$APP/runnerd/relay.env" "$APP.new/runnerd/relay.env"
 rm -rf "$APP.old" ; [ -d "$APP" ] && mv "$APP" "$APP.old" ; mv "$APP.new" "$APP" ; rm -rf "$APP.old"
 note "in $APP"
 
@@ -247,6 +250,12 @@ JSON
   note "wrote $CONF"
 else
   note "$CONF already exists and was left alone (edit it by hand to change settings)"
+  # Except the relay's addresses, given again with --relay: they change
+  # when a blocked hostname is deleted from the tunnel.
+  if [ -n "$RELAY_URL" ]; then
+    sed -i "s#\"relayUrl\": *\"[^\"]*\"#\"relayUrl\": \"$RELAY_URL\"#" "$CONF"
+    note "relayUrl is now $RELAY_URL"
+  fi
 fi
 if [ -n "$TUNNEL_TOKEN" ]; then
   ( umask 077 ; printf 'TUNNEL_TOKEN=%s\n' "$TUNNEL_TOKEN" > "$ETC/tunnel.env" )

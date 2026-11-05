@@ -128,9 +128,11 @@ function start(opts) {
 
   /* What admins allowed on the relay, so an ALLOW there opens here too. */
   const pullAllow = async () => {
-    if (!lists || !config.relayUrl || opts.noPoll) return;
+    /* The relay address that last gave the key, or the first listed. */
+    const base = relayKey.base || String(config.relayUrl || "").split(/[\s,]+/)[0].replace(/\/+$/, "");
+    if (!lists || !base || opts.noPoll) return;
     try {
-      const r = await fetch(config.relayUrl.replace(/\/+$/, "") + "/browser/allow", { signal: AbortSignal.timeout(8000), redirect: "error" });
+      const r = await fetch(base + "/browser/allow", { signal: AbortSignal.timeout(8000), redirect: "error" });
       if (!r.ok) return;
       const j = await r.json();
       if (j && Array.isArray(j.allow)) lists.setAllow(j.allow);
@@ -181,12 +183,26 @@ function start(opts) {
     }
     /* Why the site this person just tried did not open: asked by their
        own lens page, with their own pass, about one host. */
-    if (url.pathname === "/lens/why" && req.method === "GET") {
-      const v = relayKey.key ? verify(relayKey.key, url.searchParams.get("pass"), Date.now(), passOptions) : { ok: false };
-      res.writeHead(v.ok ? 200 : 401, { "Content-Type": "application/json", "Cache-Control": "no-store" });
-      if (!v.ok) return res.end("{}");
-      const r = wisp.whyFor(String(v.claims.who), String(url.searchParams.get("host") || "").toLowerCase());
-      return res.end(JSON.stringify(r ? { host: r.host, kind: r.kind, why: r.why } : {}));
+    /* POST since 0.11.0, so the host is in the body and not in an
+       address a school's filter can read; GET is for older pages. */
+    if (url.pathname === "/lens/why" && (req.method === "GET" || req.method === "POST")) {
+      const answer = (pass, host) => {
+        const v = relayKey.key ? verify(relayKey.key, pass, Date.now(), passOptions) : { ok: false };
+        res.writeHead(v.ok ? 200 : 401, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+        if (!v.ok) return res.end("{}");
+        const r = wisp.whyFor(String(v.claims.who), String(host || "").toLowerCase());
+        return res.end(JSON.stringify(r ? { host: r.host, kind: r.kind, why: r.why } : {}));
+      };
+      if (req.method === "GET") return answer(url.searchParams.get("pass"), url.searchParams.get("host"));
+      let body = "";
+      req.setEncoding("utf8");
+      req.on("data", (c) => { body += c; if (body.length > 8192) req.destroy(); });
+      req.on("end", () => {
+        let j = null;
+        try { j = JSON.parse(body); } catch (e) { j = null; }
+        answer(j && j.pass, j && j.host);
+      });
+      return;
     }
     if (!clientDir || (req.method !== "GET" && req.method !== "HEAD")) { res.writeHead(404); return res.end(); }
     let rel;

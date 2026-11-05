@@ -25,8 +25,10 @@ says plainly that it is not.
 > - `https://learn.outlawfieldkit.com`
 > - `https://edu.outlawfieldkit.com`
 >
-> (`run.outlawfieldkit.com` is RUNNER's own server, not a relay address;
-> RUNNER finds it by itself.) If the whole domain is ever blocked, a new one
+> You only need one. Once you sign in, FieldKit asks the relay for the
+> rest and keeps its list up to date by itself: new addresses are added and
+> deleted ones forgotten. (`run.outlawfieldkit.com` is RUNNER's own
+> server, not a relay address; RUNNER finds it by itself.) If the whole domain is ever blocked, a new one
 > will be listed here.
 
 ---
@@ -434,6 +436,18 @@ stays, as the fallback and for what lens cannot do.
   belong in the full mode.
 - *Next:* a cache for pages you open twice, which the test showed would
   roughly halve what a second visit costs.
+
+**Done in 0.11.0: addresses that keep up, models on the relay.** The
+relay reads its own Cloudflare tunnel (cloudflared's `/config` on
+127.0.0.1, no API key) and checks which hostnames really reach it; signed-in
+panels fetch that list and keep their spare addresses in step, forgetting
+the deleted ones. A blocked address brings the start-up address question
+back even when it was turned off, and changing the address moves the vault
+to it without a restart. A few tiny models are kept whole on the relay and
+installed from there, under addresses that do not name them. The lighter
+browser's addresses and tab title no longer name the site. Releases reach
+the relay within ten minutes. The relay's own servers (lens, the browser
+helpers, runnerd) take a list of relay addresses and use whichever answers.
 
 **Done in 0.10.1: FULL MODE that keeps going, and RUNNER for the same
 people.** Videos in FULL MODE stopped part way for some people: a session
