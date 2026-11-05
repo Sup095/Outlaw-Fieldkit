@@ -20,8 +20,7 @@ says plainly that it is not.
 > repository owner runs a relay; accounts on it are approved by hand. It
 > answers at each of these addresses:
 >
-> - `https://relay.outlawfieldkit.com`
-> - `https://tool.outlawfieldkit.com`
+> - `https://find.outlawfieldkit.com`
 > - `https://save.outlawfieldkit.com`
 > - `https://learn.outlawfieldkit.com`
 > - `https://edu.outlawfieldkit.com`
