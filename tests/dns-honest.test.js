@@ -36,6 +36,8 @@ function fake(table) {
     const v = table[host];
     const err = (code) => Promise.reject(Object.assign(new Error(code), { code }));
     if (v === "down") return err("ETIMEOUT");
+    /* The A lookup is lost, and the AAAA lookup honestly has nothing. */
+    if (v === "a-lost") return six ? err("ENODATA") : err("ETIMEOUT");
     if (!v || v === "missing") return err("ENOTFOUND");
     const list = v.filter((a) => (a.indexOf(":") >= 0) === six);
     return list.length ? Promise.resolve(list) : err("ENODATA");
@@ -118,6 +120,20 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), "fk-dns-"));
     ok("a refusal of another host is not the reason", g.whyRefused(null, "www.youtube.com") === null);
     ok("one of the same host is", (g.whyRefused(null, "ghost.example") || {}).kind === "missing");
     ok("asked without a host, as before", !!g.whyRefused());
+    g.close();
+  }
+
+  section("a lost DNS answer is never remembered as 'that name does not exist'");
+  {
+    const table = { "blip.example": "a-lost" };
+    const filt = fake(table);
+    const g = new Guard({ log: () => {}, dnsFilter: "adult", resolver: filt, plainResolver: fake({ "blip.example": "a-lost" }), lists: new Blocklist({ baseFiles: [] }) });
+    const first = await g.place("blip.example");
+    ok("A lost, AAAA empty: not called missing", !first.ok && first.kind !== "missing", JSON.stringify(first));
+    ok("it was asked again before giving up", filt.asked > 2, String(filt.asked));
+    table["blip.example"] = ["93.184.216.34"];
+    const second = await g.place("blip.example");
+    ok("and the very next try opens it, with no wait", second.ok === true, JSON.stringify(second));
     g.close();
   }
 

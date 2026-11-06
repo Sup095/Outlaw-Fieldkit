@@ -65,6 +65,7 @@ function call(route, method, p, who, body) {
     const w = world(1); const c = w.colonies.p0;
     ok("a new colony starts with a working kit", c.pop === 8 && E.countOf(c, "scrubber") === 1 && E.countOf(c, "drill") === 1 && E.countOf(c, "lift") === 1);
     ok("an unknown building is refused", E.build(w, c, 0, 6, "nonsense").error);
+    ok("a name that is a property of every object is refused, not a crash", ["__proto__", "constructor", "toString", "hasOwnProperty"].every((n) => { try { return !!E.build(w, c, 0, 6, n).error; } catch (e) { return false; } }) && !E.biomeOpen(w, "__proto__") && !E.biomeOpen(w, "constructor"));
     ok("a taken plot is refused", /taken/.test(E.build(w, c, 0, 0, "bunk").error));
     ok("a plot that does not exist is refused", E.build(w, c, 9, 0, "bunk").error && E.build(w, c, 0, 99, "bunk").error && E.build(w, c, 0, -1, "bunk").error);
     ok("a building the Civ has not unlocked is refused", /not unlocked/.test(E.build(w, c, 0, 6, "workshop").error));

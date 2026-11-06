@@ -145,7 +145,7 @@ function activeColonies(world, now) {
 }
 function activeScale(world, now) { return scaleFor(activeColonies(world, now)); }
 function biomeOpen(world, id) {
-  const b = BIOMES[id];
+  const b = Object.prototype.hasOwnProperty.call(BIOMES, id) ? BIOMES[id] : null;
   return !!b && (world.civ.peak >= b.at || b.at === 0);
 }
 
@@ -211,7 +211,7 @@ function pay(stock, cost) { for (const r of Object.keys(cost)) stock[r] = (stock
 
 /* ---- what a colony can do (all checked here, on the server) ---- */
 function build(world, colony, layer, slot, type) {
-  const b = B[type];
+  const b = Object.prototype.hasOwnProperty.call(B, type) ? B[type] : null;
   if (!b) return { error: "unknown building" };
   if (colony.collapsed) return { error: "this colony has fallen" };
   layer = layer | 0; slot = slot | 0;

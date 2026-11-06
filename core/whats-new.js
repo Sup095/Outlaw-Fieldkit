@@ -10,6 +10,10 @@
   "use strict";
 
   var NOTES = [
+    { v: "0.12.1", items: [
+      "Fixed: sites that said 'Forbidden' for a few seconds after one lost DNS answer. The relay now asks again.",
+      "Fixed: a bad request could make DEEPHOLD answer with an error; a game bug can no longer stop the relay."
+    ] },
     { v: "0.12.0", items: [
       "New: DEEPHOLD, a game everyone on the relay shares. Build an underground colony; what it ships up becomes one Civilization that levels up.",
       "You never dig by hand. Buildings work while you are away: what they ship reaches the Civilization in full, and you keep 30% of the rest.",

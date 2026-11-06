@@ -336,7 +336,7 @@ class Guard {
     }
 
     const hit = this._cached(host);
-    let addrs = hit ? hit.addrs : await lookup(this.resolver, host);
+    let addrs = hit ? hit.addrs : await lookupSteady(this.resolver, host);
     if (!hit) this._remember(host, addrs);
 
     let overridden = false;
@@ -412,7 +412,9 @@ class Guard {
 
     const where = await this.place(rawHost);
     if (!where.ok && where.quiet) { try { sock.end("HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"); } catch (e) {} return; }
-    if (!where.ok) return deny("403 Forbidden", where.why);
+    /* A name that would not resolve is not a refusal, and "Forbidden" on
+       something that opens a moment later is the wrong thing to say. */
+    if (!where.ok) return deny(where.kind === "dns" ? "502 Bad Gateway" : "403 Forbidden", where.why);
 
     const up = net.connect({ host: where.address, port, family: where.family }, () => {
       sock.write("HTTP/1.1 200 Connection Established\r\n\r\n");
@@ -447,10 +449,10 @@ class Guard {
       return res.end("the guard proxy expects absolute-form requests");
     }
 
-    const deny = (why) => {
+    const deny = (why, status) => {
       this._note("INFO", u.hostname, "guard: refused " + u.hostname + " — " + why);
       const body = "This site was not opened.\n\n" + why + "\n";
-      res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8",
+      res.writeHead(status || 403, { "Content-Type": "text/plain; charset=utf-8",
         "Content-Length": Buffer.byteLength(body) });
       res.end(body);
     };
@@ -460,7 +462,7 @@ class Guard {
 
     const where = await this.place(u.hostname);
     if (!where.ok && where.quiet) { res.writeHead(403, { "Content-Length": 0 }); return res.end(); }
-    if (!where.ok) return deny(where.why);
+    if (!where.ok) return deny(where.why, where.kind === "dns" ? 502 : 403);
 
     const headers = Object.assign({}, req.headers);
     delete headers["proxy-connection"];
@@ -488,16 +490,31 @@ class Guard {
    none. .answered is false when nobody answered at all (a timeout, a
    server error), which is not the same thing as "no such name". */
 async function lookup(resolver, host) {
-  let answered = false;
-  const ask = (fn) => resolver[fn](host).then((a) => { answered = true; return a || []; }, (e) => {
-    if (e && (e.code === "ENOTFOUND" || e.code === "ENODATA")) answered = true;
-    return [];
-  });
+  /* Each family keeps its own verdict. "Nothing for this name" is an
+     answer only when EVERY family that was asked gave one: an A lookup
+     that timed out followed by an AAAA lookup that said "no such
+     record" used to count as an answer, so a hiccup in DNS was
+     remembered as "that name does not exist" and the site was refused
+     for fifteen seconds, then opened on a refresh. */
+  const ask = (fn) => resolver[fn](host).then((a) => ({ list: a || [], ok: true }), (e) => ({
+    list: [], ok: !!(e && (e.code === "ENOTFOUND" || e.code === "ENODATA"))
+  }));
   const four = await ask("resolve4");
-  const six = four.length ? [] : await ask("resolve6");
-  const addrs = four.length ? four.map((a) => ({ address: a, family: 4 }))
-                            : six.map((a) => ({ address: a, family: 6 }));
-  addrs.answered = answered;
+  const six = four.list.length ? { list: [], ok: true } : await ask("resolve6");
+  const addrs = four.list.length ? four.list.map((a) => ({ address: a, family: 4 }))
+                                 : six.list.map((a) => ({ address: a, family: 6 }));
+  addrs.answered = addrs.length > 0 || (four.ok && six.ok);
+  return addrs;
+}
+
+/* One more try when nobody answered, a moment later: most of these
+   are a single lost packet. */
+async function lookupSteady(resolver, host) {
+  let addrs = await lookup(resolver, host);
+  for (let i = 0; i < 2 && !addrs.answered; i++) {
+    await new Promise((r) => setTimeout(r, 120));
+    addrs = await lookup(resolver, host);
+  }
   return addrs;
 }
 
@@ -520,7 +537,7 @@ Guard.prototype._remember = function (host, addrs) {
 Guard.prototype._second = async function (host) {
   const hit = this._cached(" plain " + host);
   if (hit) return hit.addrs;
-  const a = await lookup(this.plain, host);
+  const a = await lookupSteady(this.plain, host);
   this._remember(" plain " + host, a);
   return a.answered ? a : null;
 };

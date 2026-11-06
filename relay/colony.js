@@ -76,7 +76,17 @@ function init(opts) {
 }
 
 function stop() { timers.forEach(clearInterval); timers = []; }
-function tick() { E.stepWorld(world, clock()); dirty = true; }
+/* Runs on a timer inside the relay's own process, so a bug in the game
+   must never be able to end the process. It is logged (once a minute at
+   most) and the next tick tries again. */
+let lastTickError = 0;
+function tick() {
+  try { E.stepWorld(world, clock()); dirty = true; }
+  catch (e) {
+    const t = Date.now();
+    if (t - lastTickError > 60000) { lastTickError = t; log("ERROR", "colony: a tick failed: " + (e && e.stack ? e.stack.split("\n").slice(0, 3).join(" | ") : e)); }
+  }
+}
 function flush() {
   if (!world || !file) return;
   try { jf.write(file, world); dirty = false; } catch (e) { log("ERROR", "colony: could not save: " + e.message); }
@@ -91,6 +101,8 @@ function handleOk(who) {
   /* who: { handle, tier, banned }. Guests wait for approval. */
   if (!who || !who.handle) return { status: 401, body: { error: "sign in to MESSAGES first" } };
   if (who.banned) return { status: 403, body: { error: "this account is banned" } };
+  /* A handle such as __proto__ or constructor is a legal account name and an illegal key. */
+  if (who.handle in {}) return { status: 403, body: { error: "this account name cannot be used in the game; make another account" } };
   if (who.tier === "guest") return { status: 403, body: { error: "an admin has to approve your account before you can play", needsApproval: true } };
   return null;
 }
