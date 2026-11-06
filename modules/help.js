@@ -267,6 +267,30 @@
     },
 
     {
+      id: "app-colony",
+      title: "DEEPHOLD",
+      tag: "apps",
+      body: [
+        "A game everyone on the relay plays together. You run an underground colony; what it ships " +
+        "up goes to one shared Civilization, which levels up and unlocks better buildings for everybody.",
+        { steps: [
+          "Sign in to MESSAGES. An admin must have approved your account.",
+          "Choose a place to start and press BREAK GROUND.",
+          "Click an empty plot to build. Keep your people breathing, fed, powered and not too miserable.",
+          "Under WAREHOUSE AND CARGO, choose how much of each thing goes up to the Civilization."
+        ] },
+        "You never dig or gather by hand: buildings do the work. Away from the screen your colony keeps " +
+        "working. Everything it ships reaches the Civilization in full; you keep 30% of what you would " +
+        "have kept, and nobody in your colony can die while you are away.",
+        "The Civilization needs things to reach its next stage, and the cost follows how many people " +
+        "are playing. From stage 2 there is a war: ARMS and turret nests hold each wave. If waves are " +
+        "lost one after another the Civilization falls; it then advances slower and its buffs are " +
+        "halved until it is liberated.",
+        { warn: "A colony whose people all die is lost and you start again. The Civilization keeps what you gave." }
+      ]
+    },
+
+    {
       id: "app-ask",
       title: "ASK",
       tag: "apps",
@@ -1488,7 +1512,7 @@
   /* Which page tells how each app works, for the HOW IT WORKS item on
      an app's right-click menu. */
   var APP_PAGE = {
-    "browser": "app-browser", "messages": "app-messages", "runner": "app-runner",
+    "browser": "app-browser", "messages": "app-messages", "runner": "app-runner", "colony": "app-colony",
     "ai-chat": "app-ask", "ai-local": "ai",
     "vault-files": "app-files", "scratchpad": "app-files", "task-board": "app-files",
     "qr-gen": "app-tools", "game-math": "app-tools", "topology": "app-tools",

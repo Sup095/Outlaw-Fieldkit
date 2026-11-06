@@ -735,7 +735,7 @@
   var GROUP_ORDER = ["ONLINE", "FILES", "TOOLS", "SYSTEM"];
   /* Inside a folder, the everyday ones first; that is also which four
      glyphs its card shows. Anything not listed follows, by name. */
-  var APP_ORDER = ["browser", "messages", "runner", "ai-chat",
+  var APP_ORDER = ["browser", "messages", "runner", "colony", "ai-chat",
     "vault-files", "scratchpad", "task-board", "topology", "relay-config", "relay-link",
     "game-math", "qr-gen", "terminal", "critter-ref",
     "admin-center", "settings-panel", "settings-outpost", "updater", "help", "selftest-panel"];

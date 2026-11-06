@@ -437,6 +437,20 @@ stays, as the fallback and for what lens cannot do.
 - *Next:* a cache for pages you open twice, which the test showed would
   roughly halve what a second visit costs.
 
+**Done in 0.12.0: DEEPHOLD, the shared game.** Every approved account runs a
+small underground colony (relay/colony-engine.js, panel modules/colony.js).
+Buildings, never hands, make ore, water, fungus, crystal, fuel, food, parts,
+goods and arms; a colony must keep its people in air, food, power and mood. A
+share of what it makes (set per resource) goes up to one Civilization that
+levels up, unlocking buildings for everyone. Costs follow the number of active
+players, new places to start open as more join, and only the current and next
+stage are ever sent to a client. Away, a colony still ships in full, keeps 30%,
+and cannot lose people. From stage 2 there is a war: arms and turrets hold each
+wave, and a run of lost waves makes the Civilization fall (slower advancement,
+half buffs, liberation to recover). The relay steps the world itself and saves it
+with jsonfile.js; admins can set the stage, end an occupation or reset. The
+balance was tuned with `tools/colony-sim.js` (bots, days of fake time).
+
 **Done in 0.11.0: addresses that keep up, models on the relay.** The
 relay reads its own Cloudflare tunnel (cloudflared's `/config` on
 127.0.0.1, no API key) and checks which hostnames really reach it; signed-in

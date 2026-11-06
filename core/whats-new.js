@@ -10,6 +10,12 @@
   "use strict";
 
   var NOTES = [
+    { v: "0.12.0", items: [
+      "New: DEEPHOLD, a game everyone on the relay shares. Build an underground colony; what it ships up becomes one Civilization that levels up.",
+      "You never dig by hand. Buildings work while you are away: what they ship reaches the Civilization in full, and you keep 30% of the rest.",
+      "Each stage of the Civilization unlocks new buildings for everyone. There is a war: arms and turrets hold it, and it can fall, but not easily.",
+      "Costs follow how many people are playing, and more places to start open as more join. Needs an approved account (member or admin)."
+    ] },
     { v: "0.11.0", items: [
       "New relay addresses arrive by themselves: after you sign in, the relay's list is saved and deleted addresses are forgotten.",
       "If the address in use is blocked, the address question at start comes back even if you turned it off.",

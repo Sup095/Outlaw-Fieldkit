@@ -101,6 +101,7 @@ async function overview() {
     updates: updates && updates.state ? updates.state() : null,
     addresses: parts.addresses ? { list: parts.addresses.state.addresses, checkedAt: parts.addresses.state.checkedAt, error: parts.addresses.state.error } : null,
     shelf: parts.shelf ? { models: parts.shelf.list().map((m) => ({ id: m.id, mb: m.mb })), filling: parts.shelf.state.filling, error: parts.shelf.state.error } : null,
+    colony: parts.colony ? parts.colony.summary() : null,
     notices: notices ? notices.list() : [],
     announcement: notices ? notices.announcement() : null,
     devices: probe.list().slice(0, 12),

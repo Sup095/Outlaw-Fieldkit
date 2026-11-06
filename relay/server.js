@@ -43,6 +43,7 @@ const tinyAi = require("./tiny-ai");
 const modelMirror = require("./model-mirror");
 const modelShelf = require("./model-shelf");
 const addresses = require("./addresses");
+const colony = require("./colony");
 const topology = require("./topology");
 const { Overflow, loadKeys } = require("./overflow");
 const { LensLink } = require("./lens-link");
@@ -188,7 +189,7 @@ const DEFAULTS = {
     browserMax: 60, browserStreamMax: 12,
     /* RUNNER asks the relay for a status and a ticket and nothing
        else, so this is small. */
-    runnerMax: 60,
+    runnerMax: 60, colonyMax: 240,
     /* A build is one big download, not many small ones, and a
        check is one small GET. Neither needs headroom. */
     updateMax: 30 }
@@ -455,7 +456,7 @@ let usageDirty = false;
 
 /* The routes this relay actually has. A counter key is only ever
    one of these — see routeKey(). */
-const KNOWN_ROUTES = ["health", "status", "vault", "records", "blobs", "actions", "usage", "ai", "msg", "browser", "admin", "notices", "probe"];
+const KNOWN_ROUTES = ["health", "status", "vault", "records", "blobs", "actions", "usage", "ai", "msg", "browser", "admin", "notices", "probe", "colony"];
 
 /* A counter key must never be attacker-controlled.
 
@@ -1142,6 +1143,7 @@ const ROUTES = [
   "GET  /ai/targets", "POST /ai/chat",
   "GET  /actions", "POST /actions",
   "GET  /usage",
+  "GET  /colony/me", "POST /colony/{found,build,demolish,toggle,dig,ship,abandon,admin}",
   "POST /msg/register", "POST /msg/login", "POST /msg/logout",
   "GET  /msg/users", "GET/POST /msg/conv", "POST /msg/send", "GET  /msg/poll",
   "POST /msg/read", "POST /msg/rotate", "POST /msg/report",
@@ -1252,6 +1254,16 @@ async function route(req, res, url) {
   /* RUNNER (RUNNER_PLAN.md). The relay's whole part is saying who
      somebody is; the files and the output go straight to the run
      server and never through here. */
+  /* DEEPHOLD, the shared game (relay/colony.js). A vouched-for messaging account. */
+  if (seg[0] === "colony") {
+    const me = messaging.whoami(req);
+    if (me && !hit("colony:" + me.handle, config.rateLimit.colonyMax)) {
+      return send(res, 429, { error: "slow down", detail: "too many game requests" });
+    }
+    const who = (r) => { const m = messaging.whoami(r); return m && m.handle ? { handle: m.handle, tier: m.tier, banned: !!m.banned } : null; };
+    if (await colony.route(req, res, url, { send, readBody, who })) return;
+  }
+
   if (seg[0] === "runner") {
     if (!hit("runner:" + clientIp(req), config.rateLimit.runnerMax)) {
       return send(res, 429, { error: "slow down", detail: "too many runner requests" });
@@ -2104,6 +2116,7 @@ server.listen(config.port, config.host, () => {
   const sh = modelShelf.init({ dataDir: DATA_DIR, config: config.modelShelf, log: log, engineFiles: tinyAi.enginePaths });
   log("INFO", sh.enabled ? "model-shelf: " + sh.models + " model(s) ready, the rest are fetched in the background" : "model-shelf: off");
   addresses.init({ config: config.addresses, log: log, port: config.port });
+  try { colony.init({ dataDir: DATA_DIR, log: log }); } catch (e) { log("ERROR", "colony: not started: " + e.message); }
 
   const rn = runner.init({ dataDir: DATA_DIR, config: config.runner || {}, log: log,
     whoami: (r) => messaging.whoami(r) });
@@ -2147,7 +2160,7 @@ server.listen(config.port, config.host, () => {
   notices = new Notices({ file: path.join(DATA_DIR, "announcement.json"), log: log });
   admin.init({ dataDir: DATA_DIR, engine: bw, overflow: overflow, fairness: fairness, runner: runner,
     messaging: messaging, updates: updates, notices: notices, config: config, log: log, lens: lens,
-    addresses: addresses, shelf: modelShelf,
+    addresses: addresses, shelf: modelShelf, colony: colony,
     upload: () => ({ capMbps: fairness.settings().uploadCapMbps, relayKbps: relayNet.kbps, runnerKbps: Math.round(fairness.peerUp()),
       paceKbps: upcap.view().kbps, waited: upcap.view().waited }) });
   watchServices(bw, overflow, lens);
@@ -2213,6 +2226,7 @@ for (const sig of ["SIGINT", "SIGTERM"]) {
     log("INFO", `${sig} received, shutting down`);
     flushUsage();
     messaging.flush();
+    try { colony.flush(); } catch (e) {}
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 3000).unref();
   });
