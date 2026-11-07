@@ -196,7 +196,7 @@ var driveChecked = false, relayChecked = false, ranAuto = false;
 var manifestInfo = null;
 /* The FieldKit version this page was written for; a test keeps it
    equal to core/kernel.js, so it is updated with every release. */
-var FOR_VERSION = "0.12.1";
+var FOR_VERSION = "0.13.0";
 /* Next to the drive's files (FIELDKIT.html, core/...), or next to the
    downloaded single-file builds. Decided by whether core/kernel.js loads. */
 var layout = "unknown";
@@ -954,6 +954,12 @@ async function checkServices(G, base) {
   } else {
     rec(G, "RUNNER", "INFO", r.v ? "switched off on this relay" : "this relay does not offer it");
   }
+  var dh = await guard(10000, async function () {
+    var res = await fetch(base + "/colony/status", { cache: "no-store", mode: "cors" });
+    return res.status === 200 ? JSON.parse(await res.text()) : null;
+  });
+  rec(G, "DEEPHOLD", dh.v && dh.v.up ? (dh.v.paused ? "WARN" : "PASS") : "INFO",
+    dh.v && dh.v.up ? (dh.v.paused ? "the game is paused by an admin" : "the shared game is running") : "this relay does not run it (older than 0.13.0, or switched off)");
   var n = await guard(10000, async function () {
     var res = await fetch(base + "/notices", { cache: "no-store", mode: "cors" });
     return res.status === 200 ? JSON.parse(await res.text()) : null;

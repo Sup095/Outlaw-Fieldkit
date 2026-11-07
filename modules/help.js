@@ -274,11 +274,21 @@
         "A game everyone on the relay plays together. You run an underground colony; what it ships " +
         "up goes to one shared Civilization, which levels up and unlocks better buildings for everybody.",
         { steps: [
-          "Sign in to MESSAGES. An admin must have approved your account.",
+          "Make a gamertag (CREATE GAMERTAG). It is only for DEEPHOLD, not your MESSAGES account.",
           "Choose a place to start and press BREAK GROUND.",
-          "Click an empty plot to build. Keep your people breathing, fed, powered and not too miserable.",
-          "Under WAREHOUSE AND CARGO, choose how much of each thing goes up to the Civilization."
+          "Follow the ADVISOR on the right: each line says what is wrong and has a button that builds the fix.",
+          "Or click an empty plot in the picture and pick a building. Starred ones are what your colony needs most.",
+          "On SHIPPING, choose how much goes up to the Civilization: SEND SURPLUS is a good default."
         ] },
+        { rows: [
+          ["SEND ALL", "everything made goes up"],
+          ["SEND SURPLUS", "what the colony does not need, keeping a fund for building"],
+          ["SEND A LITTLE", "a small share, more when the Civilization asks for it"],
+          ["KEEP ALL", "nothing goes up"]
+        ] },
+        "The picture is your colony as it is: drag or scroll to look deeper, click a room to inspect it. " +
+        "MENU has PICTURE (HIGH, LOW or OFF) for slower machines. Warnings such as an incoming wave or " +
+        "hunger appear in the FieldKit notices even when DEEPHOLD is closed.",
         "You never dig or gather by hand: buildings do the work. Away from the screen your colony keeps " +
         "working. Everything it ships reaches the Civilization in full; you keep 30% of what you would " +
         "have kept, and nobody in your colony can die while you are away.",
@@ -286,7 +296,9 @@
         "are playing. From stage 2 there is a war: ARMS and turret nests hold each wave. If waves are " +
         "lost one after another the Civilization falls; it then advances slower and its buffs are " +
         "halved until it is liberated.",
-        { warn: "A colony whose people all die is lost and you start again. The Civilization keeps what you gave." }
+        "A colony not opened for a week is paused: it makes nothing and stops counting toward costs, and " +
+        "carries on when you come back. Admins can pause the whole game from MENU.",
+        { warn: "A colony whose people all die is lost and you start again. The Civilization keeps what you gave. There is no gamertag password reset." }
       ]
     },
 

@@ -189,7 +189,7 @@ const DEFAULTS = {
     browserMax: 60, browserStreamMax: 12,
     /* RUNNER asks the relay for a status and a ticket and nothing
        else, so this is small. */
-    runnerMax: 60, colonyMax: 240,
+    runnerMax: 60, colonyMax: 600,
     /* A build is one big download, not many small ones, and a
        check is one small GET. Neither needs headroom. */
     updateMax: 30 }
@@ -1143,7 +1143,7 @@ const ROUTES = [
   "GET  /ai/targets", "POST /ai/chat",
   "GET  /actions", "POST /actions",
   "GET  /usage",
-  "GET  /colony/me", "POST /colony/{found,build,demolish,toggle,dig,ship,abandon,admin}",
+  "GET  /colony/{status,me,events}", "POST /colony/{register,login,logout,found,build,demolish,toggle,dig,ship,abandon,claimadmin,admin}",
   "POST /msg/register", "POST /msg/login", "POST /msg/logout",
   "GET  /msg/users", "GET/POST /msg/conv", "POST /msg/send", "GET  /msg/poll",
   "POST /msg/read", "POST /msg/rotate", "POST /msg/report",
@@ -1254,14 +1254,15 @@ async function route(req, res, url) {
   /* RUNNER (RUNNER_PLAN.md). The relay's whole part is saying who
      somebody is; the files and the output go straight to the run
      server and never through here. */
-  /* DEEPHOLD, the shared game (relay/colony.js). A vouched-for messaging account. */
+  /* DEEPHOLD, the shared game (relay/colony.js). Its players are its own
+     (a gamertag made in the game), not MESSAGES accounts; a MESSAGES
+     admin can vouch for a gamertag (POST /colony/claimadmin). */
   if (seg[0] === "colony") {
-    const me = messaging.whoami(req);
-    if (me && !hit("colony:" + me.handle, config.rateLimit.colonyMax)) {
+    if (!hit("colony:" + clientIp(req), config.rateLimit.colonyMax)) {
       return send(res, 429, { error: "slow down", detail: "too many game requests" });
     }
-    const who = (r) => { const m = messaging.whoami(r); return m && m.handle ? { handle: m.handle, tier: m.tier, banned: !!m.banned } : null; };
-    if (await colony.route(req, res, url, { send, readBody, who })) return;
+    const msgWho = (r) => { const m = messaging.whoami(r); return m && m.handle ? { handle: m.handle, tier: m.tier, banned: !!m.banned } : null; };
+    if (await colony.route(req, res, url, { send, readBody, msgWho, ip: clientIp })) return;
   }
 
   if (seg[0] === "runner") {

@@ -875,6 +875,13 @@
         "This checks again by itself every " + (RETRY_MS / 1000) + " seconds.", [again]));
     }
     if (phase === "signin") {
+      var msgSvc = FieldKit.service("messages");
+      if (msgSvc && msgSvc.signInForm) {
+        var box = notice("SIGN IN TO USE RUNNER",
+          "RUNNER needs a FieldKit (MESSAGES) account, because limits and saved files are per person. Sign in or create one here.", []);
+        box.appendChild(msgSvc.signInForm({ onDone: function () { phase = "checking"; render(); refresh(guard); } }));
+        return void nodes.root.appendChild(box);
+      }
       return void nodes.root.appendChild(notice("SIGN IN TO USE RUNNER",
         "RUNNER needs a MESSAGES account, because limits and saved files are per person. " +
         "Open MESSAGES, sign in or create an account, then come back.", [

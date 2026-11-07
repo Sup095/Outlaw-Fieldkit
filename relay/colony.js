@@ -1,41 +1,44 @@
 /* ============================================================
-   FieldKit relay :: colony — DEEPHOLD, on the server
+   FieldKit relay :: colony — DEEPHOLD's routes, clock and save
 
-   relay/colony-engine.js is the game. This file is only what a game
-   on a server needs around it: who is asking, the clock, and a save
-   that survives a power cut (jsonfile.js, like everything else here).
+   The rules are in colony-engine.js and are pure. This file is the part
+   that touches the world: who is asking (relay/colony-players.js),
+   the clock that keeps the world running whether or not anyone is
+   looking, and the save file.
 
-     GET  /colony/me                  your colony, the Civilization, what you may build
+     POST /colony/register { tag, password }      a gamertag, made here
+     POST /colony/login    { tag, password }
+     POST /colony/logout
+     GET  /colony/me                              the whole picture
+     GET  /colony/events?since=N                  warnings and news (does not
+                                                  count as a visit)
      POST /colony/found    { biome, name }
+     POST /colony/abandon  { confirm: true }
      POST /colony/build    { layer, slot, type }
      POST /colony/demolish { layer, slot }
      POST /colony/toggle   { layer, slot }
-     POST /colony/dig      {}
-     POST /colony/ship     { res, pct }
-     POST /colony/abandon  { confirm: true }
-     POST /colony/admin    { action, ... }          admins only
+     POST /colony/dig
+     POST /colony/ship     { res, mode }  or  { preset }
+     POST /colony/claimadmin { token }            a MESSAGES admin vouches for
+                                                  a gamertag (sent with the
+                                                  MESSAGES session)
+     POST /colony/admin    { action, ... }        admins of the game only
 
-   THE SERVER IS THE GAME. A client says "build a drill on this plot";
-   the server checks the cost, the stage, the depth and the biome and
-   either does it or says why not. Nothing a client sends is ever a
+   Either does it or says why not. Nothing a client sends is ever a
    quantity of anything it owns. The only numbers that arrive are plot
    numbers and percentages, and they are clamped here.
-
-   WHO MAY PLAY. A vouched-for account (member or admin). A guest is an
-   account nobody has approved yet; letting them in would let one person
-   make ten accounts to unlock biomes and shrink the Civilization's
-   costs, since both count colonies.
 
    THE CLOCK. The world is stepped every few seconds whether or not
    anybody is looking, and again when somebody asks, so a colony is
    never "behind". A restart picks up where the file left off, up to
-   six hours of catch-up.
+   six hours of catch-up. A colony unvisited for a week is paused.
    ============================================================ */
 "use strict";
 
 const path = require("path");
 const jf = require("./jsonfile");
 const E = require("./colony-engine");
+const players = require("./colony-players");
 
 const TICK_MS = 5000;
 const SAVE_MS = 30000;
@@ -48,13 +51,15 @@ let dirty = false;
 let timers = [];
 let log = () => {};
 let clock = Date.now;
+const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 
 function load(now) {
   let w = null;
   try { w = jf.read(file, null); }
-  catch (e) { log("ERROR", "colony: " + e.message + " Starting with the .bak is not possible; the game is paused until an admin looks."); throw e; }
-  if (!w || w.v !== 1 || !w.civ || !w.colonies) w = E.newWorld(now);
+  catch (e) { log("ERROR", "colony: " + e.message + " The game is paused until an admin looks."); throw e; }
+  if (!w || w.v !== 2 || !w.civ || !w.colonies) w = E.newWorld(now);
   if (!w.cool) w.cool = {};
+  if (!w.events) { w.events = []; w.evid = 0; }
   return w;
 }
 
@@ -65,11 +70,12 @@ function init(opts) {
   log = opts.log || (() => {});
   clock = opts.now || Date.now;
   file = path.join(opts.dataDir, "colony.json");
+  players.init({ dataDir: opts.dataDir, now: clock });
   world = load(clock());
   dirty = false;
   if (opts.start !== false) {
     timers.push(setInterval(tick, TICK_MS));
-    timers.push(setInterval(() => { if (dirty) flush(); }, SAVE_MS));
+    timers.push(setInterval(() => { if (dirty) flush(); players.flush(); }, SAVE_MS));
     timers.forEach((t) => t.unref && t.unref());
   }
   return world;
@@ -90,6 +96,7 @@ function tick() {
 function flush() {
   if (!world || !file) return;
   try { jf.write(file, world); dirty = false; } catch (e) { log("ERROR", "colony: could not save: " + e.message); }
+  players.flush();
 }
 
 function cleanName(s, fallback) {
@@ -97,63 +104,116 @@ function cleanName(s, fallback) {
   return n.length >= 2 ? n : fallback;
 }
 
-function handleOk(who) {
-  /* who: { handle, tier, banned }. Guests wait for approval. */
-  if (!who || !who.handle) return { status: 401, body: { error: "sign in to MESSAGES first" } };
-  if (who.banned) return { status: 403, body: { error: "this account is banned" } };
-  /* A handle such as __proto__ or constructor is a legal account name and an illegal key. */
-  if (who.handle in {}) return { status: 403, body: { error: "this account name cannot be used in the game; make another account" } };
-  if (who.tier === "guest") return { status: 403, body: { error: "an admin has to approve your account before you can play", needsApproval: true } };
-  return null;
-}
-
 function reply(h, res, now, who, extra) {
-  const v = E.viewFor(world, now, who.handle);
-  v.me = who.handle; v.admin = who.tier === "admin";
-  v.cooldown = Math.max(0, Math.round(((world.cool[who.handle] || 0) + FOUND_COOLDOWN_MS - now) / 1000));
+  const v = E.viewFor(world, now, who.key, who.tier === "admin");
+  v.me = who.tag; v.admin = who.tier === "admin";
+  v.cooldown = Math.max(0, Math.round(((world.cool[who.key] || 0) + FOUND_COOLDOWN_MS - now) / 1000));
   return h.send(res, 200, Object.assign(v, extra || {}));
 }
 
-function act(who, now, body, fn) {
-  const c = world.colonies[who.handle];
+/* a change is reflected at once: power, air and advice are worked out again
+   with a sliver of time, so the panel never advises what was just built */
+function refresh(c, now) {
+  try { E.stepColony(world, c, now, 0.05, E.civAsks(world, now)); } catch (e) { /* the next tick will */ }
+}
+
+function act(who, now, fn) {
+  const c = has(world.colonies, who.key) ? world.colonies[who.key] : null;
   if (!c) return { error: "you do not have a colony yet" };
-  c.lastSeen = now;
   const r = fn(c);
-  if (r && r.ok) dirty = true;
+  if (r && r.ok) { dirty = true; refresh(c, now); }
   return r;
 }
 
 const int = (v) => (Number.isInteger(Number(v)) ? Number(v) : -1);
 
-/* h: { send, readBody, who(req) } */
+/* h: { send, readBody, msgWho(req), ip(req) } */
 async function route(req, res, url, h) {
   const seg = url.pathname.split("/").filter(Boolean);
   if (seg[0] !== "colony" || !world) return false;
   const method = req.method;
-  const who = h.who(req);
-  const no = handleOk(who);
-  if (no) { h.send(res, no.status, no.body); return true; }
-  const now = clock();
   const what = seg[1] || "";
+  const ip = h.ip ? h.ip(req) : "?";
+  const now = clock();
+
+  const readBody = async () => { try { return (await h.readBody(req)) || {}; } catch (e) { return { __bad: e }; } };
+
+  /* ---- before there is a player ---- */
+  /* For PREFLIGHT and DIAGNOSTICS: is the game running, nothing more. */
+  if (what === "status" && method === "GET") { h.send(res, 200, { up: true, paused: !!world.paused }); return true; }
+  if (what === "register" || what === "login") {
+    if (method !== "POST") { h.send(res, 405, { error: "POST this" }); return true; }
+    const b = await readBody();
+    if (b.__bad) { h.send(res, b.__bad.status || 400, { error: b.__bad.message || "bad request" }); return true; }
+    const r = what === "register" ? players.register(b.tag, b.password, ip) : players.login(b.tag, b.password, ip);
+    if (!r.ok) { h.send(res, r.status || 400, { error: r.error }); return true; }
+    h.send(res, what === "register" ? 201 : 200, { token: r.token, tag: r.player.tag, admin: r.player.admin });
+    return true;
+  }
+
+  /* A MESSAGES admin vouching for a gamertag: the request carries the
+     MESSAGES session, and the body names the gamertag's own token. */
+  if (what === "claimadmin") {
+    if (method !== "POST") { h.send(res, 405, { error: "POST this" }); return true; }
+    const m = h.msgWho ? h.msgWho(req) : null;
+    if (!m || m.tier !== "admin" || m.banned) { h.send(res, 403, { error: "only an admin of this relay can do that" }); return true; }
+    const b = await readBody();
+    const p = players.authToken(String(b.token || ""));
+    if (!p) { h.send(res, 401, { error: "sign in to DEEPHOLD first" }); return true; }
+    players.setAdmin(p.key, true);
+    log("INFO", "colony: " + p.tag + " was made a DEEPHOLD admin by " + (m.handle || "an admin"));
+    h.send(res, 200, { ok: true, admin: true });
+    return true;
+  }
+
+  const who = players.auth(req);
+  if (!who) { h.send(res, 401, { error: "sign in to DEEPHOLD", needsSignIn: true }); return true; }
+
+  if (what === "logout" && method === "POST") {
+    players.logout(String(req.headers.authorization || "").slice(7));
+    h.send(res, 200, { ok: true });
+    return true;
+  }
+
+  if (what === "events" && method === "GET") {
+    const since = Math.max(-1, int(url.searchParams.get("since")));
+    if (since < 0) { h.send(res, 200, { events: [], last: world.evid || 0 }); return true; }
+    h.send(res, 200, { events: E.eventsFor(world, who.key, since, 30), last: world.evid || 0, paused: !!world.paused });
+    return true;
+  }
 
   if (what === "me" && method === "GET") {
     E.stepWorld(world, now);
-    const c = world.colonies[who.handle];
-    if (c) c.lastSeen = now;
+    const c = has(world.colonies, who.key) ? world.colonies[who.key] : null;
+    if (c && !world.paused) { E.wake(world, c, now); dirty = true; }
     reply(h, res, now, who); return true;
   }
   if (method !== "POST") { h.send(res, 404, { error: "not found" }); return true; }
-  let body = {};
-  try { body = (await h.readBody(req)) || {}; } catch (e) { h.send(res, e.status || 400, { error: e.message || "bad request" }); return true; }
+  const body = await readBody();
+  if (body.__bad) { h.send(res, body.__bad.status || 400, { error: body.__bad.message || "bad request" }); return true; }
   E.stepWorld(world, now);
 
+  if (what === "admin") {
+    if (who.tier !== "admin") { h.send(res, 403, { error: "admins only" }); return true; }
+    const r = admin(body, now, who);
+    if (r.error) { h.send(res, 400, { error: r.error }); return true; }
+    dirty = true;
+    reply(h, res, now, who, { did: r.did }); return true;
+  }
+
+  if (world.paused) { h.send(res, 423, { error: "The game is paused by an admin.", paused: true }); return true; }
+  const mine = has(world.colonies, who.key) ? world.colonies[who.key] : null;
+  if (mine) E.wake(world, mine, now);
+
   if (what === "found") {
-    const have = world.colonies[who.handle];
+    const have = mine;
     if (have && !have.collapsed) { h.send(res, 409, { error: "you already have a colony" }); return true; }
-    if (now - (world.cool[who.handle] || 0) < FOUND_COOLDOWN_MS) { h.send(res, 429, { error: "give the rock a few minutes before you start again" }); return true; }
-    if (!E.biomeOpen(world, String(body.biome))) { h.send(res, 400, { error: "that place is not open yet" }); return true; }
-    const c = E.newColony(who.handle, String(body.biome), cleanName(body.name, who.handle + "'s hold"), now);
-    world.colonies[who.handle] = c;
+    if (now - (world.cool[who.key] || 0) < FOUND_COOLDOWN_MS) { h.send(res, 429, { error: "give the rock a few minutes before you start again" }); return true; }
+    const biome = String(body.biome);
+    if (!E.mayFound(world, biome, who.tier === "admin")) { h.send(res, 400, { error: "that place is not open to you yet" }); return true; }
+    const c = E.newColony(who.key, biome, cleanName(body.name, who.tag + "'s hold"), now);
+    world.colonies[who.key] = c;
+    refresh(c, now);
     world.civ.peak = Math.max(world.civ.peak, E.activeColonies(world, now));
     E.say(world.civ.log, now, c.name + " breaks ground in the " + E.BIOMES[c.biome].name + ".");
     dirty = true;
@@ -161,28 +221,21 @@ async function route(req, res, url, h) {
   }
   if (what === "abandon") {
     if (!body.confirm) { h.send(res, 400, { error: "confirm to abandon" }); return true; }
-    const c = world.colonies[who.handle];
-    if (!c) { h.send(res, 404, { error: "no colony" }); return true; }
-    delete world.colonies[who.handle];
-    world.cool[who.handle] = now;
+    if (!mine) { h.send(res, 404, { error: "no colony" }); return true; }
+    delete world.colonies[who.key];
+    world.cool[who.key] = now;
     dirty = true;
     reply(h, res, now, who); return true;
   }
 
-  if (what === "admin") {
-    if (who.tier !== "admin") { h.send(res, 403, { error: "admins only" }); return true; }
-    const r = admin(body, now);
-    if (r.error) { h.send(res, 400, { error: r.error }); return true; }
-    dirty = true;
-    reply(h, res, now, who, { did: r.did }); return true;
-  }
-
   let r;
-  if (what === "build") r = act(who, now, body, (c) => E.build(world, c, int(body.layer), int(body.slot), String(body.type)));
-  else if (what === "demolish") r = act(who, now, body, (c) => E.demolish(c, int(body.layer), int(body.slot)));
-  else if (what === "toggle") r = act(who, now, body, (c) => E.toggle(c, int(body.layer), int(body.slot)));
-  else if (what === "dig") r = act(who, now, body, (c) => E.startDig(world, c, now));
-  else if (what === "ship") r = act(who, now, body, (c) => E.setShip(c, String(body.res), body.pct));
+  if (what === "build") r = act(who, now, (c) => E.build(world, c, int(body.layer), int(body.slot), String(body.type), now));
+  else if (what === "demolish") r = act(who, now, (c) => E.demolish(c, int(body.layer), int(body.slot)));
+  else if (what === "toggle") r = act(who, now, (c) => E.toggle(c, int(body.layer), int(body.slot)));
+  else if (what === "dig") r = act(who, now, (c) => E.startDig(world, c, now));
+  else if (what === "ship") {
+    r = act(who, now, (c) => body.preset !== undefined ? E.setPreset(c, String(body.preset)) : E.setShip(c, String(body.res), body.mode !== undefined ? body.mode : body.pct));
+  }
   else { h.send(res, 404, { error: "not found" }); return true; }
   if (r.error) { h.send(res, 400, { error: r.error }); return true; }
   reply(h, res, now, who); return true;
@@ -190,9 +243,27 @@ async function route(req, res, url, h) {
 
 /* What an admin can do to the shared state. Every one is logged to the
    Civilization's own log so nobody is surprised by it. */
-function admin(b, now) {
+function admin(b, now, who) {
   const civ = world.civ;
   switch (String(b.action)) {
+    case "pause": {
+      const on = b.on !== false;
+      if (on && !world.paused) {
+        E.stepWorld(world, now);
+        world.paused = { since: now, by: who.tag };
+        E.say(civ.log, now, "An admin paused the game.");
+        E.emit(world, now, null, "warn", "The game was paused by an admin. Nothing runs until it resumes.", "pause");
+        return { did: "paused" };
+      }
+      if (!on && world.paused) {
+        E.stepWorld(world, now);              /* shifts every timer by the time stood still */
+        world.paused = null;
+        E.say(civ.log, now, "An admin resumed the game.");
+        E.emit(world, now, null, "ok", "The game is running again.", "pause");
+        return { did: "resumed" };
+      }
+      return { did: on ? "already paused" : "not paused" };
+    }
     case "setStage": {
       const s = int(b.stage);
       if (s < 0 || s >= E.STAGES.length) return { error: "no such stage" };
@@ -200,6 +271,7 @@ function admin(b, now) {
       if (s >= 2 && !civ.war) E.scheduleWave(world, now, E.WAVE_FIRST_MS);
       if (s < 2) civ.war = null;
       E.say(civ.log, now, "An admin set the Civilization to stage " + s + ".");
+      E.emit(world, now, null, "good", "The Civilization is now stage " + s + ": " + E.STAGES[s].name + ".", "stage");
       return { did: "stage " + s };
     }
     case "endFall":
@@ -215,6 +287,7 @@ function admin(b, now) {
     case "delayWave":
       if (!civ.war) return { error: "no wave is scheduled" };
       civ.war.at += Math.max(1, Math.min(48, Number(b.hours) || 8)) * 3600 * 1000;
+      civ.war.w60 = civ.war.w10 = false;
       return { did: "wave delayed" };
     case "grantCiv": {
       const res = String(b.res), n = Math.max(0, Math.min(100000, Number(b.amount) || 0));
@@ -228,17 +301,31 @@ function admin(b, now) {
       E.say(world.civ.log, now, "The Civilization was reset by an admin.");
       return { did: "civilization reset" };
     case "removeColony": {
-      const h = String(b.handle);
-      if (!world.colonies[h]) return { error: "no such colony" };
+      const h = players.keyOf(b.handle);
+      if (!has(world.colonies, h)) return { error: "no such colony" };
       delete world.colonies[h]; delete world.cool[h];
       return { did: "colony removed" };
     }
     case "renameColony": {
-      const c = world.colonies[String(b.handle)];
+      const c = has(world.colonies, players.keyOf(b.handle)) ? world.colonies[players.keyOf(b.handle)] : null;
       if (!c) return { error: "no such colony" };
       c.name = cleanName(b.name, "Unnamed hold");
       if (civ.givers[c.handle]) civ.givers[c.handle].name = c.name;
       return { did: "renamed" };
+    }
+    case "makeAdmin":
+    case "removeAdmin": {
+      const on = b.action === "makeAdmin";
+      if (players.keyOf(b.handle) === who.key && !on) return { error: "you cannot take your own admin away" };
+      if (!players.setAdmin(b.handle, on)) return { error: "no such gamertag" };
+      return { did: on ? "admin given" : "admin removed" };
+    }
+    case "removePlayer": {
+      const k = players.keyOf(b.handle);
+      if (k === who.key) return { error: "you cannot remove yourself" };
+      if (!players.remove(k)) return { error: "no such gamertag" };
+      if (has(world.colonies, k)) { delete world.colonies[k]; delete world.cool[k]; }
+      return { did: "gamertag removed" };
     }
     default: return { error: "unknown action" };
   }
@@ -249,8 +336,8 @@ function summary() {
   if (!world) return null;
   const now = clock();
   return { stage: world.civ.stage, name: E.STAGES[world.civ.stage].name, colonies: Object.keys(world.colonies).length,
-    active: E.activeColonies(world, now), fallen: world.civ.fallen, wins: world.civ.wins, losses: world.civ.losses,
-    nextWave: world.civ.war ? world.civ.war.at : null };
+    players: players.count(), active: E.activeColonies(world, now), fallen: world.civ.fallen, wins: world.civ.wins, losses: world.civ.losses,
+    paused: !!world.paused, nextWave: world.civ.war ? world.civ.war.at : null };
 }
 
-module.exports = { init, stop, route, flush, tick, summary, _world: () => world, _internals: { cleanName, admin, FOUND_COOLDOWN_MS } };
+module.exports = { init, stop, route, flush, tick, summary, _world: () => world, _players: players, _internals: { cleanName, admin, FOUND_COOLDOWN_MS } };

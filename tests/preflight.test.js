@@ -70,19 +70,19 @@ try {
 
     /* The only requests this page may ever make, all to the relay the
        user typed and only after they pressed the button: its public
-       /health and /vault header, the browser's, RUNNER's and the
-       server models' public status, what it is telling everyone, and
-       whether it can pass a tiny model on (/ai/mirror). Another target appearing here is a page that phones
+       /health and /vault header, the browser's, RUNNER's, DEEPHOLD's
+       and the server models' public status, what it is telling everyone,
+       and whether it can pass a tiny model on (/ai/mirror). Another target appearing here is a page that phones
        somewhere from a machine the user does not trust. */
     const targets = (scriptSrc.match(/fetch\(\s*([^,)]+)/g) || [])
       .map((f) => f.replace(/^fetch\(\s*/, "").trim());
-    const want = ['"/health"', '"/vault"', '"/browser/status"', '"/runner/status"', '"/notices"', '"/ai/tiny"', '"/ai/mirror?u="'];
-    ok("it makes exactly seven kinds of request, all to the relay the user typed",
-      targets.length === 7 && targets.every((t) => t.startsWith("base +")) &&
+    const want = ['"/health"', '"/vault"', '"/browser/status"', '"/runner/status"', '"/colony/status"', '"/notices"', '"/ai/tiny"', '"/ai/mirror?u="'];
+    ok("it makes exactly eight kinds of request, all to the relay the user typed",
+      targets.length === 8 && targets.every((t) => t.startsWith("base +")) &&
       want.every((w) => targets.join(" ").includes(w)), targets.join(" | "));
     ok("all inside the relay checks, which only a button press reaches",
       (scriptSrc.split("async function checkRelay")[1] || "").split("async function checkCapability")[0]
-        .match(/fetch\(/g).length === 7);
+        .match(/fetch\(/g).length === 8);
     const sockets = scriptSrc.match(/new WebSocket\(/g) || [];
     ok("and one WebSocket, to the same relay's /ws-check", sockets.length === 1 &&
       scriptSrc.includes('new WebSocket(base.replace(/^http/i, "ws") + "/ws-check")'));

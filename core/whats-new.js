@@ -10,6 +10,15 @@
   "use strict";
 
   var NOTES = [
+    { v: "0.13.0", items: [
+      "DEEPHOLD rebuilt: a live picture of your colony, digging down with workers walking its tunnels. Click a plot to build or inspect.",
+      "DEEPHOLD has its own gamertags, separate from MESSAGES, so only people who play are counted. Typing and clicks no longer get lost.",
+      "An advisor says what your colony needs and builds it in one click. Buildings are sorted into categories, with the useful ones starred.",
+      "Shipping rules: SEND ALL, SEND SURPLUS, SEND A LITTLE or KEEP ALL, for everything or one thing. They follow what is needed.",
+      "Stages 4 to 6 are ready. Warnings (waves, hunger, a new stage) appear in the notices even with the game closed.",
+      "Admins can pause the game and start in a ruined Imperial garrison. Colonies unseen for a week pause and stop counting.",
+      "FieldKit offers to sign you in when it starts, and RUNNER and BROWSER sign you in where you are."
+    ] },
     { v: "0.12.1", items: [
       "Fixed: sites that said 'Forbidden' for a few seconds after one lost DNS answer. The relay now asks again.",
       "Fixed: a bad request could make DEEPHOLD answer with an error; a game bug can no longer stop the relay."

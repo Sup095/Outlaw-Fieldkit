@@ -437,6 +437,20 @@ stays, as the fallback and for what lens cannot do.
 - *Next:* a cache for pages you open twice, which the test showed would
   roughly halve what a second visit costs.
 
+**Done in 0.13.0: DEEPHOLD rebuilt, one sign-in.** DEEPHOLD has its own
+gamertags (relay/colony-players.js, scrypt, separate from MESSAGES) so only
+players count toward the scaling. The panel is built once and only updates text,
+so a poll never steals focus, and it runs the stock and countdowns on between
+polls. A pixel picture of the colony (core/colony-scene.js, core/colony-sprites.js)
+grows from the layout of each colony's name: wobbling tunnels, a zigzag shaft,
+parallax rock and workers that path between rooms. An advisor names what is
+wrong and builds the fix; buildings sit in categories with recommendations;
+shipping has ALL / SURPLUS / A LITTLE / NONE rules that follow need. Stages 4-6
+are in, admins can pause the world and start in a ruined Imperial garrison that
+is repaired by building, and colonies unseen for 7 days pause and stop counting.
+Game warnings reach FieldKit's notices. FieldKit offers the MESSAGES sign-in at
+start (setting signInAtBoot), and RUNNER and BROWSER show the same form.
+
 **Done in 0.12.0: DEEPHOLD, the shared game.** Every approved account runs a
 small underground colony (relay/colony-engine.js, panel modules/colony.js).
 Buildings, never hands, make ore, water, fungus, crystal, fuel, food, parts,

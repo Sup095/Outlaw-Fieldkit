@@ -55,7 +55,18 @@
      first and then be thrown away by a 400. */
   var HANDLE_RE = /^[a-z0-9._-]{3,24}$/;
 
+  /* Signing in no longer needs this panel open (the sign-in at start,
+     RUNNER, BROWSER), so what mount() would set up is borrowed from
+     the services when it has not run yet. */
+  function ensureCtx() {
+    if (!ctx) ctx = { settings: FieldKit.need("settings"), ui: FieldKit.need("ui") };
+    if (!ui) ui = ctx.ui;
+    if (!el) el = ui.el;
+    if (!mc) mc = FieldKit.service("msgCrypto");
+  }
+
   function relayBase() {
+    ensureCtx();
     var u = String(ctx.settings.get("relayUrl") || "").trim();
     return u ? u.replace(/\/+$/, "") : "";
   }
@@ -156,6 +167,7 @@
   }
 
   function signOut(why) {
+    ensureCtx();
     stopPolling = true;
     if (session) { api("POST", "/msg/logout").catch(function () { /* best effort */ }); }
     session = null;
@@ -1163,7 +1175,88 @@
     runnerTicket: async function () {
       if (!session) throw new Error("not signed in to MESSAGES");
       return api("POST", "/runner/ticket");
+    },
+    /* The one sign-in form, for any panel that needs an account.
+       The password never leaves this module. */
+    signInForm: function (opts) { return signInForm(opts || {}); },
+    /* The same form over the desktop: at start, or when a panel asks. */
+    promptSignIn: function (reason) { return promptSignIn(reason); }
+  });
+
+  function signInForm(opts) {
+    ensureCtx();
+    var handle = el("input", { class: "fk-input", type: "text", placeholder: "handle", autocomplete: "username", value: ctx.settings.get("msgHandle") || "" });
+    var pw = el("input", { class: "fk-input", type: "password", placeholder: "password", autocomplete: "current-password" });
+    var name = el("input", { class: "fk-input", type: "text", placeholder: "display name (only when creating)" });
+    var note = el("div", { class: "fk-dim", text: "" });
+    var busy = false;
+    async function go(make) {
+      if (busy) return;
+      if (!mc || !mc.available()) { note.textContent = "this browser cannot do the encryption MESSAGES needs"; return; }
+      busy = true;
+      note.textContent = (make ? "CREATING" : "SIGNING IN") + "... deriving your key, this takes a moment";
+      try {
+        var h = handle.value.trim().toLowerCase();
+        if (make) await signUp(h, pw.value, name.value.trim()); else await signIn(h, pw.value);
+        pw.value = "";
+        note.textContent = "";
+        if (nodes.root) { loadDirectory().then(loadConversations).then(render).catch(function () {}); stopPolling = false; pollLoop(); }
+        if (opts.onDone) opts.onDone(session);
+      } catch (e) {
+        note.textContent = e.message === "WRONG_PASSWORD" ? "That password does not open your key. There is no reset." : e.message;
+      } finally { busy = false; }
     }
+    pw.addEventListener("keydown", function (e) { if (e.key === "Enter") go(false); });
+    return el("div", { class: "fk-signin" }, [
+      handle, pw, name,
+      el("div", { class: "fk-signin-row" }, [
+        ui.button("SIGN IN", function () { go(false); }, { primary: true }),
+        ui.button("CREATE ACCOUNT", function () { go(true); })
+      ].concat(opts.extra || [])),
+      note,
+      el("div", { class: "fk-dim", text: "One FieldKit account for MESSAGES, BROWSER and RUNNER. There is no password reset." })
+    ]);
+  }
+
+  var promptOpen = null;
+  function promptSignIn(reason) {
+    ensureCtx();
+    if (session || promptOpen || typeof document === "undefined" || !document.body) return null;
+    if (!relayBase()) return null;
+    if (!document.getElementById("fk-signin-css")) {
+      var st = document.createElement("style"); st.id = "fk-signin-css";
+      st.textContent = ".fk-signin-over{position:fixed;inset:0;z-index:9000;background:rgba(0,0,0,.72);display:flex;align-items:center;justify-content:center;padding:16px}" +
+        ".fk-signin-box{background:var(--bg2,#111);border:1px solid var(--accent,#d9a441);padding:18px;max-width:420px;width:100%;display:flex;flex-direction:column;gap:10px}" +
+        ".fk-signin-h{letter-spacing:.3em;color:var(--accent,#d9a441)}.fk-signin{display:flex;flex-direction:column;gap:8px}" +
+        ".fk-signin-row{display:flex;gap:8px;flex-wrap:wrap}.fk-signin .fk-dim,.fk-signin-box .fk-dim{font-size:11px;opacity:.7;line-height:1.5}" +
+        ".fk-signin-ask{display:flex;gap:6px;align-items:center;font-size:11px;opacity:.8}";
+      document.head.appendChild(st);
+    }
+    var over = el("div", { class: "fk-signin-over" });
+    function close() { if (over.parentNode) over.parentNode.removeChild(over); promptOpen = null; }
+    var ask = el("input", { type: "checkbox" });
+    ask.checked = ctx.settings.get("signInAtBoot") !== false;
+    ask.addEventListener("change", function () { ctx.settings.set("signInAtBoot", ask.checked); });
+    over.appendChild(el("div", { class: "fk-signin-box" }, [
+      el("div", { class: "fk-signin-h", text: "SIGN IN TO FIELDKIT" }),
+      el("div", { class: "fk-dim", text: reason || "Sign in now and MESSAGES, BROWSER and RUNNER are ready when you open them. DEEPHOLD has its own gamertag." }),
+      signInForm({ onDone: function () { ui.toast("SIGNED IN AS " + String(session.handle).toUpperCase(), "ok"); close(); },
+        extra: [ui.button("NOT NOW", close)] }),
+      el("label", { class: "fk-signin-ask" }, [ask, el("span", { text: "ask me when FieldKit starts" })])
+    ]));
+    document.body.appendChild(over);
+    promptOpen = over;
+    return over;
+  }
+
+  /* At start, when there is a relay and nobody is signed in. */
+  FieldKit.on("boot:done", function (d) {
+    if (d && d.outpost) return;
+    try {
+      ensureCtx();
+      if (ctx.settings.get("signInAtBoot") === false || session) return;
+      setTimeout(function () { promptSignIn(); }, 600);
+    } catch (e) { /* never in the way of the desktop */ }
   });
 
   FieldKit.register("messages", {
@@ -1184,7 +1277,14 @@
       nodes.root = el("div", { class: "mg-root" });
       host.appendChild(nodes.root);
       render();
-      if (session) pollLoop();
+      if (session) {
+        /* signed in somewhere else first: fetch what the panel shows */
+        if (!conversations.length) {
+          loadDirectory().then(loadConversations).then(render).catch(function () { /* the poll retries */ });
+        }
+        stopPolling = false;
+        pollLoop();
+      }
     },
 
     unmount() {

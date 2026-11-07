@@ -27,6 +27,7 @@
     relayUrl: "",
     relayUrls: [],           // other addresses for a relay, tried when relayUrl does not answer (core/relay-choice.js)
     relayAskAtBoot: true,    // show the address and offer to change it before connecting
+    signInAtBoot: true,      // offer the MESSAGES sign-in when the desktop opens (modules/messages.js)
     autoLockMinutes: 0,      // 0 = never; screen lock only, see core/lockscreen.js
     backupReminderDays: 14,  // 0 = never nag; see core/backup.js
     autoSnapshotMinutes: 30, // 0 = off; local sealed snapshot ring

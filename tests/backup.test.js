@@ -174,7 +174,7 @@ const store = FieldKit.need("store");
     }
 
     ok("a flipped ciphertext byte is caught",
-      !(await mutate((c) => { c.records[0].box.ct = "ZZ" + c.records[0].box.ct.slice(2); })).intact);
+      !(await mutate((c) => { const ct = c.records[0].box.ct; c.records[0].box.ct = (ct.slice(0, 2) === "ZZ" ? "YY" : "ZZ") + ct.slice(2); })).intact);
     ok("a changed record id is caught",
       !(await mutate((c) => { c.records[0].id = "somethingelse"; })).intact);
     ok("a removed record is caught",
@@ -300,7 +300,7 @@ const store = FieldKit.need("store");
     ok("restoring over the same vault is allowed", ok2);
 
     const corrupt = JSON.parse(JSON.stringify(archive));
-    corrupt.records[0].box.ct = "ZZ" + corrupt.records[0].box.ct.slice(2);
+    { const ct = corrupt.records[0].box.ct; corrupt.records[0].box.ct = (ct.slice(0, 2) === "ZZ" ? "YY" : "ZZ") + ct.slice(2); }
     const target = makeTransport("target");
     let cmsg = null;
     try { await backup.restoreToTransport(corrupt, target, null, { token: AUTH }); }

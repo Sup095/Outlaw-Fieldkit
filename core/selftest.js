@@ -243,6 +243,11 @@
         if (!r.online || r.ready === false) throw new Error(r.why || "the run server is offline");
         return "ready (" + (r.sandbox || "?") + ")" + (r.viaRelay ? ", through the relay's own address" : ", on its own address");
       }),
+      check("DEEPHOLD", false, async function () {
+        var d = await getJson(relayBase() + "/colony/status");
+        if (!d || !d.up) throw new Error("SKIPPED — this relay does not run the game (older than 0.13.0)");
+        return d.paused ? "running, paused by an admin" : "running";
+      }),
       check("SERVER AI MODELS", false, async function () {
         var t = await getJson(relayBase() + "/ai/tiny");
         if (!t) throw new Error("SKIPPED — this relay is too old to offer them");

@@ -308,6 +308,11 @@
   }
 
   function setStatus(text, level) {
+    /* nothing can prove who you are: offer the sign-in right here */
+    if (level === "bad" && /sign in to MESSAGES/i.test(String(text))) {
+      var m = FieldKit.service("messages");
+      if (m && m.promptSignIn && !m.signedIn()) m.promptSignIn("BROWSER needs your FieldKit account. Sign in, then press GO again.");
+    }
     if (!nodes.status) return;
     nodes.status.textContent = text;
     nodes.status.className = "br-status" + (level ? " " + level : "");

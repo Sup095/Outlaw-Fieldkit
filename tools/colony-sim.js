@@ -17,22 +17,36 @@ const E = require("../relay/colony-engine");
 
 /* What a sensible player wants, in order: [building, how many]. */
 const PLAN = [
-  ["farm", 1], ["mess", 1], ["drill", 2], ["pump", 2], ["bunk", 1], ["foundry", 1], ["cell", 3], ["scrubber", 2], ["lift", 2],
-  ["farm", 2], ["drill", 3], ["foundry", 2], ["bunk", 2], ["cell", 4], ["scrubber", 3],
-  ["siphon", 1], ["burner", 1], ["workshop", 1], ["stimden", 1], ["bunk", 3], ["mess", 2], ["drill", 4],
-  ["bore", 1], ["armoury", 1], ["clinic", 1], ["burner", 2], ["foundry", 3], ["workshop", 2], ["stimden", 2], ["bunk", 4], ["scrubber", 4],
-  ["armoury", 2], ["bore", 2], ["geo", 1], ["turret", 2], ["reactor", 1], ["vidhall", 1], ["farm", 3], ["mess", 3], ["bunk", 5], ["scrubber", 5]
+  ["farm", 1], ["mess", 1], ["stimden", 1], ["drill", 2], ["pump", 2], ["bunk", 1], ["foundry", 1], ["cell", 3], ["scrubber", 2], ["lift", 2],
+  ["workshop", 1], ["farm", 2], ["pump", 3], ["drill", 3], ["bunk", 2], ["cell", 4], ["siphon", 1], ["burner", 1],
+  ["mess", 2], ["scrubber", 3], ["workshop", 2], ["bore", 1], ["armoury", 1], ["clinic", 1], ["drill", 4], ["stimden", 2], ["bunk", 3], ["burner", 2],
+  ["armoury", 2], ["bore", 2], ["geo", 1], ["turret", 2], ["reactor", 1], ["vidhall", 1], ["farm", 3], ["mess", 3], ["bunk", 4], ["scrubber", 4],
+  ["hydro", 1], ["habtower", 2], ["shield", 1], ["turret", 3], ["reactor", 2], ["assembler", 1], ["deepdrill", 1], ["railgun", 2], ["habtower", 4], ["armoury", 3],
+  ["fusion", 1], ["arcology", 1], ["bastion", 1], ["railgun", 3], ["shield", 2]
 ];
 
 /* Things a player notices on screen and fixes first. */
-function urgent(world, colony) {
+function urgent(world, colony, now) {
   const s = colony.stats || {};
   const pop = Math.floor(colony.pop);
   const out = [];
+  /* parts only come from a foundry, and half of what is worth building needs them */
+  if ((colony.stock.parts || 0) < 25 && E.countOf(colony, "foundry") < 1) out.push(["foundry", 1]);
+  if ((colony.stock.parts || 0) < 60 && colony.layers >= 2 && E.countOf(colony, "foundry") < 2) out.push(["foundry", 2]);
+  if ((colony.stock.ore || 0) < 60 && colony.layers >= 2 && E.countOf(colony, "drill") < 5) out.push(["drill", 5]);
   if (s.power && s.power[1] > s.power[0]) out.push(["cell", 4], ["burner", 3], ["geo", 3]);
   if (s.air && s.air[0] < pop + 1) out.push(["scrubber", 6]);
   if (s.housing && pop >= s.housing - 1 && colony.hap >= 50) out.push(["bunk", 8]);
   if (colony.sat.food < 0.8) out.push((colony.stock.fungus || 0) < 20 ? ["farm", 4] : ["mess", 3]);
+  if (s.ent && s.ent[0] < pop) out.push(["stimden", 2], ["vidhall", 2]);
+  /* and builds what the Civilization is asking for, once it is safe to */
+  if (colony.layers >= 2 && colony.hap >= 40) {
+    const asked = E.civAsks(world, now);
+    if (asked.goods) out.push(["workshop", 3], ["assembler", 2]);
+    if (asked.food) out.push(["mess", 3], ["farm", 3], ["hydro", 2]);
+    if (asked.parts) out.push(["foundry", 2]);
+    if (asked.arms) out.push(["armoury", 3], ["arsenal", 2]);
+  }
   return out;
 }
 
@@ -48,10 +62,12 @@ function act(world, colony, now) {
   /* A player reads the Civilization tab and sends what it asks for. */
   const asked = E.needFor(world, now, world.civ.stage + 1) || {};
   for (const r of E.RES) {
-    const want = asked[r] && (world.civ.progress[r] || 0) < asked[r] ? (r === "food" || r === "goods" ? 50 : 60) : E.DEFAULT_SHIP[r];
+    /* the default rules, and "all" only for what the Civ asks for AND this colony can spare */
+    const rich = (colony.stock[r] || 0) > 300;
+    const want = asked[r] && (world.civ.progress[r] || 0) < asked[r] && rich ? "all" : E.DEFAULT_SHIP[r];
     if (colony.ship[r] !== want) E.setShip(colony, r, want);
   }
-  const first = urgent(world, colony);
+  const first = urgent(world, colony, now);
   for (const [id, n] of first.concat(PLAN)) {
     const b = E.B[id];
     if (b.stage > world.civ.stage) continue;
@@ -64,7 +80,7 @@ function act(world, colony, now) {
       if (!colony.dig && colony.layers < E.layerCap(world.civ)) E.startDig(world, colony, now);
       continue;
     }
-    if (E.build(world, colony, at[0], at[1], id).ok) return true;
+    if (E.build(world, colony, at[0], at[1], id, now).ok) return true;
     /* cannot afford: wait for it rather than skip ahead forever */
     return false;
   }
@@ -114,7 +130,7 @@ function run(opts) {
           if (((tod - start + 1) % 1) < len) on = true;
         }
       }
-      if (on) { c.lastSeen = now; if (Math.floor(now / STEPMS) % 3 === 0) act(world, c, now); }
+      if (on) { E.wake(world, c, now); if (Math.floor(now / STEPMS) % 3 === 0) act(world, c, now); }
     }
     E.stepWorld(world, now);
     while (stages.length < world.civ.stage) stages.push({ stage: stages.length + 1, day: +((now - t0) / DAY).toFixed(2) });
