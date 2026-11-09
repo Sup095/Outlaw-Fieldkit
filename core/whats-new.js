@@ -10,6 +10,12 @@
   "use strict";
 
   var NOTES = [
+    { v: "0.13.1", items: [
+      "DEEPHOLD: digging is in the picture. Click the dig site under your deepest layer, or DIG DEEPER, to see the cost and dig.",
+      "A boring rig cuts each new tunnel, and the rock below the colony has seams and strata instead of a blank edge.",
+      "When you cannot dig yet, the dig site and the advisor say which Civilization stage opens the next layer.",
+      "The Imperial garrison is redone: a buried gothic fortress with red-glass windows, banners, braziers and a spired gatehouse that mend as you repair it."
+    ] },
     { v: "0.13.0", items: [
       "DEEPHOLD rebuilt: a live picture of your colony, digging down with workers walking its tunnels. Click a plot to build or inspect.",
       "DEEPHOLD has its own gamertags, separate from MESSAGES, so only people who play are counted. Typing and clicks no longer get lost.",

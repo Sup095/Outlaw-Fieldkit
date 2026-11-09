@@ -829,8 +829,12 @@ function adviseFor(world, colony, now) {
     const mk = { ore: "drill", water: "pump", fungus: "farm", parts: "foundry", goods: pick(["assembler", "workshop"]), food: pick(["hydro", "mess"]), crystal: "bore", fuel: "siphon", arms: "armoury" }[topAsk];
     if (mk && avail(mk)) push("ask", "tip", "The Civilization is asking for " + topAsk.toUpperCase() + " and you make none.", mk, topAsk);
   }
-  if (!colony.dig && colony.layers < layerCap(civ) && !freeSlot) push("room", "tip", "You are out of room. Dig deeper for more plots.");
-  else if (!colony.dig && colony.layers < layerCap(civ) && canAfford(st, digCost(colony)) && colony.layers <= 2) push("dig", "tip", "Dig a new layer: more room, and deeper ground is richer.");
+  const freeCount = colony.grid.slice(0, colony.layers).reduce((a, row) => a + row.filter((c) => !c).length, 0);
+  const canDeeper = !colony.dig && colony.layers < layerCap(civ);
+  if (canDeeper && !freeSlot) push("room", "warn", "You are out of room. Click the dig site at the bottom of your colony to open layer " + (colony.layers + 1) + ".");
+  else if (canDeeper && canAfford(st, digCost(colony)) && (colony.layers <= 2 || freeCount <= 2)) push("dig", "tip", "Dig layer " + (colony.layers + 1) + " (the dig site at the bottom): 8 more plots, and deeper ground is richer.");
+  else if (!colony.dig && colony.layers < MAX_LAYERS && colony.layers >= layerCap(civ) && freeCount <= 1 && !civ.fallen)
+    push("deeper", "tip", "Layer " + (colony.layers + 1) + " opens when the Civilization reaches stage " + (colony.layers - 1) + ". Ship what it asks for to get there.");
   if (colony.biome === "ruin" && colony.repair < 100) push("repair", "tip", "The garrison is " + Math.floor(colony.repair) + "% repaired. Everything you build restores more of it.");
   if (colony.sent && !out.length) {
     const askedRes = Object.keys(asks)[0];

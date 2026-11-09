@@ -287,6 +287,8 @@
           ["KEEP ALL", "nothing goes up"]
         ] },
         "The picture is your colony as it is: drag or scroll to look deeper, click a room to inspect it. " +
+        "To get more room, dig: the DIG SITE sits under your deepest layer (or press DIG DEEPER by the picture). " +
+        "It shows the cost, and if the next layer is not open yet, which Civilization stage opens it. " +
         "MENU has PICTURE (HIGH, LOW or OFF) for slower machines. Warnings such as an incoming wave or " +
         "hunger appear in the FieldKit notices even when DEEPHOLD is closed.",
         "You never dig or gather by hand: buildings do the work. Away from the screen your colony keeps " +

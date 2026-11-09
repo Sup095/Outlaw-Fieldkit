@@ -287,7 +287,8 @@
     R.hint = el("div", { class: "dh-hint", text: "Click a plot to build or inspect it. Scroll or drag to look deeper." });
     var jump = el("div", { class: "dh-jump" }, [
       el("button", { class: "dh-mini", type: "button", text: "▲ SURFACE", onclick: function () { if (scene) scene.focus(-1); } }),
-      el("button", { class: "dh-mini", type: "button", text: "▼ DEEPEST", onclick: function () { if (scene && view) scene.focus(view.colony.layers - 1); } })
+      el("button", { class: "dh-mini", type: "button", text: "▼ DEEPEST", onclick: function () { if (scene && view) scene.focus(view.colony.layers - 1); } }),
+      el("button", { class: "dh-mini dig", type: "button", text: "⛏ DIG DEEPER", onclick: function () { showDig(); } })
     ]);
     R.sceneBox = el("div", { class: "dh-scenebox" }, [R.canvas, el("div", { class: "dh-scenebar" }, [R.hint, jump]), R.digRow]);
     /* the side */
@@ -472,11 +473,48 @@
       if (a.build) {
         var b = find(a.build);
         kids.push(el("button", { class: "dh-mini wide", type: "button", text: "BUILD " + b.name, title: costText(b.cost), onclick: function () { quickBuild(a.build); } }));
+      } else if (a.id === "dig" || a.id === "room") {
+        kids.push(el("button", { class: "dh-mini wide", type: "button", text: "⛏ SHOW THE DIG SITE", onclick: function () { showDig(); } }));
       } else if (a.res) {
         kids.push(el("button", { class: "dh-mini wide", type: "button", text: "SEND " + RES_NAME[a.res], onclick: function () { tab = "ship"; applyTabs(); } }));
       }
       R.advice.appendChild(el("div", { class: "dh-adv " + a.sev }, kids));
     });
+  }
+
+  /* the dig site: scroll the picture to it and open its card */
+  function showDig() {
+    if (!view || !view.colony) return;
+    tab = "colony";
+    if (scene) { scene.focus(view.colony.layers); scene.select("dig", null, true); }
+    else { sel = { dig: true }; sigs.pick = ""; applyTabs(); fillPick(); }
+  }
+  function digCard(c) {
+    var close = function () { sel = null; if (scene) scene.sel = null; sigs.pick = ""; fillPick(); };
+    var nextL = c.layers + 1, kids = [];
+    var deeper = view.catalog.filter(function (b) { return !b.locked && b.minLayer === c.layers; }).map(function (b) { return b.name; });
+    kids.push(el("div", { class: "dh-card-h" }, [el("b", { text: c.dig ? "DIGGING LAYER " + nextL : c.layers >= view.constants.maxLayers ? "THE BOTTOM" : !c.digCost ? "LAYER " + nextL + " — NOT OPEN YET" : "DIG LAYER " + nextL }), ui().button("CLOSE", close)]));
+    if (c.dig) {
+      var left = Math.max(0, c.dig.left * 1000 - (Date.now() - viewAt)), tot = Math.max(1, c.dig.total * 1000);
+      R.digCardBar = el("div", { class: "dh-vfill" }); R.digCardBar.style.width = Math.round(100 * (1 - left / tot)) + "%";
+      R.digCardT = el("div", { class: "dh-note", text: clock(left) + " left. The rig keeps going while you are away." });
+      kids.push(el("div", { class: "dh-vbar big" }, [R.digCardBar]), R.digCardT);
+    } else if (c.layers >= view.constants.maxLayers) {
+      kids.push(el("div", { class: "dh-p", text: "This is as deep as anyone can dig." }));
+    } else if (!c.digCost) {
+      var need = c.layers - 1, nx = view.civ.next;
+      kids.push(el("div", { class: "dh-p", text: "Layer " + nextL + " opens when the Civilization reaches stage " + need + (nx && view.civ.stage + 1 === need ? " (" + nx.name + ")" : "") + ". Ship it what it asks for and it will grow." }));
+      kids.push(el("div", { class: "dh-row" }, [ui().button("OPEN SHIPPING", function () { tab = "ship"; applyTabs(); })]));
+    } else {
+      var ok = afford(c.digCost);
+      var missing = Object.keys(c.digCost).filter(function (r) { return liveStock(r) < c.digCost[r]; }).map(function (r) { return Math.ceil(c.digCost[r] - liveStock(r)) + " more " + RES_NAME[r].toLowerCase(); }).join(", ");
+      kids.push(el("div", { class: "dh-p", text: "A rig cuts a new tunnel below your deepest one: 8 more plots to build on, and richer ground the deeper you go." + (deeper.length ? " Opens up: " + deeper.join(", ") + "." : "") }));
+      kids.push(el("div", { class: "dh-note", text: "COST " + costText(c.digCost) + " · TAKES " + clock(c.digSeconds * 1000) }));
+      var digB = ui().button(ok ? "⛏ DIG LAYER " + nextL : "NEED " + missing.toUpperCase(), function () { if (afford(c.digCost)) act("dig"); }, { primary: ok });
+      digB.disabled = !ok;
+      kids.push(el("div", { class: "dh-row" }, [digB]));
+    }
+    R.pick.appendChild(el("div", { class: "dh-card digcard" }, kids));
   }
 
   /* the nearest free plot a building may go in, then build */
@@ -494,10 +532,11 @@
     var c = view.colony;
     var cell = sel && c.grid[sel.layer] ? c.grid[sel.layer][sel.slot] : null;
     var rec = (c.recommend || []).join(",");
-    var sig = jsonSig([sel, cell, buildCat, rec, c.layers]) + (sel && !cell ? Object.keys(find("bunk")).length + view.catalog.map(function (b) { return b.id + (b.locked ? "L" : afford(b.cost) ? "Y" : "N"); }).join("") : "");
+    var sig = jsonSig([sel, cell, buildCat, rec, c.layers, sel && sel.dig ? [!!c.dig, c.digCost, c.digCost && afford(c.digCost)] : 0]) + (sel && !cell ? Object.keys(find("bunk")).length + view.catalog.map(function (b) { return b.id + (b.locked ? "L" : afford(b.cost) ? "Y" : "N"); }).join("") : "");
     if (sigs.pick === sig) return;
     sigs.pick = sig; ui().clear(R.pick);
     if (!sel) return;
+    if (sel.dig) { digCard(c); return; }
     var close = function () { sel = null; if (scene) scene.sel = null; sigs.pick = ""; fillPick(); };
     if (cell) {
       var b = find(cell.t), st = scene ? FieldKit.service("colonyScene").statusOf(view, (function () { var o = {}; view.catalog.forEach(function (x) { o[x.id] = x; }); return o; })(), cell) : { text: "" };
@@ -655,8 +694,9 @@
       R.digKey = key; ui().clear(R.digRow);
       if (c.dig) { R.digT = el("span", { class: "dh-dig", text: "" }); R.digRow.appendChild(R.digT); }
       else if (c.digCost) { R.digBtn = ui().button("DIG LAYER " + (c.layers + 1), function () { act("dig"); }, { primary: true }); R.digInfo = el("span", { class: "dh-note", text: "" }); R.digRow.appendChild(R.digBtn); R.digRow.appendChild(R.digInfo); }
-      else R.digRow.appendChild(el("span", { class: "dh-note", text: "THE CIVILIZATION MUST GROW BEFORE YOU CAN DIG ANY DEEPER." }));
+      else if (c.layers < view.constants.maxLayers) R.digRow.appendChild(el("span", { class: "dh-note", text: "LAYER " + (c.layers + 1) + " OPENS AT CIVILIZATION STAGE " + (c.layers - 1) + "." }));
     }
+    if (c.dig && R.digCardBar) { var dl = Math.max(0, c.dig.left * 1000 - (Date.now() - viewAt)); R.digCardBar.style.width = Math.round(100 * (1 - dl / Math.max(1, c.dig.total * 1000))) + "%"; setText(R.digCardT, clock(dl) + " left. The rig keeps going while you are away."); }
     if (c.dig && R.digT) setText(R.digT, "DIGGING LAYER " + (c.layers + 1) + " — " + clock(Math.max(0, c.dig.left * 1000 - (Date.now() - viewAt))) + " left");
     if (!c.dig && c.digCost && R.digInfo) {
       setText(R.digInfo, costText(c.digCost) + " · " + clock(c.digSeconds * 1000));
@@ -692,7 +732,8 @@
       ".dh-scenebox{flex:1 1 440px;min-width:300px;display:flex;flex-direction:column;gap:4px}",
       ".dh-canvas{width:100%;aspect-ratio:480/360;image-rendering:pixelated;border:1px solid var(--line2);background:#07090c;display:block;cursor:grab}",
       ".dh-scenebar{display:flex;justify-content:space-between;gap:8px;align-items:center}.dh-hint{font-size:9px;color:var(--fg-dimmer)}",
-      ".dh-jump{display:flex;gap:4px}.dh-digrow{display:flex;gap:8px;align-items:center;min-height:26px}.dh-dig{letter-spacing:.1em;color:var(--accent)}",
+      ".dh-jump{display:flex;gap:4px;flex-wrap:wrap}.dh-mini.dig{border-color:var(--accent);color:var(--accent)}.dh-vbar.big{height:8px;margin:6px 0}",
+      ".dh-digrow{display:flex;gap:8px;align-items:center;min-height:26px}.dh-dig{letter-spacing:.1em;color:var(--accent)}",
       ".dh-side{flex:0 1 340px;min-width:280px;display:flex;flex-direction:column;gap:6px;min-height:0;overflow:hidden}",
       ".dh-tabs{display:flex;gap:4px;flex-wrap:wrap}.dh-tab{font:inherit;font-size:10px;letter-spacing:.12em;background:none;color:var(--fg-dim);border:1px solid var(--line2);padding:4px 9px;cursor:pointer}",
       ".dh-tab.on{border-color:var(--accent);color:var(--accent)}",

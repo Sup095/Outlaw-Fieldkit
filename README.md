@@ -437,6 +437,15 @@ stays, as the fallback and for what lens cannot do.
 - *Next:* a cache for pages you open twice, which the test showed would
   roughly halve what a second visit costs.
 
+**Done in 0.13.1: the dig site, and the garrison redone.** Digging deeper lives in
+the picture: a clickable dig site sits under the deepest layer (pilot shaft, propped
+chamber, a parked rig, the ghost of the tunnel to come) and opens a card with cost,
+time and what is unlocked, or which Civilization stage opens it. A dig in progress
+shows a boring rig, and the rock below has strata and veins. The ruined garrison is
+now a buried gothic fortress: masonry around the halls that crumbles until repaired,
+red-glass chapel windows, crest banners, braziers, stone wardens, blast doors and a
+spired gatehouse on the surface.
+
 **Done in 0.13.0: DEEPHOLD rebuilt, one sign-in.** DEEPHOLD has its own
 gamertags (relay/colony-players.js, scrypt, separate from MESSAGES) so only
 players count toward the scaling. The panel is built once and only updates text,

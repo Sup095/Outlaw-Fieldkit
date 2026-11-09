@@ -154,6 +154,25 @@ const inputs = () => all(host).filter((n) => n.tagName === "INPUT");
     })());
   }
 
+  section("digging deeper");
+  {
+    const me = colony._world().colonies.sam; me.stock.ore = 5000; me.stock.parts = 5000;
+    ok("there is a DIG DEEPER button by the picture", !!button("⛏ DIG DEEPER"));
+    click(button("⛏ DIG DEEPER"));
+    await until(() => /A rig cuts a new tunnel/.test(text()));
+    ok("it opens the dig site's card, with the cost", /A rig cuts a new tunnel/.test(text()) && /COST/.test(text()));
+    const before = asked.length;
+    const digBtn = () => all(host).find((n) => n.tagName === "BUTTON" && /^⛏ DIG LAYER [0-9]/.test(n.textContent));
+    await until(() => !!digBtn(), 8000);
+    const go = digBtn();
+    ok("and a button to dig", !!go);
+    if (go) click(go);
+    await until(() => asked.slice(before).some((a) => /^POST dig/.test(a)));
+    ok("which starts the dig", asked.slice(before).some((a) => /^POST dig/.test(a)) && !!me.dig);
+    await until(() => /DIGGING LAYER/.test(text()));
+    ok("the card then shows the dig going", /DIGGING LAYER/.test(text()) && /left/.test(text()));
+  }
+
   section("the menu, and the notifications");
   {
     click(all(host).find((n) => n.tagName === "BUTTON" && /MENU/.test(n.textContent)));

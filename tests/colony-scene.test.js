@@ -183,6 +183,44 @@ section("a click lands on what was drawn there");
   sc.destroy();
 }
 
+section("digging deeper is in the picture");
+{
+  const G = S.layoutFor({ seed: "Deep Haven|seam", layers: 3 });
+  const F = G.face, last = G.layers[2];
+  ok("below the deepest layer there is a dig site", !!F && F.l === 3 && F.y > last.ty + 20 && F.x > 0 && F.x < S.W);
+  ok("the picture reaches down past it", G.h >= F.cy1 + 30, G.h + " vs " + F.cy1);
+  const D = S.layoutFor({ seed: "Deep Haven|seam", layers: 3, dig: { frac: 0.1 } });
+  ok("the tunnel that gets dug starts where the site was", D.layers[3].sx === F.x && !D.face);
+  ok("at the very bottom there is no site", !S.layoutFor({ seed: "x", layers: S.MAXL }).face);
+  const ch = S.buildChunk(G, 3, "seam", "solid", 0, 0), above = S.buildChunk(G, 2, "seam", "open", 0, 0);
+  const at = (d, x, y) => d.mask[(Math.round(y) - d.y0) * d.w + Math.round(x)];
+  ok("a chamber is cut at the site", at(ch, F.x, F.y) === 5, String(at(ch, F.x, F.y)));
+  ok("and a pilot shaft leads down to it", at(above, F.pts[0][0], F.pts[0][1] + 16) === 3 && at(ch, F.x, F.cy0 - 4) === 3);
+  const v = viewOf("seam", 2, false), picks = [];
+  v.colony.dig = null;
+  const sc = S.create(fakeCanvas(log), { onSelect: (s) => picks.push(s) });
+  sc.setView(v, "Test Hold");
+  const sf = sc.G.face;
+  ok("clicking the site picks the site", sf && (sc.hit(sf.x, sf.y) || {}).dig === true);
+  sc.select("dig", null, true);
+  ok("and tells the panel", picks.some((p) => p && p.dig));
+  let err = null;
+  try { sc.focus(v.colony.layers); for (let i = 0; i < 30; i++) { sc.step(1 / 20); sc.render(); } } catch (e) { err = e; }
+  ok("the site draws, selected", !err && !sc.lastError, String(err || sc.lastError));
+  sc.destroy();
+}
+
+section("the old garrison mends in the picture");
+{
+  const G = S.layoutFor({ seed: "Old Gate|ruin", layers: 2 });
+  const ruinAt = (rep) => S.buildChunk(G, 0, "ruin", "open", 0, rep).rgba;
+  const a = ruinAt(0), b = ruinAt(100), c = S.buildChunk(G, 0, "seam", "open", 0, 0).rgba;
+  let diff = 0, diff2 = 0;
+  for (let i = 0; i < a.length; i += 4) { if (a[i] !== b[i]) diff++; if (a[i] !== c[i]) diff2++; }
+  ok("repairing it changes the stonework", diff > 2000, String(diff));
+  ok("and it looks nothing like a mine", diff2 > a.length / 8, String(diff2));
+}
+
 section("what a building is shown doing");
 {
   const v = viewOf("seam", 0, false);

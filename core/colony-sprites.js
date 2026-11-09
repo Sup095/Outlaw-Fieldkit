@@ -343,7 +343,7 @@
   var SUITS = ["#e8a23c", "#5ccfff", "#ff7a2a", "#a58bff", "#5fdc90", "#d8d0bc", "#ff6fa8"];
   function person(P, x, y, o) {
     /* x centre, y feet. o: { dir: 1|-1, frame, suit, carry, slump, work } */
-    var f = o.frame % 4, suit = SUITS[o.suit % SUITS.length], d = o.dir;
+    var f = o.frame % 4, suit = o.color || SUITS[o.suit % SUITS.length], d = o.dir;
     var bob = (f === 1 || f === 3) ? 1 : 0;
     P.r(x - 1, y - 8 + bob, 3, 2, "#d9b38c");                       /* face */
     P.r(x - 1, y - 9 + bob, 3, 1, suit);                            /* helmet */

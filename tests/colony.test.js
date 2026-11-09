@@ -158,6 +158,11 @@ function call(method, p, token, body, msgWho) {
     ok("events reach only who they are for, or everyone", E.eventsFor(cap, "p0", 0).length > 0 && E.eventsFor(cap, "someone", 0).every((e) => !e.to));
     const air = world(1); air.colonies.p0.grid[0][0] = null; air.colonies.p0.lastSeen = T0; E.stepWorld(air, T0 + 60000);
     ok("no air gets named first", E.adviseFor(air, air.colonies.p0, T0 + 60000)[0].id === "air");
+    const full = world(1); const fc = full.colonies.p0; fc.lastSeen = T0; E.stepWorld(full, T0 + 20000);
+    for (let s2 = 0; s2 < 8; s2++) if (!fc.grid[0][s2]) fc.grid[0][s2] = { t: "bunk", on: true, built: 0 };
+    ok("out of room, the advisor points at the dig site", E.adviseFor(full, fc, T0 + 20000).some((x) => x.id === "room" && /dig site/.test(x.text)));
+    fc.layers = 2; for (let s2 = 0; s2 < 8; s2++) if (!fc.grid[1][s2]) fc.grid[1][s2] = { t: "bunk", on: true, built: 0 };
+    ok("and when it cannot dig yet, says what opens the next layer", E.adviseFor(full, fc, T0 + 20000).some((x) => x.id === "deeper" && /stage 1/.test(x.text)));
   }
 
   section("the Civilization receives, and grows");

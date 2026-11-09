@@ -65,7 +65,7 @@
     fungal:  { rock: [[22, 32, 26], [52, 74, 54]], glow: [120, 255, 170], ore: [200, 120, 210], gem: [255, 130, 190], lamp: C.green },
     magma:   { rock: [[40, 22, 20], [92, 48, 34]], glow: [255, 110, 50], ore: [255, 160, 60], gem: [255, 220, 90], lamp: C.orange },
     veins:   { rock: [[24, 22, 44], [60, 54, 92]], glow: [190, 140, 255], ore: [220, 170, 255], gem: [255, 255, 255], lamp: C.violet },
-    ruin:    { rock: [[38, 31, 26], [82, 68, 56]], glow: [255, 190, 100], ore: [200, 160, 90], gem: [255, 210, 130], lamp: C.brass }
+    ruin:    { rock: [[24, 23, 27], [64, 60, 64]], glow: [255, 96, 52], ore: [190, 150, 90], gem: [255, 90, 60], lamp: C.orange }
   };
   function palFor(biome) { return PAL[biome] || PAL.seam; }
 
@@ -127,7 +127,19 @@
     var seed = typeof o.seed === "number" ? o.seed : hash32(o.seed);
     var layers = [], prev = 64;
     for (var l = 0; l < total; l++) { var L = makeLayer(seed, l, prev); layers.push(L); prev = L.sx; }
-    var G = { w: W, seed: seed, open: open, total: total, layers: layers, h: Math.max(VH, TOP0 + total * LH + 26), dig: o.dig || null,
+    /* the dig site: where the next layer will start, under the shaft. The
+       next layer is grown from the same seed, so the tunnel that is dug
+       later starts exactly where the site was. */
+    var face = null;
+    if (!o.dig && open < MAXL && o.face !== false) {
+      var Lp = layers[open - 1], Ln = makeLayer(seed, open, Lp.sx), midY = Lp.ty + Math.round(LH / 2);
+      face = { l: open, x: Ln.sx, y: Ln.ty, L: Ln, midY: midY,
+        pts: [[Lp.sx, Lp.ty + 4], [Lp.sx, midY], [Ln.sx, midY], [Ln.sx, Ln.ty - 9]],
+        cx0: Ln.sx - 26, cx1: Ln.sx + 44, cy0: Ln.ty - 16, cy1: Ln.ty + 10 };
+      face.box = { x: Math.min(Lp.sx, Ln.sx) - 10, y: midY - 8, w: Math.max(Lp.sx, Ln.sx + 44) - Math.min(Lp.sx, Ln.sx) + 22, h: Ln.ty + 16 - midY + 8 };
+    }
+    var bottom = TOP0 + total * LH + (face ? LH + 40 : 26);
+    var G = { w: W, seed: seed, open: open, total: total, layers: layers, h: Math.max(VH, bottom), dig: o.dig || null, face: face,
       nodes: [], adj: [], shaft: [], ground: GROUND };
 
     function node(x, y) { G.nodes.push([x, y]); G.adj.push([]); return G.nodes.length - 1; }
@@ -257,11 +269,62 @@
     }
     void lastTy;
 
+    /* the dig site: a pilot shaft down from the deepest layer, and a
+       rough chamber cut where the next tunnel will begin */
+    var F = G.face;
+    if (F && (l === F.l || l === F.l - 1)) {
+      for (var fs = 0; fs < F.pts.length - 1; fs++) {
+        var fa = F.pts[fs], fb = F.pts[fs + 1];
+        if (fa[0] === fb[0]) rect(fa[0] - 3, Math.min(fa[1], fb[1]) - 2, 7, Math.abs(fb[1] - fa[1]) + 4, 3);
+        else rect(Math.min(fa[0], fb[0]) - 3, fa[1] - 3, Math.abs(fb[0] - fa[0]) + 7, 7, 3);
+      }
+      if (l === F.l) {
+        for (var fy = F.cy0 - 3; fy <= F.cy1 + 2; fy++) for (var fx = F.cx0 - 3; fx <= F.cx1 + 3; fx++) {
+          var ex = (fx - (F.cx0 + F.cx1) / 2) / ((F.cx1 - F.cx0) / 2), ey = (fy - (F.cy0 + F.cy1) / 2) / ((F.cy1 - F.cy0) / 2);
+          var edge = ex * ex * 0.7 + ey * ey * ey * ey + (vnoise(fx, fy, 4, seed + 13) - 0.5) * 0.5;
+          if (edge < 0.9 && fy <= F.cy1) set(fx, fy, 5);
+        }
+      }
+    }
+
     /* colour */
     var px = new Uint8ClampedArray(W * h * 4);
     var rk0 = pal.rock[0], rk1 = pal.rock[1];
     var depth = clamp((y0 - TOP0) / (MAXL * LH), 0, 1);
-    function isCave(xx, yy) { if (xx < 0 || xx >= W || yy < 0 || yy >= h) return false; var v = mask[yy * W + xx]; return v === 1 || v === 2 || v === 3; }
+    function isCave(xx, yy) { if (xx < 0 || xx >= W || yy < 0 || yy >= h) return false; var v = mask[yy * W + xx]; return v === 1 || v === 2 || v === 3 || v === 5; }
+    var ruin = biome === "ruin" && l >= 0, rep = clamp((repair || 0) / 100, 0, 1);
+    var Lr = ruin ? (G.layers[l] || null) : null;
+    /* the old garrison's walls: cut stone around every hall that has been
+       opened, crumbling into raw rock where it has not been rebuilt */
+    /* where the old builders laid stone: a lining around every hall and
+       chamber, and buttress piers between the chambers */
+    var piers = [];
+    if (Lr) { var px0 = Lr.sx + 30, px1 = Lr.xR - 8; for (var pk = 1; pk < 4; pk++) piers.push(Math.round(px0 + (px1 - px0) * pk / 4)); }
+    function lined(xx, wy) {
+      if (Math.abs(wy - Lr.yAt(xx)) < 11 && xx >= Lr.xL - 8 && xx <= Lr.xR + 8) return true;
+      for (var q = 0; q < Lr.rooms.length; q++) { var rm = Lr.rooms[q]; if (xx >= rm.x - 6 && xx < rm.x + rm.w + 6 && wy >= rm.y - 6 && wy < rm.y + rm.h + 6) return true; }
+      for (var p = 0; p < piers.length; p++) if (Math.abs(xx - piers[p]) < 5) return true;
+      return false;
+    }
+    function masonry(xx, wy) {
+      if (!Lr || state === "solid" || !lined(xx, wy)) return null;
+      var crumble = vnoise(xx, wy, 14, seed + 40) * 0.7 + vnoise(xx, wy, 5, seed + 41) * 0.3;
+      if (crumble < 0.3 + 0.32 * (1 - rep)) return null;
+      var pier = -1;
+      for (var p = 0; p < piers.length; p++) if (Math.abs(xx - piers[p]) < 5) pier = xx - piers[p];
+      if (pier > -5 && Math.abs(wy - Lr.yAt(xx)) > 6) {
+        /* a buttress: a fluted stone column with a gilded band */
+        var pc = 70 - Math.abs(pier) * 6 + (pier === -4 ? 16 : 0);
+        if ((wy - Lr.top) % 28 === 4 || (wy - Lr.top) % 28 === 5) return [178, 136, 64];
+        return [pc, pc * 0.94, pc * 0.92];
+      }
+      var course = Math.floor(wy / 8), off = course % 2 ? 9 : 0, bx = Math.floor((xx + off) / 18);
+      var v = ih(bx, course, seed + 3), joint = wy % 8 === 0 || (xx + off) % 18 === 0;
+      var base = 48 + v * 14 - (crumble < 0.36 + 0.32 * (1 - rep) ? 14 : 0);
+      if (joint) return [base * 0.55, base * 0.52, base * 0.56];
+      var top = wy % 8 === 1 ? 8 : 0;
+      return [base + top + 3, base + top, base + top + 2];
+    }
     for (var j = 0; j < h; j++) {
       var wy = y0 + j;
       for (var i2 = 0; i2 < W; i2++) {
@@ -273,20 +336,35 @@
         }
         if (m === 4) { px[o + 3] = 0; /* see-through: the far rock shows */
           continue; }
-        if (m === 0) {
+        if (m === 5) {
+          /* the dig chamber: freshly cut rock, loose spoil on the floor */
+          var fl = F.cy1 - wy;
+          rr = 22 + fl * 0.6; gg = 20 + fl * 0.55; bb = 22 + fl * 0.5;
+          if (ih(i2, wy, seed + 7) < 0.08) { rr += 14; gg += 12; bb += 10; }
+          if (fl < 3) { var sp2 = ih(i2 >> 1, 1, seed); rr = 56 + sp2 * 30; gg = 48 + sp2 * 24; bb = 42 + sp2 * 18; }
+          if (!isCave(i2, j - 1)) { rr = 12; gg = 11; bb = 12; }
+        } else if (m === 0) {
           var n1 = vnoise(i2, wy, 9, seed), n2 = vnoise(i2, wy, 4, seed + 5), n3 = vnoise(i2, wy, 22, seed + 9);
           var t = clamp(n1 * 0.55 + n2 * 0.25 + n3 * 0.35 - 0.1, 0, 1);
           var band = Math.sin(wy * 0.11 + n3 * 5) > 0.88 ? 0.12 : 0;
           var dk = 1 - 0.38 * depth - (l < 0 ? 0 : 0.0);
           rr = (lerp(rk0[0], rk1[0], t) + band * 60) * dk; gg = (lerp(rk0[1], rk1[1], t) + band * 55) * dk; bb = (lerp(rk0[2], rk1[2], t) + band * 50) * dk;
           var hh = ih(i2, wy, seed + 21);
-          if (hh < 0.0045) { rr = pal.ore[0]; gg = pal.ore[1]; bb = pal.ore[2]; }
+          if (state === "solid" && l >= 0) {
+            var stra = Math.sin(wy * 0.19 + vnoise(i2, wy, 30, seed + 17) * 7);
+            if (stra > 0.7) { rr *= 1.18; gg *= 1.14; bb *= 1.1; } else if (stra < -0.75) { rr *= 0.72; gg *= 0.72; bb *= 0.75; }
+            var vein = Math.abs(vnoise(i2, wy, 26, seed + 91) - 0.5);
+            if (vein < 0.006) { var vg = 1 - vein / 0.006; rr = lerp(rr, pal.ore[0], vg * 0.6); gg = lerp(gg, pal.ore[1], vg * 0.6); bb = lerp(bb, pal.ore[2], vg * 0.6); }
+            if (vnoise(i2, wy, 5, seed + 93) > 0.9 && vnoise(i2, wy, 40, seed + 95) > 0.6 && ih(i2, wy, seed + 94) < 0.45) { rr = pal.gem[0] * 0.75; gg = pal.gem[1] * 0.75; bb = pal.gem[2] * 0.75; }
+          }
+          if (hh < 0.0018) { rr = pal.ore[0]; gg = pal.ore[1]; bb = pal.ore[2]; }
           else if (hh > 0.9975 - depth * 0.004) { rr = pal.gem[0]; gg = pal.gem[1]; bb = pal.gem[2]; }
           /* rim light where rock meets a hollow */
           var up = isCave(i2, j - 1), lf = isCave(i2 - 1, j), dn = isCave(i2, j + 1), rt = isCave(i2 + 1, j);
           if (up || lf) { rr += 36; gg += 34; bb += 32; }
           if (dn || rt) { rr *= 0.72; gg *= 0.72; bb *= 0.72; }
           if (l < 0 && wy < GROUND + 3) { rr = lerp(rr, 120, 0.25); gg = lerp(gg, 100, 0.25); bb = lerp(bb, 86, 0.25); }
+          if (ruin) { var ms = masonry(i2, wy); if (ms) { rr = ms[0] * (1 - 0.3 * depth); gg = ms[1] * (1 - 0.3 * depth); bb = ms[2] * (1 - 0.3 * depth); if (up || lf) { rr += 30; gg += 26; bb += 22; } if (dn || rt) { rr *= 0.7; gg *= 0.7; bb *= 0.7; } } }
         } else if (m === 1) {
           /* tunnel: dark steel, a walkway, beams, a pipe along the roof */
           var cx0 = L.yAt(i2);
@@ -299,6 +377,15 @@
           if (i2 % 30 === 7 || i2 % 30 === 8) { rr = 112; gg = 70; bb = 40; if (rel > -2 && rel < 2) { rr = 70; gg = 44; bb = 28; } }
           if (rel < -3.2 && rel > -4.6 && (i2 % 90) < 70) { rr = 60; gg = 80; bb = 96; }
           if (rel > -1 && rel < 1.3 && (i2 % 14) === 3) { rr += 30; gg += 24; bb += 14; }
+          if (ruin) {
+            /* a vaulted hall: flagstones, stone piers with gilded capitals, a dark vault */
+            rr = 16 + (rel + 6) * 1.4; gg = 14 + (rel + 6) * 1.2; bb = 16 + (rel + 6) * 1.2;
+            if (rel >= 3) { var fsx = Math.floor((i2 + (Math.floor(wy) % 2) * 4) / 8); var fv = ih(fsx, l, seed); rr = 58 + fv * 20; gg = 54 + fv * 16; bb = 52 + fv * 14; if (i2 % 8 === 0) { rr = 30; gg = 28; bb = 28; } }
+            if (rel >= 4.5) { rr = 26; gg = 24; bb = 24; }
+            var pier = (i2 + 11) % 34;
+            if (pier < 4 && rel < 3) { rr = 70 + (pier === 0 ? 20 : pier === 3 ? -20 : 0); gg = 64 + (pier === 0 ? 18 : pier === 3 ? -18 : 0); bb = 62 + (pier === 0 ? 16 : pier === 3 ? -18 : 0); if (rel < -3.5) { rr = 196; gg = 150; bb = 70; } }
+            if (rel < -4 && pier >= 4) { rr = 10; gg = 9; bb = 11; }
+          }
         } else if (m === 2) {
           /* a room: panelled back wall, a floor plate */
           var rm = null;
@@ -310,7 +397,30 @@
             if (rx % 13 === 6) { rr += 8; gg += 8; bb += 10; }
             if (ry >= rm.h - 2) { rr = 62; gg = 68; bb = 74; }
             if (ry === 0 || rx === 0 || rx === rm.w - 1) { rr -= 16; gg -= 16; bb -= 16; }
-            if (biome === "ruin") { rr += 14; gg += 6; bb -= 6; if (rx % 9 === 0 || ry % 9 === 0) { rr += 10; gg += 8; bb += 4; } }
+            if (biome === "ruin") {
+              /* a chapel-hall: stone courses, a gilded cornice and tall
+                 pointed windows of red glass, black where still broken */
+              var cv2 = ih(Math.floor((rx + (Math.floor(ry / 5) % 2) * 4) / 8), Math.floor(ry / 5) + rm.slot * 7, seed);
+              rr = 40 + cv2 * 12 + ry * 0.3; gg = 36 + cv2 * 10 + ry * 0.3; bb = 38 + cv2 * 10 + ry * 0.3;
+              if (ry % 5 === 0 || (rx + (Math.floor(ry / 5) % 2) * 4) % 8 === 0) { rr *= 0.7; gg *= 0.7; bb *= 0.7; }
+              var nw = Math.max(1, Math.floor((rm.w - 4) / 12)), wsp = (rm.w - nw * 7) / (nw + 1);
+              for (var wi = 0; wi < nw; wi++) {
+                var wx0 = Math.round(wsp + wi * (7 + wsp)), wpos = rx - wx0, tip = ry - 4;
+                if (wpos < 0 || wpos > 6 || tip < 0 || ry > rm.h - 7) continue;
+                var half = Math.abs(wpos - 3);
+                if (tip < 3 && half > tip) continue;
+                var lit = ih(wi, rm.slot + l * 11, seed + 9) < 0.3 + rep * 0.75;
+                if (half === 3 || (tip < 3 && half === tip)) { rr = 90; gg = 80; bb = 70; }
+                else if (lit) {
+                  var gl2 = 1 - tip / Math.max(1, rm.h - 11);
+                  rr = 120 + gl2 * 110; gg = 22 + gl2 * 70; bb = 20 + gl2 * 24;
+                  if (wpos === 3 || tip === Math.round((rm.h - 11) / 2)) { rr *= 0.5; gg *= 0.5; bb *= 0.5; }
+                } else { rr = 10; gg = 9; bb = 11; if (ih(rx, ry, seed + 77) < 0.15) { rr = 60; gg = 30; bb = 26; } }
+              }
+              if (ry === 1 || ry === 2) { rr = 170 - ry * 30; gg = 128 - ry * 24; bb = 60 - ry * 10; }
+              if (rx <= 1 || rx >= rm.w - 2) { rr = 74; gg = 68; bb = 66; }
+              if (ry >= rm.h - 2) { rr = 56; gg = 50; bb = 48; }
+            }
           } else { rr = 30; gg = 38; bb = 46; }
         } else {
           /* the shaft: dark, with rungs */
@@ -502,14 +612,14 @@
         var rc = cv.getBoundingClientRect(); self.camTarget = clamp(down.cam - dy / Math.max(1, rc.height) * VH, 0, Math.max(0, self.worldH() - VH)); self.camY = self.camTarget;
       }
       var h = self.hit(p.x, p.y);
-      var key = h ? h.layer + ":" + h.slot : "";
-      if (key !== (self.hover ? self.hover.layer + ":" + self.hover.slot : "")) { self.hover = h; if (self.onHover) self.onHover(h); if (cv.style) cv.style.cursor = h ? "pointer" : (down ? "grabbing" : "grab"); }
+      var key = h ? (h.dig ? "dig" : h.layer + ":" + h.slot) : "";
+      if (key !== (self.hover ? (self.hover.dig ? "dig" : self.hover.layer + ":" + self.hover.slot) : "")) { self.hover = h; if (self.onHover) self.onHover(h); if (cv.style) cv.style.cursor = h ? "pointer" : (down ? "grabbing" : "grab"); }
     });
     cv.addEventListener("mousedown", function (e) { down = { x: e.clientX, y: e.clientY, cam: self.camTarget }; moved = 0; });
     var up = function (e) {
       if (down && moved < 5 && e && e.type === "mouseup") {
         var h = self.hit(pos(e).x, pos(e).y);
-        self.select(h ? h.layer : null, h ? h.slot : null, true);
+        self.select(h ? (h.dig ? "dig" : h.layer) : null, h ? h.slot : null, true);
       }
       down = null;
     };
@@ -532,11 +642,18 @@
         if (x >= rm.x - 2 && x < rm.x + rm.w + 2 && y >= rm.y - 2 && y < rm.y + rm.h + 2) return { layer: l, slot: i };
       }
     }
+    var F = this.G.face;
+    if (F && x >= F.box.x && x < F.box.x + F.box.w && y >= F.box.y && y < F.box.y + F.box.h) return { dig: true };
+    if (this.G.dig && this.G.layers[this.G.open]) {
+      var Ld = this.G.layers[this.G.open];
+      if (x >= Ld.xL - 4 && x <= Ld.xR && Math.abs(y - Ld.yAt(x)) < 16) return { dig: true };
+    }
     return null;
   };
 
+  /* layer "dig" selects the dig site */
   Scene.prototype.select = function (layer, slot, fromClick) {
-    this.sel = layer == null ? null : { layer: layer, slot: slot };
+    this.sel = layer == null ? null : layer === "dig" ? { dig: true } : { layer: layer, slot: slot };
     if (this.onSelect) this.onSelect(this.sel, !!fromClick);
   };
 
@@ -645,10 +762,11 @@
     var G = this.G, col = this.view.colony;
     var state = l < 0 ? "open" : l < G.open ? "open" : (G.dig && l === G.open ? "partial" : "solid");
     var prog = state === "partial" ? Math.round(G.dig.frac * 24) / 24 : 0;
-    var key = state + ":" + prog + ":" + col.biome + ":" + G.seed;
+    var rp = col.biome === "ruin" ? Math.floor((col.repair || 0) / 10) * 10 : 0;
+    var key = state + ":" + prog + ":" + col.biome + ":" + G.seed + ":" + rp + ":" + (G.face ? G.face.l : "-");
     var c = this.chunks[l];
     if (c && c.key === key) return c;
-    var data = buildChunk(G, l, col.biome, state, prog, 0);
+    var data = buildChunk(G, l, col.biome, state, prog, rp);
     var cv = c ? c.canvas : makeCanvas(data.w, data.h);
     paint(cv, data);
     c = { key: key, canvas: cv, y0: data.y0, h: data.h, state: state };
@@ -696,7 +814,7 @@
 
     /* the ground itself */
     g.setTransform(1, 0, 0, 1, 0, -cam);
-    var first = -1, last = G.total - 1;
+    var first = -1, last = Math.ceil((G.h - TOP0) / LH) - 1;
     for (var l = first; l <= last; l++) {
       var y0 = l < 0 ? 0 : TOP0 + l * LH, hh = l < 0 ? TOP0 : LH;
       if (y0 + hh < cam - 2 || y0 > cam + VH + 2) continue;
@@ -712,6 +830,9 @@
       this._rooms(g, L, l2, col, t, pal);
     }
     if (G.dig && G.layers[G.open]) this._rig(g, G.layers[G.open], t);
+    if (G.face) this._face(g, t, col);
+    var fadeY = TOP0 + G.total * LH + (G.face ? 30 : 0);
+    if (fadeY < cam + VH) { var fg = g.createLinearGradient(0, fadeY, 0, G.h); fg.addColorStop(0, "rgba(4,5,8,0)"); fg.addColorStop(1, "rgba(4,5,8,.75)"); g.fillStyle = fg; g.fillRect(0, fadeY, W, G.h - fadeY); }
     this._shaft(g, t);
 
     /* ruins: rubble, banners and the old garrison's statues */
@@ -737,6 +858,15 @@
     g.fillStyle = gr; g.fillRect(0, 0, W, Math.max(0, gy + 4));
     /* a smear of dying sun, and a ruined skyline in two layers */
     this._lightSky(g, 360 - mxo * 6, gy - 28, red);
+    var gothic = this.view && this.view.colony && this.view.colony.biome === "ruin";
+    if (gothic) {
+      var hx = ((t * 1.6) % (W + 260)) - 130 - mxo * 8, hy = gy - 66;
+      g.fillStyle = "#151a20";
+      g.fillRect(hx, hy, 96, 6); g.fillRect(hx + 6, hy - 3, 70, 3); g.fillRect(hx + 30, hy - 13, 10, 10); g.fillRect(hx + 33, hy - 19, 4, 6); g.fillRect(hx + 34, hy - 24, 2, 5);
+      g.fillRect(hx + 96, hy + 1, 10, 4); g.fillRect(hx + 106, hy + 2, 6, 2); g.fillRect(hx - 8, hy + 1, 8, 4);
+      g.fillStyle = "#ffb070"; for (var wi = 0; wi < 9; wi++) if (ih(wi, 3, 7) > 0.4) g.fillRect(hx + 8 + wi * 9, hy + 2, 1, 1);
+      g.fillStyle = "rgba(120,180,255,.5)"; g.fillRect(hx - 12, hy + 2, 4, 2);
+    }
     for (var layer = 0; layer < 2; layer++) {
       var sh = layer ? 0.6 : 0.35, col = layer ? "#171d24" : "#1f2831", base = gy - 4 - layer * 6;
       g.fillStyle = col;
@@ -745,7 +875,8 @@
         var hgt = 8 + ih(Math.floor((x + mxo * 40 * sh) / 9), layer, seed) * (layer ? 34 : 52);
         var ox = Math.round(x - mxo * 30 * sh);
         g.fillRect(ox, base - hgt, 8, hgt + 6);
-        if (ih(Math.floor(x / 9), layer + 5, seed) > 0.7) g.fillRect(ox + 3, base - hgt - 6, 2, 7);
+        if (gothic) { for (var sp = 0; sp < 4; sp++) g.fillRect(ox + sp, base - hgt - (4 - sp) * 3, 8 - sp * 2, 3); g.fillRect(ox + 3, base - hgt - 17, 2, 5); }
+        else if (ih(Math.floor(x / 9), layer + 5, seed) > 0.7) g.fillRect(ox + 3, base - hgt - 6, 2, 7);
         if (layer === 1 && ih(Math.floor(x / 9), 9, seed) > 0.8 && SP.flick(t, x)) { g.fillStyle = "#ffcf6e"; g.fillRect(ox + 2, base - hgt + 4, 2, 2); g.fillStyle = col; }
       }
     }
@@ -807,14 +938,113 @@
     if (this.view && this.view.recommend && col.recommend) void 0;
   };
 
+  /* a small label with a dark plate behind it */
+  Scene.prototype._tag = function (g, cx, y, text, colr) {
+    g.font = "bold 8px monospace"; g.textBaseline = "top";
+    var w = Math.ceil(g.measureText ? g.measureText(text).width : text.length * 5) + 12, x = Math.round(cx - w / 2);
+    x = clamp(x, 2, W - w - 2);
+    g.fillStyle = "rgba(6,8,10,.82)"; g.fillRect(x, y, w, 11);
+    g.fillStyle = colr; g.fillRect(x, y, w, 1); g.fillRect(x, y + 10, w, 1);
+    g.fillText(text, x + 3, y + 2);
+  };
+  Scene.prototype._afford = function (cost) {
+    var st = (this.view && this.view.colony && this.view.colony.stock) || {};
+    for (var k in cost) if ((st[k] || 0) < cost[k]) return false;
+    return true;
+  };
+  Scene.prototype._digSel = function (g, x, y, w, h, t) {
+    var on = this.sel && this.sel.dig, hov = this.hover && this.hover.dig;
+    if (!on && !hov) return;
+    g.strokeStyle = on ? "#ffd27a" : "rgba(255,255,255,.6)"; g.lineWidth = 1;
+    if (g.setLineDash) { g.setLineDash([3, 2]); g.lineDashOffset = -Math.floor(t * 8); }
+    g.strokeRect(x + 0.5, y + 0.5, w, h);
+    if (g.setLineDash) g.setLineDash([]);
+  };
+
+  /* The dig site under the deepest layer: a pilot shaft, a cut chamber
+     propped with beams, a rig parked nose to the rock and the line of the
+     tunnel to come. Click it to dig. */
+  Scene.prototype._face = function (g, t, col) {
+    var F = this.G.face, P = SP.pen(g, 0, 0);
+    var locked = !col.digCost, afford = !locked && this._afford(col.digCost);
+    var x0 = F.cx0 + 3, x1 = F.cx1 - 4, top = F.cy0 + 3, fl = F.cy1;
+    /* the ghost of the tunnel to come */
+    g.globalAlpha = 0.2 + 0.1 * Math.sin(t * 1.6);
+    var pts = F.L.pts;
+    for (var i = 0; i < pts.length; i++) { if (pts[i][0] < F.cx1 + 4) continue; P.r(pts[i][0], pts[i][1] - 5, 4, 1, "#ffd27a"); P.r(pts[i][0], pts[i][1] + 5, 4, 1, "#ffd27a"); }
+    F.L.rooms.forEach(function (rm) {
+      if (rm.x < F.cx1 + 2) return;
+      P.r(rm.x, rm.y, 4, 1, "#ffd27a"); P.r(rm.x, rm.y, 1, 4, "#ffd27a"); P.r(rm.x + rm.w - 4, rm.y + rm.h - 1, 4, 1, "#ffd27a"); P.r(rm.x + rm.w - 1, rm.y + rm.h - 4, 1, 4, "#ffd27a");
+    });
+    g.globalAlpha = 1;
+    /* survey stakes along it, blinking one after another */
+    for (var s = 0; s < 4; s++) {
+      var sx = Math.round(F.cx1 + 14 + s * 26); if (sx > F.L.xR) break;
+      var sy = Math.round(F.L.yAt(sx));
+      P.r(sx, sy - 3, 1, 4, "#8a7a5a");
+      var on = Math.floor(t * 3) % 5 === s;
+      P.r(sx - 1, sy - 5, 3, 2, on ? (locked ? C.red : C.warm) : "#3a3226");
+      if (on) this._light(g, sx, sy - 4, locked ? [229, 72, 58] : [255, 190, 90], 22, 0.5);
+    }
+    /* props and a striped beam */
+    P.r(x0, top, 2, fl - top, "#6a5a40"); P.r(x0, top, 1, fl - top, "#8a7656");
+    P.r(x1, top, 2, fl - top, "#6a5a40"); P.r(x1, top, 1, fl - top, "#8a7656");
+    P.r(x0, top, x1 - x0 + 2, 2, "#2a241c");
+    for (var k = x0; k < x1; k += 4) P.r(k, top, 2, 2, locked ? C.red : C.amber);
+    /* a work lamp hanging from the beam */
+    var lx = Math.round((x0 + x1) / 2) - 6;
+    P.r(lx, top + 2, 1, 3, C.k4); P.r(lx - 1, top + 5, 3, 2, "#fff1c0");
+    this._light(g, lx, top + 8, locked ? [229, 72, 58] : [255, 200, 120], 52, 0.35 + (SP.flick(t, 4) ? 0.06 : 0));
+    /* spoil, crates, a pick left against the wall */
+    P.r(x0 + 3, fl - 3, 9, 3, "#5a4c40"); P.r(x0 + 5, fl - 5, 5, 2, "#6a5c4e"); P.r(x0 + 6, fl - 6, 2, 1, "#7a6a5a");
+    P.r(x0 + 14, fl - 4, 5, 4, C.bronze); P.r(x0 + 14, fl - 4, 5, 1, C.brass); P.r(x0 + 16, fl - 4, 1, 4, C.rust);
+    P.r(x1 - 3, fl - 9, 1, 9, "#7a5a3a"); P.r(x1 - 5, fl - 9, 4, 1, C.k5);
+    if (!locked) {
+      /* the rig, nose to the rock, its bit turning slowly while it waits */
+      var rx = x1 - 22, ry = fl - 9, bc = afford ? C.amber : "#8a6a3a";
+      P.r(rx, ry, 13, 8, bc); P.r(rx, ry, 13, 1, afford ? C.warm : "#a88a5a"); P.r(rx + 2, ry + 2, 4, 3, C.k1); P.r(rx + 3, ry + 3, 2, 1, C.cyan);
+      for (var z = 0; z < 13; z += 4) P.r(rx + z, ry + 6, 2, 1, C.k0);
+      P.r(rx, ry + 8, 13, 1, C.k1); P.r(rx + 1, ry + 8, 2, 1, C.k4); P.r(rx + 9, ry + 8, 2, 1, C.k4);
+      var bt = Math.floor(t * (afford ? 6 : 1.5)) % 3;
+      P.r(rx + 13, ry + 2, 3, 4, C.k4); P.r(rx + 16, ry + 3, 2, 2, C.k5); P.r(rx + 18, ry + 3 + (bt === 1 ? 1 : 0), 2, 1, C.k6);
+      P.r(rx + 8, ry - 2, 2, 2, SP.blink(t, 1.5) ? C.orange : C.dred);
+    } else {
+      /* sealed: a barrier and a warning plate */
+      for (var b2 = x0 + 4; b2 < x1 - 2; b2 += 2) P.r(b2, fl - 8, 2, 2, (b2 / 2) % 2 ? C.red : C.white);
+      P.r(x0 + 4, fl - 8, 1, 8, C.k4); P.r(x1 - 3, fl - 8, 1, 8, C.k4);
+    }
+    /* the sign, and an arrow that bobs when you can dig */
+    var label = locked ? "LAYER " + (F.l + 1) + " - STAGE " + (F.l - 1) : afford ? "DIG LAYER " + (F.l + 1) : "DIG SITE - LAYER " + (F.l + 1);
+    var lc = locked ? "#ff7a6a" : afford ? "#ffd27a" : "#a3b8c8";
+    var ly = F.cy0 - 15;
+    this._tag(g, F.x + 6, ly, label, lc);
+    if (afford) { var bob = Math.round(Math.sin(t * 4) * 2); P.r(F.x + 3, ly - 7 + bob, 7, 1, lc); P.r(F.x + 4, ly - 6 + bob, 5, 1, lc); P.r(F.x + 5, ly - 5 + bob, 3, 1, lc); P.r(F.x + 6, ly - 4 + bob, 1, 1, lc); }
+    this._digSel(g, F.cx0 - 5, ly - 3, F.cx1 - F.cx0 + 10, F.cy1 - ly + 6, t);
+  };
+
+  /* The rig at work: a boring machine at the end of a half-cut tunnel,
+     rings going in behind it and a cart hauling the spoil away. */
   Scene.prototype._rig = function (g, L, t) {
-    var frac = this.G.dig ? this.G.dig.frac : 0;
-    var x = L.sx + (L.xR - L.sx) * clamp(frac, 0, 1), y = L.yAt(x);
-    var P = SP.pen(g, x - 8, y - 6);
-    P.r(0, 0, 14, 11, C.amber); P.r(0, 0, 14, 2, C.warm); P.r(2, 3, 10, 5, C.k1);
-    P.r(14, 2 + Math.floor(t * 8) % 3, 6, 4, C.k5); P.r(19, 3, 3, 2, C.white);
-    for (var i = 0; i < 4; i++) { var p = (t * 3 + i * 0.27) % 1; P.r(20 + p * 8, 4 - p * 6 + p * p * 10, 1, 1, i % 2 ? C.warm : C.k6); }
-    this._light(g, x + 8, y, [255, 190, 90], 46, 0.5);
+    var G = this.G, frac = G.dig ? G.dig.frac : 0, P = SP.pen(g, 0, 0);
+    var x = Math.round(L.sx + (L.xR - L.sx) * clamp(frac, 0, 1)), y = Math.round(L.yAt(x));
+    for (var sx = L.sx + 14; sx < x - 28; sx += 12) { var yy = Math.round(L.yAt(sx)); P.r(sx, yy - 6, 1, 11, "#5a4a32"); P.r(sx - 1, yy - 6, 3, 1, "#8a7656"); }
+    for (var lx = L.sx + 22; lx < x - 24; lx += 30) { var ly = Math.round(L.yAt(lx)) - 5; P.r(lx, ly, 2, 1, "#fff1c0"); this._light(g, lx + 1, ly + 5, [255, 200, 120], 30, 0.28); }
+    var span = Math.max(8, x - 34 - L.sx), cp = (Math.sin(t * 0.7) + 1) / 2, cx = Math.round(L.sx + 6 + cp * span), cy = Math.round(L.yAt(cx));
+    P.r(cx - 4, cy, 9, 3, C.rust); P.r(cx - 4, cy, 9, 1, C.bronze); P.r(cx - 3, cy - 2, 7, 2, "#6a5c4e"); P.r(cx - 3, cy + 3, 2, 1, C.k1); P.r(cx + 2, cy + 3, 2, 1, C.k1);
+    var bx = x - 28, by = y - 6;
+    P.r(bx, by + 3, 7, 7, C.k3); P.r(bx + 1, by + 4, 5, 2, C.k5); P.r(bx + 7, by + 5, 2, 2, C.k4);
+    P.r(bx + 9, by, 17, 11, C.amber); P.r(bx + 9, by, 17, 1, C.warm); P.r(bx + 9, by + 10, 17, 1, "#7a5420");
+    for (var k = 0; k < 17; k += 4) P.r(bx + 9 + k, by + 7, 2, 2, C.k0);
+    P.r(bx + 12, by + 2, 6, 3, C.k1); P.r(bx + 13, by + 3, 3, 1, SP.flick(t, 9) ? C.cyan : C.blue);
+    P.r(bx + 21, by - 2, 2, 2, SP.blink(t, 2) ? C.orange : C.dred);
+    var hx = x - 2;
+    P.r(hx - 1, y - 7, 4, 14, C.k4); P.r(hx, y - 7, 1, 14, C.k5);
+    for (var i = 0; i < 4; i++) { var a = t * 5 + i * Math.PI / 2; P.r(hx + 2 + Math.round(Math.cos(a)), y + Math.round(Math.sin(a) * 6) - 1, 2, 2, C.k6); }
+    for (var j = 0; j < 6; j++) { var p = (t * 1.6 + j / 6) % 1; g.fillStyle = "rgba(150,135,120," + (0.55 * (1 - p)).toFixed(2) + ")"; g.fillRect(Math.round(hx + 3 - p * 12), Math.round(y - 2 - p * 5 + Math.sin(j + t) * 2), 2, 2); }
+    for (var q = 0; q < 4; q++) { var p2 = (t * 2.6 + q * 0.29) % 1; if (p2 < 0.7) P.r(hx + 4 + p2 * 5, y - 3 + (q - 1.5) * p2 * 5 + p2 * p2 * 6, 1, 1, q % 2 ? C.warm : C.white); }
+    this._light(g, hx + 4, y, [255, 190, 90], 60, 0.55);
+    this._tag(g, x - 14, Math.round(L.yAt(x)) - 24, "LAYER " + (G.open + 1) + "  " + Math.round(frac * 100) + "%", "#ffd27a");
+    this._digSel(g, L.sx - 4, y - 26, x - L.sx + 14, 36, t);
   };
 
   Scene.prototype._shaft = function (g, t) {
@@ -830,7 +1060,8 @@
 
   Scene.prototype._surface = function (g, t, civ, col) {
     var G = this.G;
-    SP.surface(g, t, civ ? civ.stage : 0, { groundY: GROUND - 1, shaftX: G.shaftPts[0][0], stage: civ ? civ.stage : 0 });
+    if (col && col.biome === "ruin") this._fortress(g, t, civ, col);
+    else SP.surface(g, t, civ ? civ.stage : 0, { groundY: GROUND - 1, shaftX: G.shaftPts[0][0], stage: civ ? civ.stage : 0 });
     if (civ && civ.stage >= 2) {
       /* the Civ's wall, on the right, cracking as the breach grows */
       var breach = civ.war ? civ.war.breach : 0, hgt = 30;
@@ -844,12 +1075,13 @@
 
   Scene.prototype._people = function (g, cam) {
     var list = this.crowd.list, t = this.t;
+    this._uniform = this.view && this.view.colony && this.view.colony.biome === "ruin" ? ["#7a1c1a", "#4b5d6c", "#7a1c1a", "#6a6870", "#a8793c"] : null;
     var P = SP.pen(g, 0, 0), SPR = SP;
     for (var i = 0; i < list.length; i++) {
       var w = list[i];
       if (w.y < cam - 12 || w.y > cam + VH + 12) continue;
       var working = w.state === "work" && w.rm && (w.job && w.job.rm === w.rm) && !w.carry;
-      var o = { dir: w.dir, frame: w.state === "walk" || w.state === "enter" ? w.frame : (working ? w.frame : 0), suit: w.suit, carry: w.carry && w.state === "walk",
+      var o = { color: this._uniform ? this._uniform[w.suit % this._uniform.length] : null, dir: w.dir, frame: w.state === "walk" || w.state === "enter" ? w.frame : (working ? w.frame : 0), suit: w.suit, carry: w.carry && w.state === "walk",
         work: working, stand: !(w.state === "walk" || w.state === "enter") };
       var y = Math.round(w.y) + (w.state === "work" && !working && w.why === "sleep" ? 0 : 0);
       if (w.state === "work" && w.why === "sleep") { P.r(Math.round(w.x) - 3, y - 3, 6, 2, "#d8d0bc"); P.r(Math.round(w.x) - 3, y - 4, 2, 2, "#d9b38c"); continue; }
@@ -857,27 +1089,162 @@
     }
   };
 
+  /* The old Imperial garrison: a buried fortress-cathedral. Banners of
+     the old crest hang from the vaults, braziers burn at the piers, giant
+     stone wardens stand in the caverns and blast doors guard the shaft.
+     Everything is broken at first and mends as the repair climbs. */
+  function crest(P, x, y, c, d) {
+    /* the old crest: a crowned tower between two blades */
+    P.r(x + 1, y, 1, 1, c); P.r(x + 3, y, 1, 1, c); P.r(x + 5, y, 1, 1, c);
+    P.r(x + 1, y + 1, 5, 1, c); P.r(x + 2, y + 2, 3, 3, c); P.r(x + 3, y + 3, 1, 2, d);
+    P.r(x, y + 1, 1, 5, c); P.r(x + 6, y + 1, 1, 5, c); P.r(x + 1, y + 5, 5, 1, c);
+  }
   Scene.prototype._ruin = function (g, cam, col, t) {
-    var G = this.G, left = 1 - clamp((col.repair || 0) / 100, 0, 1);
+    var G = this.G, rep = clamp((col.repair || 0) / 100, 0, 1), left = 1 - rep, P = SP.pen(g, 0, 0);
     for (var l = 0; l < G.open; l++) {
       var L = G.layers[l]; if (L.top + LH < cam || L.top > cam + VH) continue;
       var r = mulberry(G.seed + l * 7);
-      /* banners that hang in the tunnel, torn until repaired */
-      for (var b = 0; b < 3; b++) {
-        var bx = Math.round(L.xL + 30 + r() * (L.xR - L.xL - 60)), by = L.yAt(bx) - 4;
-        var sway = Math.sin(t * 1.2 + b) * 1;
-        var torn = r() < left;
-        g.fillStyle = "#6a1f1c"; g.fillRect(bx + sway, by, 5, torn ? 6 : 10);
-        g.fillStyle = "#d9a84e"; g.fillRect(bx + 2 + sway, by + 2, 1, torn ? 2 : 5); g.fillRect(bx + 1 + sway, by + 3, 3, 1);
+      /* stone wardens in the caverns: headless and broken until the
+         garrison is half rebuilt, then whole, with a lit visor */
+      for (var c = 0; c < L.caverns.length; c++) {
+        var cv = L.caverns[c]; if (cv.ry < 9) continue;
+        var hgt = Math.min(Math.round(cv.ry * 1.7), 30), sx = Math.round(cv.x), base = Math.round(cv.y + cv.ry * 0.75);
+        var whole = rep >= 0.5 || ih(c, l, G.seed) < rep * 2 - 0.2;
+        P.r(sx - 7, base - 3, 15, 3, "#4a4648"); P.r(sx - 7, base - 3, 15, 1, "#6a6466");
+        var bh = hgt - 6;
+        P.r(sx - 4, base - 3 - bh, 9, bh, "#3a3638"); P.r(sx - 4, base - 3 - bh, 1, bh, "#56504f");
+        P.r(sx - 6, base - 3 - bh, 13, 4, "#454042"); P.r(sx - 6, base - 3 - bh, 13, 1, "#625b5b");
+        P.r(sx - 3, base - 3 - Math.round(bh * 0.45), 7, 1, "#a8793c");
+        P.r(sx + 6, base - 3 - bh + 2, 1, bh, "#5a5658"); P.r(sx + 4, base - 3 - bh + 4, 5, 1, "#a8793c");
+        if (whole) {
+          P.r(sx - 2, base - 3 - bh - 5, 5, 5, "#454042"); P.r(sx - 2, base - 3 - bh - 5, 5, 1, "#625b5b"); P.r(sx - 1, base - 3 - bh - 3, 3, 1, SP.flick(t, c + l) ? "#ff6a4a" : "#8a2a24");
+          P.r(sx + 6, base - 3 - bh - 6, 1, 8, "#7a7476");
+        } else {
+          P.r(sx + 7, base - 4, 4, 2, "#3a3638"); P.r(sx - 9, base - 2, 3, 2, "#454042");
+        }
+        this._light(g, sx, base - 3 - bh, [255, 96, 52], 40, 0.12 + rep * 0.12);
       }
-      /* rubble drifts: fewer as the garrison is rebuilt */
-      var n = Math.round(left * 7);
+      /* blast doors where the shaft meets the hall, open, edged in warning stripes */
+      var dx = L.sx + 7, dy = Math.round(L.yAt(L.sx + 7));
+      P.r(dx, dy - 6, 3, 11, "#4b4f55"); P.r(dx, dy - 6, 3, 1, "#7a8088");
+      for (var s2 = 0; s2 < 11; s2 += 3) P.r(dx + 2, dy - 6 + s2, 1, 2, C.amber);
+      P.r(dx + 1, dy - 8, 2, 2, SP.blink(t + l, 1) ? C.red : C.dred);
+      /* braziers at the piers: more of them lit as the garrison mends */
+      for (var px = L.xL + 23; px < L.xR - 4; px += 34) {
+        var lit = ih(px, l, G.seed + 5) < 0.25 + rep * 0.8;
+        var fy = Math.round(L.yAt(px)) + 3;
+        P.r(px - 1, fy - 3, 4, 2, "#2a2628"); P.r(px, fy - 1, 2, 2, "#3a3638");
+        if (lit) {
+          var fl2 = Math.floor(t * 9 + px) % 3;
+          P.r(px, fy - 5 - (fl2 === 1 ? 1 : 0), 2, 2, C.orange); P.r(px, fy - 4, 2, 1, C.warm);
+          this._light(g, px + 1, fy - 5, [255, 110, 50], 34, 0.32 + (fl2 ? 0.04 : 0));
+        }
+      }
+      /* banners of the crest between the piers, torn and dark until mended */
+      for (var b = 0; b < 3; b++) {
+        var bx = Math.round(L.xL + 40 + b * (L.xR - L.xL - 70) / 2 + (r() - 0.5) * 10), by = Math.round(L.yAt(bx)) - 5;
+        var torn = r() < left * 0.9, sway = Math.round(Math.sin(t * 1.1 + b + l) * 0.6);
+        var bl = torn ? 5 : 9;
+        P.r(bx - 1, by - 1, 9, 1, "#a8793c");
+        P.r(bx + sway, by, 7, bl, torn ? "#4a1614" : "#7a1c1a"); P.r(bx + sway, by, 1, bl, torn ? "#5a2018" : "#d9a84e"); P.r(bx + 6 + sway, by, 1, bl, torn ? "#5a2018" : "#d9a84e");
+        if (!torn) { crest(P, bx + sway, by + 1, "#d9a84e", "#7a1c1a"); P.r(bx + sway, by + bl, 3, 1, "#7a1c1a"); P.r(bx + 4 + sway, by + bl, 3, 1, "#7a1c1a"); }
+        else { P.r(bx + 2 + sway, by + bl, 1, 2, "#4a1614"); P.r(bx + 5 + sway, by + bl, 1, 1, "#4a1614"); }
+      }
+      /* rubble and old bones: fewer as the garrison is rebuilt */
+      var n = Math.round(left * 8);
       for (var k = 0; k < n; k++) {
-        var rx = Math.round(L.xL + 8 + r() * (L.xR - L.xL - 16)), ry = L.yAt(rx) + 4;
-        g.fillStyle = "#4a4038"; g.fillRect(rx, ry - 2, 6, 2); g.fillStyle = "#6a5c4e"; g.fillRect(rx + 1, ry - 3, 3, 1); g.fillStyle = "#2a241f"; g.fillRect(rx + 4, ry - 1, 4, 1);
+        var rx = Math.round(L.xL + 8 + r() * (L.xR - L.xL - 16)), ry = Math.round(L.yAt(rx)) + 4;
+        P.r(rx, ry - 2, 6, 2, "#4a4648"); P.r(rx + 1, ry - 3, 3, 1, "#625b5b"); P.r(rx + 4, ry - 1, 4, 1, "#2a2628");
+        if (k % 3 === 0) { P.r(rx + 2, ry - 4, 2, 2, C.bone); P.r(rx + 2, ry - 3, 1, 1, "#2a2628"); }
+      }
+      /* a torn cable that spits sparks until the power is properly restored */
+      if (rep < 0.6) {
+        var cx = Math.round(L.xL + 60 + r() * (L.xR - L.xL - 120)), cy = Math.round(L.yAt(cx)) - 5;
+        P.r(cx, cy, 1, 4, "#222"); P.r(cx + 1, cy + 3, 1, 2, "#333");
+        if (SP.blink(t * 1.7 + l, 3)) { P.r(cx, cy + 5, 2, 1, C.white); P.r(cx - 1, cy + 6, 1, 1, C.warm); P.r(cx + 2, cy + 7, 1, 1, C.warm); this._light(g, cx, cy + 5, [180, 210, 255], 22, 0.4); }
       }
     }
   };
+
+  /* The garrison above ground: a gatehouse of two spired towers over the
+     shaft, a crenellated wall with a gun battery, searchlights, and a
+     wrecked dropship half buried beside it. */
+  Scene.prototype._fortress = function (g, t, civ, col) {
+    var G = this.G, P = SP.pen(g, 0, 0), gy = GROUND - 1, sx = G.shaftPts[0][0];
+    var rep = clamp((col.repair || 0) / 100, 0, 1);
+    var ST = "#3e3b40", ST2 = "#56525a", ST3 = "#2a282c", GOLD = "#c9973e";
+    /* searchlights sweeping the sky */
+    if (rep >= 0.2) {
+      for (var s = 0; s < 2; s++) {
+        var ox = sx - 16 + s * 34, oy = gy - 58, ang = -Math.PI / 2 + Math.sin(t * 0.35 + s * 2.1) * 0.6;
+        g.globalCompositeOperation = "lighter"; g.fillStyle = "rgba(255,220,170,.07)";
+        g.beginPath(); g.moveTo(ox, oy); g.lineTo(ox + Math.cos(ang - 0.08) * 220, oy + Math.sin(ang - 0.08) * 220); g.lineTo(ox + Math.cos(ang + 0.08) * 220, oy + Math.sin(ang + 0.08) * 220); g.closePath(); g.fill();
+        g.globalCompositeOperation = "source-over";
+      }
+    }
+    /* the curtain wall, gapped where it has not been rebuilt */
+    var w0 = sx - 46, w1 = Math.min(W - 40, sx + 170), wh = 20;
+    for (var x = w0; x < w1; x += 7) {
+      var gone = ih(Math.floor(x / 7), 3, G.seed) > 0.45 + rep * 0.6;
+      var hh = gone ? Math.round(wh * (0.25 + ih(x, 4, G.seed) * 0.3)) : wh;
+      P.r(x, gy - hh, 7, hh, ST); P.r(x, gy - hh, 7, 1, ST2);
+      if (!gone) { P.r(x, gy - wh - 4, 4, 4, ST); P.r(x, gy - wh - 4, 4, 1, ST2); }
+      else { P.r(x + 1, gy - 3, 5, 3, "#4a4648"); P.r(x + 2, gy - 4, 2, 1, "#625b5b"); }
+      if (!gone && Math.floor(x / 7) % 3 === 1) { P.r(x + 3, gy - wh + 5, 1, 5, ST3); if (SP.flick(t, x)) P.r(x + 3, gy - wh + 7, 1, 2, "#ff6a4a"); }
+    }
+    P.r(w0, gy - 6, w1 - w0, 1, ST3);
+    /* the gun battery on the wall */
+    var gx = sx + 96;
+    P.r(gx, gy - wh - 9, 22, 9, ST3); P.r(gx, gy - wh - 9, 22, 1, ST2); P.r(gx + 2, gy - wh - 7, 4, 2, rep >= 0.7 ? "#ff6a4a" : "#3a1a18");
+    var lift = rep >= 0.7 ? Math.sin(t * 0.3) * 0.15 : 0.35;
+    for (var bb = 0; bb < 2; bb++) {
+      var ang2 = -0.5 - lift, bxs = gx + 12, bys = gy - wh - 7 + bb * 3;
+      for (var i = 0; i < 18; i++) P.r(bxs + Math.cos(ang2) * i, bys + Math.sin(ang2) * i, 2, 2, i > 15 ? "#2a282c" : "#6a6870");
+    }
+    if (rep >= 0.7 && ((t * 0.25) % 5) < 0.12) { var mx = gx + 12 + Math.cos(-0.5) * 19, my = gy - wh - 7 + Math.sin(-0.5) * 19; P.r(mx - 2, my - 2, 5, 5, C.warm); this._light(g, mx, my, [255, 200, 120], 50, 0.7); }
+    /* the gatehouse: two towers with spires, a pointed gate over the shaft */
+    for (var tw = 0; tw < 2; tw++) {
+      var tx = sx - 22 + tw * 34, th = 50;
+      P.r(tx, gy - th, 12, th, ST); P.r(tx, gy - th, 1, th, ST2); P.r(tx + 11, gy - th, 1, th, ST3);
+      for (var c = 0; c < 3; c++) P.r(tx + c * 4, gy - th - 3, 3, 3, ST);
+      P.r(tx + 5, gy - th + 8, 2, 6, ST3); P.r(tx + 5, gy - th + 9, 2, 4, SP.flick(t, tw + 11) ? "#ff7a3a" : "#8a2a24");
+      P.r(tx + 5, gy - th + 22, 2, 5, ST3);
+      var broken = tw === 1 && rep < 0.45;
+      var sp = broken ? 6 : 18;
+      for (var y2 = 0; y2 < sp; y2++) { var wdt = Math.max(1, Math.round(10 * (1 - y2 / 18))); P.r(tx + 6 - Math.ceil(wdt / 2), gy - th - 3 - y2, wdt, 1, y2 % 4 === 0 ? ST2 : ST); }
+      if (!broken) { P.r(tx + 5, gy - th - 24, 2, 4, GOLD); P.r(tx + 4, gy - th - 22, 4, 1, GOLD); lamp2(P, tx + 5, gy - th - 26, t, tw); }
+      else { P.r(tx + 2, gy - th - 9, 3, 2, ST2); P.r(tx + 14, gy - 3, 4, 3, "#4a4648"); }
+    }
+    /* the gate: a pointed arch, its blast door raised as far as the repair */
+    var ax = sx - 10, aw = 22, ah = 30;
+    P.r(ax - 2, gy - ah - 6, aw + 4, ah + 6, ST);
+    for (var yy = 0; yy < ah; yy++) {
+      var inset = yy < 8 ? Math.round((8 - yy) * 1.2) : 0;
+      P.r(ax + inset, gy - ah + yy, aw - inset * 2, 1, "#0d0b0c");
+    }
+    var door = Math.round(ah * (0.2 + rep * 0.6));
+    P.r(ax, gy - door, aw, door, "#4b4f55"); for (var d = 0; d < door; d += 4) P.r(ax, gy - door + d, aw, 1, "#3a3d42");
+    for (var st = 0; st < aw; st += 4) P.r(ax + st, gy - door, 2, 1, C.amber);
+    this._light(g, sx, gy - door - 4, [255, 96, 52], 40, 0.3);
+    /* the crest over the gate, and long banners from the towers */
+    crest(P, sx - 3, gy - ah - 14, GOLD, ST3);
+    for (var bn = 0; bn < 2; bn++) {
+      var bx = sx - 20 + bn * 34 + 3, by = gy - 44, bl = rep >= 0.3 ? 22 : 10, sw = Math.round(Math.sin(t * 0.9 + bn) * 0.7);
+      P.r(bx + sw, by, 6, bl, rep >= 0.3 ? "#7a1c1a" : "#4a1614"); P.r(bx + sw, by, 6, 1, GOLD);
+      if (rep >= 0.3) { crest(P, bx + sw - 0.5, by + 4, GOLD, "#7a1c1a"); P.r(bx + sw, by + bl, 2, 2, "#7a1c1a"); P.r(bx + 4 + sw, by + bl, 2, 2, "#7a1c1a"); }
+    }
+    /* a wrecked dropship, nose down in the ash, still smoking */
+    var hx = Math.min(W - 120, sx + 200), hy = gy;
+    if (hx > sx + 130) {
+      for (var hh2 = 0; hh2 < 16; hh2++) { var len = 54 - hh2 * 2.4; P.r(hx + hh2 * 1.4, hy - 16 + hh2, len, 1, hh2 < 2 ? "#6a6e76" : hh2 % 5 === 0 ? "#2a2c30" : "#45484f"); }
+      P.r(hx + 40, hy - 26, 10, 12, "#45484f"); P.r(hx + 40, hy - 26, 10, 1, "#6a6e76"); P.r(hx + 42, hy - 23, 6, 2, SP.flick(t, 21) ? "#5ccfff" : "#1a3a4a");
+      P.r(hx + 6, hy - 12, 8, 3, "#0d0b0c"); P.r(hx + 18, hy - 9, 4, 4, "#0d0b0c");
+      P.r(hx + 50, hy - 4, 10, 4, "#4a4648");
+      for (var sm = 0; sm < 5; sm++) { var p = (t * 0.25 + sm / 5) % 1; g.fillStyle = "rgba(60,58,62," + (0.5 * (1 - p)).toFixed(2) + ")"; g.fillRect(Math.round(hx + 10 + Math.sin(p * 5 + sm) * 3 + p * 10), Math.round(hy - 14 - p * 40), 3 + Math.round(p * 4), 3 + Math.round(p * 4)); }
+      if (SP.flick(t, 33)) { P.r(hx + 11, hy - 12, 2, 1, C.orange); this._light(g, hx + 12, hy - 12, [255, 110, 50], 24, 0.35); }
+    }
+  };
+  function lamp2(P, x, y, t, k) { P.r(x, y, 2, 2, SP.blink(t + k * 0.5, 1) ? "#e5483a" : "#5a1a18"); }
 
   Scene.prototype._motes = function (g, cam, pal, low) {
     if (low) return;
