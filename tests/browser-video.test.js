@@ -280,6 +280,8 @@ const tagOf = (au) => au.readUInt32BE(au.length - 4);
       const f = todo.pop();
       if (seen.has(f)) continue;
       seen.add(f);
+      /* a file the deploy copies in from core/ (pool-engine.js) ships too */
+      if (!fs.existsSync(path.join(__dirname, "..", "relay", f)) && src.indexOf('"core", "' + f + '"') >= 0) { list.push(f); continue; }
       const code = fs.readFileSync(path.join(__dirname, "..", "relay", f), "utf8");
       const re = /require\(["']\.\/([\w.-]+?)(?:\.js)?["']\)/g;
       let m;

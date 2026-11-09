@@ -10,6 +10,11 @@
   "use strict";
 
   var NOTES = [
+    { v: "0.14.0", items: [
+      "POOL HALL: eight-ball with real spin (draw, follow, side), against the computer, a friend on the same screen, or alone to practise.",
+      "Play friends online: challenge a gamertag (the same as DEEPHOLD) or post an open challenge. FieldKit tells you when it is your shot.",
+      "The relay plays every online shot itself, so nobody can fake one and both screens always agree."
+    ] },
     { v: "0.13.1", items: [
       "DEEPHOLD: digging is in the picture. Click the dig site under your deepest layer, or DIG DEEPER, to see the cost and dig.",
       "A boring rig cuts each new tunnel, and the rock below the colony has seams and strata instead of a blank edge.",

@@ -792,6 +792,13 @@
     signedIn: function () { return !!session; },
     tag: function () { return session ? session.tag : null; },
     signOut: function () { if (session) { api("POST", "logout", {}).catch(function () {}); } session = null; store("set", null); FieldKit.emit("deephold:signout", {}); },
+    /* the gamertag is shared by FieldKit's games (POOL HALL signs in with it too) */
+    session: function () { return session ? { token: session.token, tag: session.tag } : null; },
+    adopt: function (s, keep) {
+      if (!s || !s.token || !s.tag) return;
+      session = { token: s.token, tag: s.tag }; remember(keep !== false); startAlerts();
+      if (host && !gone) { screen = ""; route(); load(); }
+    },
     _select: function (layer, slot) { if (scene) scene.select(layer, slot, true); else { sel = { layer: layer, slot: slot }; tab = "colony"; sigs.pick = ""; applyTabs(); fillPick(); } },
     _api: api, _pollEvents: pollEvents, _state: function () { return { screen: screen, tab: tab, sel: sel, view: view }; }
   });

@@ -305,6 +305,32 @@
     },
 
     {
+      id: "app-pool",
+      title: "POOL HALL",
+      tag: "apps",
+      body: [
+        "Eight-ball on a nine-foot table. Play the computer (EASY, NORMAL or HARD), a friend on the same " +
+        "screen, practise alone, or challenge friends online through the relay.",
+        { steps: [
+          "Move over the table to aim. The dashed line shows where the cue ball meets the first ball, the yellow line where that ball goes, the blue line where the cue ball goes after.",
+          "Press on the table and pull back to set the power, then let go to shoot. Or set the POWER bar and press Space or SHOOT.",
+          "Arrow keys fine-tune the aim (Shift for bigger steps).",
+          "Click the small cue ball to hit high (follow), low (draw) or on a side (side spin). Double-click it to centre.",
+          "With ball in hand, drag the cue ball where you want it. On the 8 the pocket is called for you; click another pocket to call that one."
+        ] },
+        { rows: [
+          ["SOLIDS / STRIPES", "the first ball you pot after the break decides"],
+          ["FOUL", "scratch, wrong ball first, or no cushion after the hit"],
+          ["AFTER A FOUL", "the other player has ball in hand"],
+          ["THE 8", "last, in the called pocket; otherwise you lose"]
+        ] },
+        "Online uses a gamertag, the same one as DEEPHOLD. Challenge someone by gamertag or post an open challenge " +
+        "anyone can take. Matches are turn by turn: you can leave and come back, and FieldKit tells you when it is your shot. " +
+        "The relay plays every shot itself, so both screens always agree on what happened."
+      ]
+    },
+
+    {
       id: "app-ask",
       title: "ASK",
       tag: "apps",

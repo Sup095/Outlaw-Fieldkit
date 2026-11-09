@@ -44,7 +44,7 @@ const arg = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1
    into the image, so nothing here may be a secret. */
 const RELAY_CODE = ["start.js", "server.js", "browse.js", "browse-runtime.js", "messaging.js",
   "updates.js", "ws.js", "cdp.js", "guard.js", "browser-engine.js", "browser-route.js", "video-encoder.js", "proc-usage.js", "pulse.js", "ogg-opus.js", "fairness.js",
-  "overflow.js", "browser-helper.js", "runner.js", "upcap.js", "tiny-ai.js", "model-mirror.js", "model-shelf.js", "addresses.js", "colony.js", "colony-engine.js", "colony-players.js", "topology.js", "jsonfile.js", "blocklist.js", "fetch-adblock.js", "fetch-cloudflared.js", "fetch-tailscale.js", "admin.js", "notices.js", "probe.js", "lens-link.js"];
+  "overflow.js", "browser-helper.js", "runner.js", "upcap.js", "tiny-ai.js", "model-mirror.js", "model-shelf.js", "addresses.js", "colony.js", "colony-engine.js", "colony-players.js", "pool.js", "topology.js", "jsonfile.js", "blocklist.js", "fetch-adblock.js", "fetch-cloudflared.js", "fetch-tailscale.js", "admin.js", "notices.js", "probe.js", "lens-link.js"];
 
 const BASTION2 = [
   ["relay/ws.js", "relay/ws.js"], ["relay/guard.js", "relay/guard.js"], ["relay/jsonfile.js", "relay/jsonfile.js"], ["relay/upcap.js", "relay/upcap.js"],
@@ -104,6 +104,10 @@ for (const f of RELAY_CODE) {
   put(src, path.join(b1, "relay", f), true);
   now[f] = sha(path.join(b1, "relay", f));
 }
+/* POOL HALL's engine lives in core/ because the panel runs it too;
+   the relay needs the same file next to relay/pool.js. */
+put(path.join(ROOT, "core", "pool-engine.js"), path.join(b1, "relay", "pool-engine.js"), true);
+now["pool-engine.js"] = sha(path.join(b1, "relay", "pool-engine.js"));
 /* The in-browser engine, served to installers (relay/tiny-ai.js). */
 put(path.join(ROOT, "vendor", "web-llm.js"), path.join(b1, "relay", "web-llm.js"), true);
 for (const [from, to] of [["relay/docker/Dockerfile", "Dockerfile"], ["relay/docker/entrypoint.sh", "entrypoint.sh"]]) {
@@ -183,6 +187,7 @@ for (const f of RELAY_CODE) {
   const src = path.join(ROOT, "relay", f);
   if (fs.existsSync(src)) put(src, path.join(lensOut, "relay", f), true);
 }
+put(path.join(ROOT, "core", "pool-engine.js"), path.join(lensOut, "relay", "pool-engine.js"), true);
 for (const f of LENS) put(path.join(ROOT, f), path.join(lensOut, f), true);
 put(path.join(ROOT, "lens", "Dockerfile"), path.join(lensOut, "Dockerfile"), true);
 const tarLens = tarUp("lens");

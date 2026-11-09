@@ -437,6 +437,15 @@ stays, as the fallback and for what lens cannot do.
 - *Next:* a cache for pages you open twice, which the test showed would
   roughly halve what a second visit costs.
 
+**Done in 0.14.0: POOL HALL.** Eight-ball (modules/pool.js) on a physics engine
+shared by the panel and the relay (core/pool-engine.js): metres and seconds, slide
+then roll, real spin (draw, follow, side) and cushions and pocket jaws, using only
+operations that give the same bits on every JavaScript engine. Modes: the
+computer (EASY / NORMAL / HARD, it simulates candidate shots), two players on one
+screen, practice, and online matches through relay/pool.js with DEEPHOLD's
+gamertags: the relay plays each shot itself and both panels replay it exactly.
+In both builds. PREFLIGHT and DIAGNOSTICS check /pool/status.
+
 **Done in 0.13.1: the dig site, and the garrison redone.** Digging deeper lives in
 the picture: a clickable dig site sits under the deepest layer (pilot shaft, propped
 chamber, a parked rig, the ghost of the tunnel to come) and opens a card with cost,

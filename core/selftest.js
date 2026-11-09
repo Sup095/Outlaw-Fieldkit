@@ -248,6 +248,11 @@
         if (!d || !d.up) throw new Error("SKIPPED — this relay does not run the game (older than 0.13.0)");
         return d.paused ? "running, paused by an admin" : "running";
       }),
+      check("POOL HALL", false, async function () {
+        var d = await getJson(relayBase() + "/pool/status");
+        if (!d || !d.up) throw new Error("SKIPPED — this relay does not run online pool (older than 0.14.0)");
+        return "online matches open";
+      }),
       check("SERVER AI MODELS", false, async function () {
         var t = await getJson(relayBase() + "/ai/tiny");
         if (!t) throw new Error("SKIPPED — this relay is too old to offer them");

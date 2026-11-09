@@ -44,6 +44,7 @@ const modelMirror = require("./model-mirror");
 const modelShelf = require("./model-shelf");
 const addresses = require("./addresses");
 const colony = require("./colony");
+const pool = require("./pool");
 const topology = require("./topology");
 const { Overflow, loadKeys } = require("./overflow");
 const { LensLink } = require("./lens-link");
@@ -189,7 +190,7 @@ const DEFAULTS = {
     browserMax: 60, browserStreamMax: 12,
     /* RUNNER asks the relay for a status and a ticket and nothing
        else, so this is small. */
-    runnerMax: 60, colonyMax: 600,
+    runnerMax: 60, colonyMax: 600, poolMax: 600,
     /* A build is one big download, not many small ones, and a
        check is one small GET. Neither needs headroom. */
     updateMax: 30 }
@@ -456,7 +457,7 @@ let usageDirty = false;
 
 /* The routes this relay actually has. A counter key is only ever
    one of these — see routeKey(). */
-const KNOWN_ROUTES = ["health", "status", "vault", "records", "blobs", "actions", "usage", "ai", "msg", "browser", "admin", "notices", "probe", "colony"];
+const KNOWN_ROUTES = ["health", "status", "vault", "records", "blobs", "actions", "usage", "ai", "msg", "browser", "admin", "notices", "probe", "colony", "pool"];
 
 /* A counter key must never be attacker-controlled.
 
@@ -1144,6 +1145,7 @@ const ROUTES = [
   "GET  /actions", "POST /actions",
   "GET  /usage",
   "GET  /colony/{status,me,events}", "POST /colony/{register,login,logout,found,build,demolish,toggle,dig,ship,abandon,claimadmin,admin}",
+  "GET  /pool/{status,lobby,match}", "POST /pool/{challenge,accept,decline,cancel,resign,shot}",
   "POST /msg/register", "POST /msg/login", "POST /msg/logout",
   "GET  /msg/users", "GET/POST /msg/conv", "POST /msg/send", "GET  /msg/poll",
   "POST /msg/read", "POST /msg/rotate", "POST /msg/report",
@@ -1263,6 +1265,14 @@ async function route(req, res, url) {
     }
     const msgWho = (r) => { const m = messaging.whoami(r); return m && m.handle ? { handle: m.handle, tier: m.tier, banned: !!m.banned } : null; };
     if (await colony.route(req, res, url, { send, readBody, msgWho, ip: clientIp })) return;
+  }
+
+  /* POOL HALL (relay/pool.js): the same gamertags as DEEPHOLD. */
+  if (seg[0] === "pool") {
+    if (!hit("pool:" + clientIp(req), config.rateLimit.poolMax || 600)) {
+      return send(res, 429, { error: "slow down", detail: "too many game requests" });
+    }
+    if (await pool.route(req, res, url, { send, readBody, ip: clientIp })) return;
   }
 
   if (seg[0] === "runner") {
@@ -2118,6 +2128,7 @@ server.listen(config.port, config.host, () => {
   log("INFO", sh.enabled ? "model-shelf: " + sh.models + " model(s) ready, the rest are fetched in the background" : "model-shelf: off");
   addresses.init({ config: config.addresses, log: log, port: config.port });
   try { colony.init({ dataDir: DATA_DIR, log: log }); } catch (e) { log("ERROR", "colony: not started: " + e.message); }
+  try { pool.init({ dataDir: DATA_DIR, log: log }); } catch (e) { log("ERROR", "pool: not started: " + e.message); }
 
   const rn = runner.init({ dataDir: DATA_DIR, config: config.runner || {}, log: log,
     whoami: (r) => messaging.whoami(r) });
@@ -2228,6 +2239,7 @@ for (const sig of ["SIGINT", "SIGTERM"]) {
     flushUsage();
     messaging.flush();
     try { colony.flush(); } catch (e) {}
+    try { pool.flush(); } catch (e) {}
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 3000).unref();
   });
