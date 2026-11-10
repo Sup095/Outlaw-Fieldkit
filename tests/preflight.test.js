@@ -76,13 +76,13 @@ try {
        somewhere from a machine the user does not trust. */
     const targets = (scriptSrc.match(/fetch\(\s*([^,)]+)/g) || [])
       .map((f) => f.replace(/^fetch\(\s*/, "").trim());
-    const want = ['"/health"', '"/vault"', '"/browser/status"', '"/runner/status"', '"/colony/status"', '"/pool/status"', '"/email/status"', '"/notices"', '"/ai/tiny"', '"/ai/mirror?u="'];
-    ok("it makes exactly ten kinds of request, all to the relay the user typed",
-      targets.length === 10 && targets.every((t) => t.startsWith("base +")) &&
+    const want = ['"/health"', '"/vault"', '"/browser/status"', '"/runner/status"', '"/colony/status"', '"/pool/status"', '"/notices"', '"/ai/tiny"', '"/ai/mirror?u="'];
+    ok("it makes exactly nine kinds of request, all to the relay the user typed",
+      targets.length === 9 && targets.every((t) => t.startsWith("base +")) &&
       want.every((w) => targets.join(" ").includes(w)), targets.join(" | "));
     ok("all inside the relay checks, which only a button press reaches",
       (scriptSrc.split("async function checkRelay")[1] || "").split("async function checkCapability")[0]
-        .match(/fetch\(/g).length === 10);
+        .match(/fetch\(/g).length === 9);
     const sockets = scriptSrc.match(/new WebSocket\(/g) || [];
     ok("and one WebSocket, to the same relay's /ws-check", sockets.length === 1 &&
       scriptSrc.includes('new WebSocket(base.replace(/^http/i, "ws") + "/ws-check")'));

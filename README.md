@@ -437,6 +437,10 @@ stays, as the fallback and for what lens cannot do.
 - *Next:* a cache for pages you open twice, which the test showed would
   roughly halve what a second visit costs.
 
+**Done in 0.16.1: EMAIL UPDATES taken out for now.** The panel, the relay's
+mail code, its routes, settings and checks are gone; the in-app notices are
+unchanged. It can come back from v0.15.0 in git when it is wanted.
+
 **Done in 0.16.0: GAME MODE.** The Outlaw Engine (the user's own hub of games
 and apps, kept and built in its own folder) opens from FieldKit and OUTPOST
 (modules/game-mode.js): full screen in a frame with one bar to come back, or in

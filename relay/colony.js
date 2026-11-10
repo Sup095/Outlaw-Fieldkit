@@ -39,23 +39,6 @@ const path = require("path");
 const jf = require("./jsonfile");
 const E = require("./colony-engine");
 const players = require("./colony-players");
-const mail = require("./mail-updates");
-
-/* EMAIL UPDATES: what a player would want to hear while away. Their own
-   colony's news, and the Civilization's big moments; not the ten-minute
-   wave warning (the one-hour one is the useful one), not "welcome back". */
-const MAIL_ALL = { stage: 1, liberated: 1, wave: 1, fall: 1, brownout: 1, pause: 1, war: 1 };
-E.onEmit((w, ev) => {
-  if (w !== world) return;
-  const item = { cat: "deephold", text: ev.text, chk: { k: "dh" } };
-  if (ev.to) { if (ev.kind !== "wake") mail.notify({ tag: ev.to }, item); return; }
-  if (!MAIL_ALL[ev.kind] || /TEN MINUTES/.test(ev.text)) return;
-  mail.broadcast(item, (s) => !!(s.tag && world && has(world.colonies, s.tag) && !world.colonies[s.tag].collapsed));
-});
-mail.check("dh", (it, s) => {
-  const c = s.tag && world && has(world.colonies, s.tag) ? world.colonies[s.tag] : null;
-  return !(c && c.lastSeen > it.t);
-});
 
 const TICK_MS = 5000;
 const SAVE_MS = 30000;

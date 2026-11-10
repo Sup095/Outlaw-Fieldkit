@@ -418,7 +418,6 @@
     ];
     if (view && view.admin) kids.push(ui().button(view.paused ? "RESUME THE GAME FOR EVERYONE" : "PAUSE THE GAME FOR EVERYONE", function () { act("admin", { action: "pause", on: !view.paused }); close(); }, { danger: !view.paused }));
     kids.push(ui().button("ABANDON THIS COLONY", function () { if (window.confirm("Abandon your colony and start again? What you gave the Civilization stays given.")) { act("abandon", { confirm: true }); close(); } }, { danger: true }));
-    kids.push(ui().button("✉ EMAIL ME WHEN I AM AWAY", function () { close(); var sh = FieldKit.service("shell"); if (sh && sh.open) sh.open("email-updates"); }));
     kids.push(ui().button("SIGN OUT OF DEEPHOLD", function () { close(); signOut(); }));
     R.menu.appendChild(el("div", { class: "dh-menubox" }, kids));
   }

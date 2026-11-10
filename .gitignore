@@ -87,3 +87,6 @@ runnerd/relay.env
 # games (All rights reserved): on drives and the relay, never in the repo.
 games/
 games.local.json
+
+# a relay started from the repo root by mistake writes here
+/data/

@@ -781,7 +781,7 @@
       R.toInput = ui().field("CHALLENGE A GAMERTAG", { placeholder: "their gamertag" });
       R.toInput.input.addEventListener("keydown", function (e) { if (e.key === "Enter") challenge(R.toInput.input.value); });
       R.lob = el("div", { class: "ph-list" });
-      box.appendChild(el("div", { class: "ph-row" }, [el("h3", { class: "ph-grow", text: "PLAY FRIENDS ONLINE" }), R.who, ui().button("✉ EMAIL ME", function () { var sh = FieldKit.service("shell"); if (sh && sh.open) sh.open("email-updates"); }), ui().button("SIGN OUT", function () { dropSession(); lastLobby = null; paintOnline(true); })]));
+      box.appendChild(el("div", { class: "ph-row" }, [el("h3", { class: "ph-grow", text: "PLAY FRIENDS ONLINE" }), R.who, ui().button("SIGN OUT", function () { dropSession(); lastLobby = null; paintOnline(true); })]));
       box.appendChild(el("div", { class: "ph-row" }, [R.toInput, ui().button("CHALLENGE", function () { challenge(R.toInput.input.value); }, { primary: true }), ui().button("OPEN CHALLENGE (ANYONE)", function () { challenge(""); })]));
       box.appendChild(R.lob);
     }

@@ -45,7 +45,6 @@ const modelShelf = require("./model-shelf");
 const addresses = require("./addresses");
 const colony = require("./colony");
 const pool = require("./pool");
-const mailUpdates = require("./mail-updates");
 const games = require("./games");
 const players = require("./colony-players");
 const topology = require("./topology");
@@ -193,7 +192,7 @@ const DEFAULTS = {
     browserMax: 60, browserStreamMax: 12,
     /* RUNNER asks the relay for a status and a ticket and nothing
        else, so this is small. */
-    runnerMax: 60, colonyMax: 600, poolMax: 600, emailMax: 120,
+    runnerMax: 60, colonyMax: 600, poolMax: 600,
     /* GAME MODE: a game is many small files (scripts, fonts, sprites) */
     gamesMax: 4000,
     /* A build is one big download, not many small ones, and a
@@ -462,7 +461,7 @@ let usageDirty = false;
 
 /* The routes this relay actually has. A counter key is only ever
    one of these — see routeKey(). */
-const KNOWN_ROUTES = ["health", "status", "vault", "records", "blobs", "actions", "usage", "ai", "msg", "browser", "admin", "notices", "probe", "colony", "pool", "email", "games"];
+const KNOWN_ROUTES = ["health", "status", "vault", "records", "blobs", "actions", "usage", "ai", "msg", "browser", "admin", "notices", "probe", "colony", "pool", "games"];
 
 /* A counter key must never be attacker-controlled.
 
@@ -1163,7 +1162,7 @@ const ROUTES = [
   "GET  /updates/latest", "GET  /updates/file", "GET  /updates/status",
   "GET  /ai/tiny", "POST /ai/tiny/chat", "GET  /ai/engine.js", "GET  /ai/mirror", "GET  /topology",
   "GET  /k/list", "GET  /k/<n>/<i>", "GET  /k/e.js", "GET  /relay/addresses",
-  "GET  /notices", "GET  /probe", "POST /probe/result", "GET  /admin/overview", "POST /admin/announce", "GET  /email/status", "POST /email/me|subscribe|resend|verify|settings|test|stop", "GET  /email/off", "GET  /games/status", "POST /games/ticket", "GET  /games/t/<ticket>/<file>", "POST /admin/block",
+  "GET  /notices", "GET  /probe", "POST /probe/result", "GET  /admin/overview", "POST /admin/announce", "GET  /games/status", "POST /games/ticket", "GET  /games/t/<ticket>/<file>", "POST /admin/block",
   "POST /admin/session", "POST /admin/report"
 ];
 
@@ -1280,19 +1279,6 @@ async function route(req, res, url) {
     if (await pool.route(req, res, url, { send, readBody, ip: clientIp })) return;
   }
 
-  /* EMAIL UPDATES (relay/mail-updates.js): opt-in, signed in to MESSAGES
-     (the header) or with a gamertag (the header, or gameToken in the body). */
-  if (seg[0] === "email") {
-    if (!hit("email:" + clientIp(req), config.rateLimit.emailMax || 120)) {
-      return send(res, 429, { error: "slow down", detail: "too many email requests" });
-    }
-    const emailWho = (r, b) => {
-      const m = messaging.whoami(r);
-      const g = players.auth(r) || (b && typeof b.gameToken === "string" ? players.authToken(b.gameToken) : null);
-      return { msg: m && m.handle && !m.banned ? m.handle : null, tag: g ? g.key : null, tagName: g ? g.tag : null };
-    };
-    if (await mailUpdates.route(req, res, url, { send, readBody, ip: clientIp, who: emailWho })) return;
-  }
 
   /* GAME MODE (relay/games.js): the Outlaw Engine, for people who are signed in. */
   if (seg[0] === "games") {
@@ -2168,10 +2154,6 @@ server.listen(config.port, config.host, () => {
     const g = games.init({ dataDir: DATA_DIR, root: gr || null });
     log("INFO", g.up ? "game mode: the Outlaw Engine" + (g.version ? " v" + g.version : "") + " for signed-in players" : "game mode: no copy of the games on this relay (node tools/sync-games.js, then deploy)");
   } catch (e) { log("ERROR", "game mode: not started: " + e.message); }
-  try {
-    mailUpdates.init({ dataDir: DATA_DIR, config: config.email || {}, log: log, version: () => (updates.state() || {}).serving || null });
-    log("INFO", mailUpdates.up() ? "email updates: on, through " + config.email.host : "email updates: off (no email settings in config.local.json)");
-  } catch (e) { log("ERROR", "email updates: not started: " + e.message); }
 
   const rn = runner.init({ dataDir: DATA_DIR, config: config.runner || {}, log: log,
     whoami: (r) => messaging.whoami(r) });
@@ -2283,7 +2265,6 @@ for (const sig of ["SIGINT", "SIGTERM"]) {
     messaging.flush();
     try { colony.flush(); } catch (e) {}
     try { pool.flush(); } catch (e) {}
-    try { mailUpdates.flush(); } catch (e) {}
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 3000).unref();
   });

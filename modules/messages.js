@@ -1177,12 +1177,6 @@
       if (!session) throw new Error("sign in to MESSAGES first");
       return api("POST", "/games/ticket");
     },
-    /* EMAIL UPDATES. Only its own routes, the same way. */
-    email: async function (method, path, body) {
-      if (!session) throw new Error("sign in to MESSAGES first");
-      if (!/^\/email\/[a-z]+$/.test(String(path))) throw new Error("not an email route");
-      return api(method, path, body);
-    },
     runnerTicket: async function () {
       if (!session) throw new Error("not signed in to MESSAGES");
       return api("POST", "/runner/ticket");

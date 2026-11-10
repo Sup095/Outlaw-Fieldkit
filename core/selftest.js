@@ -253,12 +253,6 @@
         if (!d || !d.up) throw new Error("SKIPPED — this relay does not run online pool (older than 0.14.0)");
         return "online matches open";
       }),
-      check("EMAIL UPDATES", false, async function () {
-        var d = await getJson(relayBase() + "/email/status");
-        if (!d) throw new Error("SKIPPED — this relay does not offer email updates (older than 0.15.0)");
-        if (!d.up) throw new Error("SKIPPED — off: the relay has no email account set (optional)");
-        return "people can sign up in EMAIL UPDATES";
-      }),
       check("SERVER AI MODELS", false, async function () {
         var t = await getJson(relayBase() + "/ai/tiny");
         if (!t) throw new Error("SKIPPED — this relay is too old to offer them");

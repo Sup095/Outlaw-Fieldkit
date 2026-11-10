@@ -10,6 +10,10 @@
   "use strict";
 
   var NOTES = [
+    { v: "0.16.1", items: [
+      "EMAIL UPDATES are taken out for now. FieldKit's own notices still tell you about messages, pool and DEEPHOLD.",
+      "GAME MODE: Metro Fall is set in the real stations of central Moscow, with real-looking people and train cars to scale."
+    ] },
     { v: "0.16.0", items: [
       "GAME MODE: the Outlaw Engine, with all your games and apps, opens full screen from FieldKit and OUTPOST. One bar at the top brings you back.",
       "It runs from the drive when the games are on it, and through the relay for anyone signed in to MESSAGES or with a gamertag.",

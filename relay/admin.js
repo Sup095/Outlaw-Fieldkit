@@ -28,7 +28,6 @@ const os = require("os");
 const path = require("path");
 const jf = require("./jsonfile");
 const probe = require("./probe");
-const mail = require("./mail-updates");
 
 const EVENTS_MAX = 60;
 const REPORTS_MAX = 100;
@@ -105,7 +104,6 @@ async function overview() {
     colony: parts.colony ? parts.colony.summary() : null,
     notices: notices ? notices.list() : [],
     announcement: notices ? notices.announcement() : null,
-    email: mail.summary(),
     devices: probe.list().slice(0, 12),
     events: events.slice(0, EVENTS_MAX)
   };
@@ -148,8 +146,6 @@ async function route(req, res, url, helpers) {
     if (body.end) { parts.notices.endAnnouncement(); send(res, 200, { ok: true }); return true; }
     try {
       const a = parts.notices.announce(body.text, body.level, body.hours, helpers.who(req) || "admin");
-      /* EMAIL UPDATES: an announcement is FieldKit news, unless the admin says not to email it */
-      if (body.email !== false && body.text) mail.broadcast({ cat: "fieldkit", text: "Announcement: " + String(body.text).slice(0, 280) });
       send(res, 200, a);
     }
     catch (e) { send(res, 400, { error: e.message }); }

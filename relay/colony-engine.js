@@ -193,7 +193,7 @@ function say(list, now, text, keep) {
 /* Something a player should be told, even if they are not looking.
    `to` is a handle, or null for everyone. The panel turns these into
    FieldKit notifications. */
-/* relay/colony.js listens here to pass news on to EMAIL UPDATES. */
+/* Anything that wants to hear the news as it happens can listen here. */
 let emitHook = null;
 function onEmit(fn) { emitHook = typeof fn === "function" ? fn : null; }
 function emit(world, now, to, level, text, kind) {

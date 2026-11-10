@@ -511,37 +511,6 @@ come from `games/outlaw-engine/` in the repo: run `node tools/sync-games.js`
 after changing the engine (it remembers the folder), then deploy. A relay with no
 copy says so in its log and GAME MODE falls back to a drive copy only.
 
-## EMAIL UPDATES (optional)
-
-People who opt in (the EMAIL UPDATES panel) get one email a few minutes after
-something happens: messages (who, never what), POOL HALL challenges and turns,
-DEEPHOLD news, new versions and announcements. The relay sends through an
-ordinary mail account, so it is free and needs nothing installed.
-
-1. Make a Gmail account just for the relay (or use one you have) and turn on
-   2-Step Verification.
-2. Google Account > Security > App passwords: make one called FieldKit. Copy
-   the 16 letters.
-3. In `relay/config.local.json` add:
-
-   ```json
-   "email": {
-     "host": "smtp.gmail.com",
-     "port": 465,
-     "user": "the full address of that account",
-     "pass": "the 16-letter app password",
-     "publicUrl": "https://your-relay-hostname"
-   }
-   ```
-
-4. `node build.js`, deploy, restart the relay. The log says
-   `email updates: on`. PREFLIGHT and DIAGNOSTICS show EMAIL UPDATES.
-
-`maxPerDay` (default 300) keeps under Gmail's ~500 a day. Any SMTP service
-works the same way (port 587 with STARTTLS also works). Addresses live in
-`data/mail-updates.json`; ADMIN CENTER's overview shows how many are signed up,
-sent today, and the last sending error.
-
 ## Operational notes
 
 - Writes are temp-file-then-rename, so a crash cannot leave a half-written record.
