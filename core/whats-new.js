@@ -10,6 +10,11 @@
   "use strict";
 
   var NOTES = [
+    { v: "0.16.0", items: [
+      "GAME MODE: the Outlaw Engine, with all your games and apps, opens full screen from FieldKit and OUTPOST. One bar at the top brings you back.",
+      "It runs from the drive when the games are on it, and through the relay for anyone signed in to MESSAGES or with a gamertag.",
+      "The Outlaw Engine is untouched inside: its own look, settings, saves and SYSTEM CHECK."
+    ] },
     { v: "0.15.0", items: [
       "EMAIL UPDATES (optional): get an email about messages, pool challenges and your shot, DEEPHOLD and new versions.",
       "It waits a few minutes so several things arrive in one email, skips what you already saw, and every email has a stop link.",

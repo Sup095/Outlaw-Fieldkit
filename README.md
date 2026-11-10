@@ -437,6 +437,16 @@ stays, as the fallback and for what lens cannot do.
 - *Next:* a cache for pages you open twice, which the test showed would
   roughly halve what a second visit costs.
 
+**Done in 0.16.0: GAME MODE.** The Outlaw Engine (the user's own hub of games
+and apps, kept and built in its own folder) opens from FieldKit and OUTPOST
+(modules/game-mode.js): full screen in a frame with one bar to come back, or in
+a window. tools/sync-games.js copies what the engine needs to run, unchanged,
+into games/outlaw-engine/ (gitignored: the games are All rights reserved and
+never published). Drives carry it (outside the manifest: the engine has its own
+SYSTEM CHECK, kept separate), and the relay image serves it (relay/games.js) to
+people signed in to MESSAGES or with a gamertag, by a 12-hour HMAC ticket in the
+path with no-referrer on every answer.
+
 **Done in 0.15.0: EMAIL UPDATES, and a play-tested pass on both games.**
 Opt-in email (modules/email-updates.js, relay/mail-updates.js) alongside the
 in-app notices: messages (who, never what: MESSAGES is end-to-end encrypted),

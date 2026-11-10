@@ -82,3 +82,8 @@ tools/publish-private.json
 relay/adblock/
 
 runnerd/relay.env
+
+# GAME MODE: the Outlaw Engine copied in by tools/sync-games.js. The user's own
+# games (All rights reserved): on drives and the relay, never in the repo.
+games/
+games.local.json

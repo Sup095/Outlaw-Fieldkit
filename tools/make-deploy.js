@@ -44,7 +44,7 @@ const arg = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1
    into the image, so nothing here may be a secret. */
 const RELAY_CODE = ["start.js", "server.js", "browse.js", "browse-runtime.js", "messaging.js",
   "updates.js", "ws.js", "cdp.js", "guard.js", "browser-engine.js", "browser-route.js", "video-encoder.js", "proc-usage.js", "pulse.js", "ogg-opus.js", "fairness.js",
-  "overflow.js", "browser-helper.js", "runner.js", "upcap.js", "tiny-ai.js", "model-mirror.js", "model-shelf.js", "addresses.js", "colony.js", "colony-engine.js", "colony-players.js", "pool.js", "mailer.js", "mail-updates.js", "topology.js", "jsonfile.js", "blocklist.js", "fetch-adblock.js", "fetch-cloudflared.js", "fetch-tailscale.js", "admin.js", "notices.js", "probe.js", "lens-link.js"];
+  "overflow.js", "browser-helper.js", "runner.js", "upcap.js", "tiny-ai.js", "model-mirror.js", "model-shelf.js", "addresses.js", "colony.js", "colony-engine.js", "colony-players.js", "pool.js", "mailer.js", "mail-updates.js", "games.js", "topology.js", "jsonfile.js", "blocklist.js", "fetch-adblock.js", "fetch-cloudflared.js", "fetch-tailscale.js", "admin.js", "notices.js", "probe.js", "lens-link.js"];
 
 const BASTION2 = [
   ["relay/ws.js", "relay/ws.js"], ["relay/guard.js", "relay/guard.js"], ["relay/jsonfile.js", "relay/jsonfile.js"], ["relay/upcap.js", "relay/upcap.js"],
@@ -108,6 +108,15 @@ for (const f of RELAY_CODE) {
    the relay needs the same file next to relay/pool.js. */
 put(path.join(ROOT, "core", "pool-engine.js"), path.join(b1, "relay", "pool-engine.js"), true);
 now["pool-engine.js"] = sha(path.join(b1, "relay", "pool-engine.js"));
+/* GAME MODE: the Outlaw Engine copy (tools/sync-games.js), served by
+   relay/games.js to people who are signed in. Copied as it is. */
+{
+  const gsrc = path.join(ROOT, "games", "outlaw-engine");
+  if (fs.existsSync(path.join(gsrc, "index.html"))) {
+    fs.cpSync(gsrc, path.join(b1, "relay", "games", "outlaw-engine"), { recursive: true });
+    try { now["games"] = sha(path.join(gsrc, "fieldkit-games.js")); } catch (e) { /* no marker */ }
+  } else missing.push("games/outlaw-engine (run node tools/sync-games.js)");
+}
 /* The in-browser engine, served to installers (relay/tiny-ai.js). */
 put(path.join(ROOT, "vendor", "web-llm.js"), path.join(b1, "relay", "web-llm.js"), true);
 for (const [from, to] of [["relay/docker/Dockerfile", "Dockerfile"], ["relay/docker/entrypoint.sh", "entrypoint.sh"]]) {

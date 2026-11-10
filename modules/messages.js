@@ -1172,6 +1172,11 @@
       if (!/^\/colony\/[a-z]+$/.test(String(path))) throw new Error("not a game route");
       return api(method, path, body);
     },
+    /* GAME MODE through the relay: a ticket, never the token. */
+    gamesTicket: async function () {
+      if (!session) throw new Error("sign in to MESSAGES first");
+      return api("POST", "/games/ticket");
+    },
     /* EMAIL UPDATES. Only its own routes, the same way. */
     email: async function (method, path, body) {
       if (!session) throw new Error("sign in to MESSAGES first");

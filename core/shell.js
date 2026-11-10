@@ -732,7 +732,7 @@
      RUNNER in SERVER), and the row above them is the apps you use
      most, so nothing used daily is more than one click away.
      ---------------------------------------------------------------- */
-  var GROUP_ORDER = ["ONLINE", "FILES", "TOOLS", "SYSTEM"];
+  var GROUP_ORDER = ["ONLINE", "GAMES", "FILES", "TOOLS", "SYSTEM"];
   /* Inside a folder, the everyday ones first; that is also which four
      glyphs its card shows. Anything not listed follows, by name. */
   var APP_ORDER = ["browser", "messages", "runner", "colony", "ai-chat",

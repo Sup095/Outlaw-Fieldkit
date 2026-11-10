@@ -72,7 +72,10 @@ const OUT = path.join(ROOT, "FIELDKIT-STANDALONE.html");
    `models` holds MLC model weights for AI LOCAL, and is optional in
    a stronger sense: it is gigabytes. See MODELS below for why it is
    copied but deliberately NOT hashed into the drive manifest. */
-const PAYLOAD_BASE = ["PREFLIGHT.html", "core", "modules", "assets", "vendor", "models"];
+/* `games` is GAME MODE's copy of the Outlaw Engine (tools/sync-games.js),
+   optional like models, and left out of the manifest: the engine is its own
+   product with its own checks (its SYSTEM CHECK), kept separate on purpose. */
+const PAYLOAD_BASE = ["PREFLIGHT.html", "core", "modules", "assets", "vendor", "models", "games"];
 
 function payloadFor(builds) {
   return builds.map((b) => b.entry).concat(PAYLOAD_BASE);
@@ -87,7 +90,7 @@ const PAYLOAD = payloadFor(DEPLOY_BUILDS);
    not cover it. Said out loud rather than left to be discovered: a
    tampered model is a real risk, just a much smaller one than
    tampered code, and the honest trade is to name the gap. */
-const UNHASHED = ["models"];
+const UNHASHED = ["models", "games"];
 
 /* Things it would be actively wrong to copy. `relay/` goes to the
    Pterodactyl container by hand and carries ~110 MB of binaries;

@@ -305,6 +305,27 @@
     },
 
     {
+      id: "app-game-mode",
+      title: "GAME MODE",
+      tag: "apps",
+      body: [
+        "The Outlaw Engine, your library of games and apps, inside FieldKit and OUTPOST.",
+        { steps: [
+          "Open GAME MODE (GAMES group, or type game in Ctrl+K).",
+          "Press ENTER GAME MODE for full screen, or PLAY IN THIS WINDOW.",
+          "Press any key at the engine's screen, then pick a game from its library.",
+          "BACK TO FIELDKIT, on the bar at the top, closes it."
+        ] },
+        { rows: [
+          ["ON A DRIVE", "opens the copy beside FIELDKIT.html"],
+          ["NO COPY", "opens through the relay when signed in"],
+          ["SAVES", "kept by each game, as before"],
+          ["CHECKS", "the engine's own SYSTEM CHECK, inside"]
+        ] },
+        "Everything inside is the Outlaw Engine as it is. FieldKit only opens it. © Outlaw Systems."
+      ]
+    },
+    {
       id: "app-email",
       title: "EMAIL UPDATES",
       tag: "apps",

@@ -111,7 +111,7 @@ section("module contract");
      still appears — it lands in an unordered section at the end —
      but that is a slow drift back toward the flat alphabetical
      wall the grouping replaced, so it is caught here instead. */
-  const LAUNCHER_GROUPS = ["ONLINE", "FILES", "PROJECT", "SERVERS", "TOOLS", "SYSTEM"];
+  const LAUNCHER_GROUPS = ["ONLINE", "GAMES", "FILES", "PROJECT", "SERVERS", "TOOLS", "SYSTEM"];
   const ungrouped = ids.filter((id) => !mods[id].group);
   ok("every module declares a group", ungrouped.length === 0, ungrouped.join(", "));
 

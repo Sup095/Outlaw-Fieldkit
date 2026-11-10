@@ -504,6 +504,13 @@ the logs are clean, and it is unreachable — Pterodactyl's allocation
 forwards to the container's address, not to loopback. Use `0.0.0.0`
 until the tunnel works, then switch. See CONNECTIVITY.md step 6.
 
+## GAME MODE
+
+The Outlaw Engine, served to signed-in people at `/games/t/<ticket>/`. Its files
+come from `games/outlaw-engine/` in the repo: run `node tools/sync-games.js`
+after changing the engine (it remembers the folder), then deploy. A relay with no
+copy says so in its log and GAME MODE falls back to a drive copy only.
+
 ## EMAIL UPDATES (optional)
 
 People who opt in (the EMAIL UPDATES panel) get one email a few minutes after
