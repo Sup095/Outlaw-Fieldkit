@@ -437,6 +437,17 @@ stays, as the fallback and for what lens cannot do.
 - *Next:* a cache for pages you open twice, which the test showed would
   roughly halve what a second visit costs.
 
+**Done in 0.16.2: OUTPOST gets DEEPHOLD, sign-in at start and the screen lock.**
+OUTPOST.html now loads core/colony-sprites.js, core/colony-scene.js,
+modules/colony.js and core/lockscreen.js. The lock works without the vault:
+the PIN is a salted PBKDF2 hash in OUTPOST's own store (WebCrypto directly,
+since OUTPOST has no core/crypto.js); its idle time is its own setting
+(outpostLockMinutes, never the full build's autoLockMinutes), and running out
+of tries signs out of the gamertag before reloading. SETTINGS on OUTPOST has a
+SCREEN LOCK AND SIGN-IN panel, and MESSAGES offers the sign-in at start on both
+builds. Tested in tests/outpost-lock.test.js. GAME MODE carries the Outlaw
+Engine's round-2 play-through (see its COMPLETION-PLAN.md).
+
 **Done in 0.16.1: EMAIL UPDATES taken out for now.** The panel, the relay's
 mail code, its routes, settings and checks are gone; the in-app notices are
 unchanged. It can come back from v0.15.0 in git when it is wanted.

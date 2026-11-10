@@ -4,8 +4,9 @@
 
    The full build's settings panel is not on this drive, and that is
    not a matter of hiding a section: most of what it does is vault
-   work — change the passphrase, set the auto-lock, point at a relay,
-   schedule snapshots. None of that exists here, so a panel with
+   work — change the passphrase, point at a relay, schedule snapshots.
+   The screen lock is here (its own PIN and idle time, never the
+   full build's autoLockMinutes). None of that exists here, so a panel with
    those controls greyed out would be a panel making promises about
    a build that cannot keep them (§14.1).
 
@@ -25,7 +26,8 @@
      which file you opened. Writing a relay URL from here would mean
      the limited build could reconfigure the real one. */
   var OWNED = ["theme", "crt", "textSize", "contrast", "calm", "sound", "perfMode",
-    "wallpaper", "bootFlavor", "displayName", "clock24", "updateCheckAtStart"];
+    "wallpaper", "bootFlavor", "displayName", "clock24", "updateCheckAtStart",
+    "outpostLockMinutes", "signInAtBoot"];
 
   function set(key, value) {
     if (OWNED.indexOf(key) < 0) {
@@ -178,6 +180,61 @@
     ];
   }
 
+  /* SCREEN LOCK: a PIN, Ctrl+L, and locking by itself when left alone. */
+  function lockPanel() {
+    var lock = FieldKit.service("lockscreen");
+    var state = el("div", { class: "so-about" });
+    nodes.lockState = state;
+    async function render() {
+      ui.clear(state);
+      if (!lock) { state.textContent = "The screen lock is not part of this copy."; return; }
+      var has = await lock.hasPin();
+      state.textContent = has ? "PIN SET · Ctrl+L locks now · " + lock.MAX_ATTEMPTS + " wrong tries sign you out of everything"
+                              : "NO PIN YET · set one to lock with Ctrl+L or when idle";
+    }
+    var pin = el("input", { class: "so-input", type: "password", inputmode: "numeric", autocomplete: "off",
+      placeholder: lock ? lock.MIN_PIN + "-" + lock.MAX_PIN + " digits" : "" });
+    var idle = el("select", { class: "so-input" });
+    [["0", "NEVER"], ["1", "AFTER 1 MINUTE"], ["5", "AFTER 5 MINUTES"], ["15", "AFTER 15 MINUTES"], ["30", "AFTER 30 MINUTES"]].forEach(function (o) {
+      var opt = el("option", { value: o[0], text: o[1] });
+      if (String(ctx.settings.get("outpostLockMinutes") || 0) === o[0]) opt.selected = true;
+      idle.appendChild(opt);
+    });
+    idle.addEventListener("change", function () {
+      set("outpostLockMinutes", Number(idle.value));
+      ui.toast(idle.value === "0" ? "AUTO-LOCK OFF" : "AUTO-LOCK: " + idle.value + " MIN", "info");
+    });
+    var ask = ui.button(ctx.settings.get("signInAtBoot") !== false ? "ON" : "OFF", function () {
+      var next = ctx.settings.get("signInAtBoot") === false;
+      set("signInAtBoot", next);
+      ask.textContent = next ? "ON" : "OFF"; ask.classList.toggle("on", next);
+    });
+    ask.className += " so-toggle"; ask.classList.toggle("on", ctx.settings.get("signInAtBoot") !== false);
+    render();
+    return ui.panel("SCREEN LOCK AND SIGN-IN", [
+      state,
+      row("PIN", "digits only; stays on this machine as a salted hash", pin),
+      el("div", { class: "so-row" }, [
+        ui.button("SET PIN", async function () {
+          if (!lock) return;
+          try { await lock.setPin(pin.value); pin.value = ""; ui.toast("PIN SET", "ok"); render(); }
+          catch (e) { ui.toast(String(e.message).toUpperCase(), "fail"); }
+        }, { primary: true }),
+        ui.button("LOCK NOW", async function () {
+          if (!lock) return;
+          if (!(await lock.hasPin())) { ui.toast("SET A PIN FIRST", "warn"); return; }
+          lock.engage({});
+        }),
+        ui.button("REMOVE PIN", async function () {
+          if (!lock || !window.confirm("Remove the screen lock PIN?")) return;
+          await lock.clearPin(); ui.toast("PIN REMOVED", "warn"); render();
+        }, { danger: true })
+      ]),
+      row("AUTO-LOCK", "lock by itself when nobody has touched it", idle),
+      row("ASK ME TO SIGN IN AT START", "MESSAGES, BROWSER and RUNNER ready when you open them", ask)
+    ]);
+  }
+
   FieldKit.register("settings-outpost", {
     title: "SETTINGS",
     icon: "⚙",
@@ -241,6 +298,7 @@
           toggle("updateCheckAtStart", "TELL ME ABOUT UPDATES", "at start, a popup when a newer signed release is out"),
           row("YOUR NAME", "shown on anything you sign", name)
         ]),
+        lockPanel(),
         ui.panel("THIS DRIVE", [
           row("SAVE TO DRIVE", "so a machine you have never used comes up configured",
             ui.button("SAVE PROFILE", saveToDrive)),

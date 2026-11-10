@@ -69,10 +69,11 @@ const until = async (fn, ms) => { const end = Date.now() + (ms || 8000); while (
     FieldKit.emit("boot:done", {});
     await wait(800);
     ok("turned off, it is not offered at start", !overlay());
-    FieldKit.emit("boot:done", { outpost: true });
-    await wait(800);
-    ok("and OUTPOST never offers it", !overlay());
     settings.set("signInAtBoot", true);
+    FieldKit.emit("boot:done", { outpost: true });
+    await until(() => !!overlay(), 2000);
+    ok("OUTPOST offers it at start too", !!overlay());
+    press(btn(overlay(), "NOT NOW"));
   }
 
   section("the form");

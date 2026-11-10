@@ -1224,6 +1224,8 @@
   }
 
   var promptOpen = null;
+  function appName() { var b = FieldKit.service("boot"); return b && b.OUTPOST ? "OUTPOST" : "FIELDKIT"; }
+
   function promptSignIn(reason) {
     ensureCtx();
     if (session || promptOpen || typeof document === "undefined" || !document.body) return null;
@@ -1243,11 +1245,11 @@
     ask.checked = ctx.settings.get("signInAtBoot") !== false;
     ask.addEventListener("change", function () { ctx.settings.set("signInAtBoot", ask.checked); });
     over.appendChild(el("div", { class: "fk-signin-box" }, [
-      el("div", { class: "fk-signin-h", text: "SIGN IN TO FIELDKIT" }),
+      el("div", { class: "fk-signin-h", text: "SIGN IN TO " + appName() }),
       el("div", { class: "fk-dim", text: reason || "Sign in now and MESSAGES, BROWSER and RUNNER are ready when you open them. DEEPHOLD has its own gamertag." }),
       signInForm({ onDone: function () { ui.toast("SIGNED IN AS " + String(session.handle).toUpperCase(), "ok"); close(); },
         extra: [ui.button("NOT NOW", close)] }),
-      el("label", { class: "fk-signin-ask" }, [ask, el("span", { text: "ask me when FieldKit starts" })])
+      el("label", { class: "fk-signin-ask" }, [ask, el("span", { text: "ask me when " + (appName() === "OUTPOST" ? "OUTPOST" : "FieldKit") + " starts" })])
     ]));
     document.body.appendChild(over);
     promptOpen = over;
@@ -1256,7 +1258,6 @@
 
   /* At start, when there is a relay and nobody is signed in. */
   FieldKit.on("boot:done", function (d) {
-    if (d && d.outpost) return;
     try {
       ensureCtx();
       if (ctx.settings.get("signInAtBoot") === false || session) return;

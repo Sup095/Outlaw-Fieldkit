@@ -43,6 +43,10 @@
         "FieldKit is a small desktop that runs in a browser tab from a USB drive. It " +
         "needs nothing installed. OUTPOST is the same thing without the encrypted vault: " +
         "it works on any computer with no password, and keeps nothing on the drive.",
+        "OUTPOST still asks you to sign in when it starts (SETTINGS can turn that off) and " +
+        "has its own screen lock: set a PIN under SETTINGS, SCREEN LOCK AND SIGN-IN, then " +
+        "Ctrl+L locks it, or it locks itself after the idle time you choose. Too many wrong " +
+        "PINs sign you out of everything.",
 
         { h: "WHICH APPS YOU GET" },
         { rows: [

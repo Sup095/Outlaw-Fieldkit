@@ -50,8 +50,10 @@ const src = (f) => fs.readFileSync(path.join(ROOT, f), "utf8");
 const VAULT_FILES = [
   "core/crypto.js", "core/store.js", "core/backup.js", "core/files.js",
   "core/transport-local.js", "core/transport-relay.js", "core/boot.js",
-  "core/lockscreen.js", "core/projects.js"
+  "core/projects.js"
 ];
+/* core/lockscreen.js is in both since 0.16.2: without a vault it keeps a
+   salted PIN hash in OUTPOST's own store and needs no core/crypto.js. */
 
 (async function () {
   section("the two builds exist and differ");

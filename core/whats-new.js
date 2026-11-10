@@ -10,6 +10,13 @@
   "use strict";
 
   var NOTES = [
+    { v: "0.16.2", items: [
+      "OUTPOST: DEEPHOLD is here too, the same shared colony as in FieldKit.",
+      "OUTPOST asks you to sign in when it starts (you can turn that off), and has the screen lock: set a PIN in SETTINGS, lock with Ctrl+L or after a few idle minutes.",
+      "GAME MODE: Metro Fall has real side rooms (medic, bunks, forge, archive), rebuilt tunnels, new creatures and a livelier surface.",
+      "GAME MODE: in Metro Fall the HUD gets out of the way and you walk at a walking pace.",
+      "GAME MODE: IronFall, TrenchFall and the rest were played through and balanced. The TPUSA database is gone, and the Steam recommender moved to LEGACY."
+    ] },
     { v: "0.16.1", items: [
       "EMAIL UPDATES are taken out for now. FieldKit's own notices still tell you about messages, pool and DEEPHOLD.",
       "GAME MODE: Metro Fall is set in the real stations of central Moscow, with real-looking people and train cars to scale."

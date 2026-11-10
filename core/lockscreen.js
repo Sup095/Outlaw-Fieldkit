@@ -16,6 +16,13 @@
    The one real control: after MAX_ATTEMPTS the session is destroyed
    and the page reloads, forcing the master password again. Guessing
    a four-digit PIN is only cheap if you get unlimited tries.
+
+   OUTPOST (no vault) has the same lock. Its PIN record is a salted
+   PBKDF2 hash in OUTPOST's own store on this machine, its idle time is
+   its own setting (outpostLockMinutes, so it never rewrites the full
+   build's), and running out of tries signs out of everything (MESSAGES
+   lives only in memory; the DEEPHOLD / POOL HALL gamertag is forgotten)
+   before the reload, so the next person meets the sign-in instead.
    ============================================================ */
 (function (FieldKit) {
   "use strict";
@@ -37,7 +44,23 @@
   var cachedRecord = undefined;   // undefined = not looked up yet
 
   function store() { return FieldKit.service("store"); }
-  function crypto_() { return FieldKit.need("crypto"); }
+  function isOutpost() { var b = FieldKit.service("boot"); return !!(b && b.OUTPOST); }
+  function minutesKey() { return isOutpost() ? "outpostLockMinutes" : "autoLockMinutes"; }
+
+  /* OUTPOST does not carry core/crypto.js; the PIN only needs these. */
+  var webCrypto = {
+    toB64: function (buf) { var b = new Uint8Array(buf), s = ""; for (var i = 0; i < b.length; i++) s += String.fromCharCode(b[i]); return btoa(s); },
+    fromB64: function (s) { var bin = atob(s), b = new Uint8Array(bin.length); for (var i = 0; i < bin.length; i++) b[i] = bin.charCodeAt(i); return b; },
+    toHex: function (buf) { var b = new Uint8Array(buf), s = ""; for (var i = 0; i < b.length; i++) s += b[i].toString(16).padStart(2, "0"); return s; },
+    randomBytes: function (n) { var b = new Uint8Array(n); window.crypto.getRandomValues(b); return b; },
+    pbkdf2Bits: async function (password, salt, iterations) {
+      var subtle = window.crypto && window.crypto.subtle;
+      if (!subtle) throw new Error("this browser cannot check a PIN here");
+      var base = await subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveBits"]);
+      return subtle.deriveBits({ name: "PBKDF2", salt: salt, iterations: iterations, hash: "SHA-256" }, base, 256);
+    }
+  };
+  function crypto_() { return FieldKit.service("crypto") || webCrypto; }
 
   /* ---- PIN record --------------------------------------------- */
   async function record() {
@@ -109,6 +132,11 @@
   /* ---- the gate ----------------------------------------------- */
   function burn(reason) {
     FieldKit.log("warn", "lockscreen", "session destroyed: " + reason);
+    if (isOutpost()) {
+      /* No vault to close: sign out of what is signed in. */
+      try { var dh = FieldKit.service("deephold"); if (dh && dh.signOut) dh.signOut(); } catch (e) { /* reload anyway */ }
+      try { window.localStorage.removeItem("fk.deephold"); } catch (e) { /* page only */ }
+    }
     /* Reload is the whole point — it throws away the decrypted vault
        along with everything else in memory. */
     location.reload();
@@ -193,7 +221,7 @@
 
     overlay = el("div", { id: "fk-lock" }, [
       el("div", { class: "lk-panel" }, [
-        el("div", { class: "lk-brand", text: "FIELDKIT" }),
+        el("div", { class: "lk-brand", text: isOutpost() ? "OUTPOST" : "FIELDKIT" }),
         el("div", { class: "lk-sub", text: "SESSION LOCKED" }),
         dots,
         input,
@@ -201,14 +229,16 @@
         el("div", { class: "lk-actions" }, [
           ui.button("UNLOCK", submit, { primary: true }),
           ui.button("END SESSION", function () {
-            if (confirm("End the session and return to the master password?")) {
+            if (confirm(isOutpost() ? "End the session and sign out of everything?" : "End the session and return to the master password?")) {
               burn("user ended session from lock screen");
             }
           }, { danger: true })
         ]),
-        el("div", { class: "lk-note", text:
-          "The vault is still open in memory behind this screen. This stops someone " +
-          "at the keyboard, not someone who takes the drive — use END SESSION for that." })
+        el("div", { class: "lk-note", text: isOutpost()
+          ? "Whatever you are signed in to is still open behind this screen. This stops someone " +
+            "at the keyboard; END SESSION signs you out of everything."
+          : "The vault is still open in memory behind this screen. This stops someone " +
+            "at the keyboard, not someone who takes the drive — use END SESSION for that." })
       ])
     ]);
 
@@ -270,7 +300,7 @@
   function startIdleTimer() {
     stopIdleTimer();
     var settings = FieldKit.service("settings");
-    var mins = settings ? Number(settings.get("autoLockMinutes")) || 0 : 0;
+    var mins = settings ? Number(settings.get(minutesKey())) || 0 : 0;
     if (!mins || locked) return;
     idleTimer = setTimeout(function () {
       hasPin().then(function (yes) {
@@ -297,7 +327,7 @@
       }
     });
     FieldKit.on("settings:changed", function (e) {
-      if (e && e.key === "autoLockMinutes") startIdleTimer();
+      if (e && e.key === minutesKey()) startIdleTimer();
     });
     /* A vault change means the PIN record may have changed with it. */
     FieldKit.on("store:ready", function () { cachedRecord = undefined; startIdleTimer(); });

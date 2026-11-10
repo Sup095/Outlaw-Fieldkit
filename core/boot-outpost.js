@@ -194,6 +194,10 @@
       await quickTest();
       await splash();
 
+      /* The PIN lock (core/lockscreen.js): Ctrl+L and auto-lock, set in SETTINGS. */
+      var lock = FieldKit.service("lockscreen");
+      if (lock) lock.init();
+
       var eggs = FieldKit.service("easterEggs");
       if (eggs) eggs.init();
     } catch (e) {
