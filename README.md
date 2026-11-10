@@ -437,6 +437,21 @@ stays, as the fallback and for what lens cannot do.
 - *Next:* a cache for pages you open twice, which the test showed would
   roughly halve what a second visit costs.
 
+**Done in 0.15.0: EMAIL UPDATES, and a play-tested pass on both games.**
+Opt-in email (modules/email-updates.js, relay/mail-updates.js) alongside the
+in-app notices: messages (who, never what: MESSAGES is end-to-end encrypted),
+POOL HALL challenges, turns and results, DEEPHOLD news, new versions and admin
+announcements. An address is proved with a 6-digit code; things wait 5 minutes
+(at most 15) and go in one email, at most one per address every 15 minutes and
+24 a day, and anything seen in FieldKit since is dropped. Sent through any
+SMTP account by relay/mailer.js on Node's own tls (no packages), so a free Gmail
+app password is enough. Simulated play found and fixed: the pool computer struck
+far too hard and always with follow (now chooses power and spin and tests each
+shot against a shaky hand, scratching about a third as often); DEEPHOLD's advisor
+sent players into dead ends (beds that were not the limit, burners with no fuel,
+fixes needing parts nobody made, crystal shipped away from the armoury), and an
+away colony starved its own production chains.
+
 **Done in 0.14.0: POOL HALL.** Eight-ball (modules/pool.js) on a physics engine
 shared by the panel and the relay (core/pool-engine.js): metres and seconds, slide
 then roll, real spin (draw, follow, side) and cushions and pocket jaws, using only

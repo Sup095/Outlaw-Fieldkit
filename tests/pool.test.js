@@ -106,16 +106,18 @@ const cueAt = (r) => r.state.balls[0];
 
   section("the computer");
   {
-    let wins = 0, errors = 0, shots = 0, slow = 0;
-    for (let s = 1; s <= 4; s++) {
+    let wins = 0, errors = 0, shots = 0, slow = 0, scratches = 0;
+    for (let s = 1; s <= 6; s++) {
       let g = E.newGame(s, "8ball", ["A", "B"]); const rng = E.mulberry(s); let n = 0;
       while (!g.over && n < 120) {
         const t = Date.now(); const sh = E.aiShot(g, s % 2 ? "hard" : "normal", rng); if (Date.now() - t > 1500) slow++;
-        const r = E.play(g, sh); if (r.error) { errors++; break; } g = r.state; n++;
+        const r = E.play(g, sh); if (r.error) { errors++; break; } if (r.events.cueOff) scratches++; g = r.state; n++;
       }
       shots += n; if (g.over) wins++;
     }
-    ok("it plays whole games without an illegal move", errors === 0 && wins === 4, wins + " finished, " + errors + " errors");
+    ok("it plays whole games without an illegal move", errors === 0 && wins === 6, wins + " finished, " + errors + " errors");
+    ok("it chooses its spin and power, so it seldom scratches", scratches / 6 < 1.4, (scratches / 6).toFixed(2) + " a game");
+    shots = shots * 4 / 6;
     ok("and finishes them in a sensible number of shots", shots / 4 < 60, String(shots / 4));
     ok("it thinks quickly", slow === 0);
     const bih = E.newGame(5, "8ball"); bih.phase = "play"; bih.behind = false; bih.inHand = true;

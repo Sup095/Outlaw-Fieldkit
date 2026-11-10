@@ -25,6 +25,20 @@
   ],
   "statusTimeoutMs": 4000,
 
+  "_email": "EMAIL UPDATES (relay/mail-updates.js): people who opt in, in FieldKit's EMAIL UPDATES panel, are emailed about messages, POOL HALL, DEEPHOLD and new versions, a few minutes after things happen and all in one email. The relay sends through an ordinary mail account's outgoing server, so it is free: the easiest is a Gmail account just for this with 2-Step Verification on and an App password (Google Account > Security > App passwords; about 500 emails a day). Put the 16-letter app password in pass in config.local.json, never here. publicUrl is this relay's public https address, for the one-click stop link in every email. Leave host empty and email is off.",
+  "_email_fields": "host and port (465 = TLS, 587 = STARTTLS), user (the full address), pass (the app password), from (the name and address people see), publicUrl, maxPerDay (stay under the account's own limit).",
+  "email": {
+    "host": "",
+    "_host_example": "smtp.gmail.com",
+    "port": 465,
+    "user": "",
+    "pass": "",
+    "from": "",
+    "_from_example": "a name and address, e.g. FieldKit <the relay account address> (empty = FieldKit and the user address)",
+    "publicUrl": "",
+    "maxPerDay": 300
+  },
+
   "_trustProxy": "Whose X-Forwarded-For to believe. false (default) = nobody, correct when the relay is directly internet-exposed, because that header is attacker-controlled there and believing it lets anyone reset their own rate limit. Set to 'loopback' ONLY when a tunnel such as cloudflared runs beside the relay and the relay's own host is 127.0.0.1. Can also be an array of proxy IPs. See CONNECTIVITY.md.",
   "trustProxy": false,
 

@@ -425,7 +425,7 @@
   }
 
   /* ---- the computer ------------------------------------------------------ */
-  var LEVELS = { easy: { noise: 0.022, pnoise: 0.12, tries: 4 }, normal: { noise: 0.009, pnoise: 0.06, tries: 8 }, hard: { noise: 0.0028, pnoise: 0.03, tries: 14 } };
+  var LEVELS = { easy: { noise: 0.022, pnoise: 0.12, tries: 4, check: 1 }, normal: { noise: 0.009, pnoise: 0.06, tries: 8, check: 3 }, hard: { noise: 0.0028, pnoise: 0.03, tries: 12, check: 5 } };
   function clearPath(state, ax, ay, bx, by, skip) {
     var dx = bx - ax, dy = by - ay, len2 = dx * dx + dy * dy || 1e-9;
     for (var i = 0; i < state.balls.length; i++) {
@@ -491,19 +491,38 @@
     }
     var st = state;
     if (place) { st = clone(state); st.balls[0].x = c.x; st.balls[0].y = c.y; st.balls[0].on = true; }
-    var opts = options(st, c).slice(0, L2.tries), pick = null, pickScore = -1e9;
+    var opts = options(st, c).slice(0, L2.tries), pick = null;
+    /* what a shot leaves: a win, the table still ours with something to
+       shoot next, the turn passed, or a foul */
+    function judge(sh, bonus) {
+      var res = play(st, sh);
+      if (res.error) return -1e9;
+      var ns = res.state;
+      if (ns.over) return ns.winner === state.turn ? 100 : -100;
+      if (ns.foul) return -25;
+      if (ns.turn === state.turn) { var nx = options(ns, ns.balls[0]); return 10 + Math.min(nx.length, 6) * 0.5 + (nx[0] || { score: 0 }).score * 5 + bonus; }
+      return bonus;
+    }
+    function turn(sh, a) { var ca = 1 - a * a / 2; return { dx: sh.dx * ca - sh.dy * a, dy: sh.dx * a + sh.dy * ca, power: sh.power, sx: sh.sx, sy: sh.sy, cue: sh.cue, call: sh.call }; }
+    /* draw, stun or follow: the cue ball rolling in after the object ball is
+       the commonest way to lose a turn, so the spin is chosen, not fixed */
+    var cands = [];
     opts.forEach(function (o) {
-      [0.3, 0.5, 0.75].forEach(function (pw) {
-        var power = Math.min(1, pw * (0.6 + o.dist * 0.5));
-        var res = play(st, { dx: o.dx, dy: o.dy, power: power, sx: 0, sy: o.dist < 0.6 ? -0.2 : 0.15, cue: place, call: o.pocket });
-        if (res.error) return;
-        var ns = res.state, sc = 0;
-        if (ns.over) sc = ns.winner === state.turn ? 100 : -100;
-        else if (ns.turn === state.turn && !ns.foul) sc = 10 + options(ns, ns.balls[0]).length * 0.5 + (options(ns, ns.balls[0])[0] || { score: 0 }).score * 5;
-        else if (ns.foul) sc = -20;
-        sc += o.score;
-        if (sc > pickScore) { pickScore = sc; pick = { dx: o.dx, dy: o.dy, power: power, sx: 0, sy: o.dist < 0.6 ? -0.2 : 0.15, call: o.pocket }; }
+      [0.17, 0.27, 0.42].forEach(function (pw) {
+        [-0.35, 0, 0.25].forEach(function (sy) {
+          var sh = { dx: o.dx, dy: o.dy, power: Math.min(1, pw * (0.6 + o.dist * 0.5)), sx: 0, sy: sy, cue: place, call: o.pocket };
+          var sc = judge(sh, 0) + o.score;
+          if (sc > -1e8) cands.push({ sc: sc, sh: sh, o: o });
+        });
       });
+    });
+    cands.sort(function (a, b) { return b.sc - a.sc; });
+    /* the best few, tried again with the hand a little off: a shot that only
+       works when struck perfectly is a worse choice than a safe one */
+    var wob = Math.max(0.003, L2.noise * 1.3), best = -1e9;
+    cands.slice(0, L2.check || 3).forEach(function (cd) {
+      var sc = (cd.sc * 2 + judge(turn(cd.sh, wob), 0) + cd.o.score + judge(turn(cd.sh, -wob), 0) + cd.o.score) / 4;
+      if (sc > best) { best = sc; pick = { dx: cd.sh.dx, dy: cd.sh.dy, power: cd.sh.power, sx: 0, sy: cd.sh.sy, call: cd.sh.call }; }
     });
     if (!pick) {
       /* no pot on: roll softly into one of its own balls */

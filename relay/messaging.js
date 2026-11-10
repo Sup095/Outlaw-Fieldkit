@@ -44,6 +44,7 @@ const fs = require("fs");
 const jf = require("./jsonfile");
 const path = require("path");
 const crypto = require("crypto");
+const mailUpdates = require("./mail-updates");
 
 /* ---- limits --------------------------------------------------
    Chosen so one account cannot fill the disk or the user list.
@@ -507,6 +508,8 @@ function markSeen(convId, handle, what, at) {
 }
 function flushSeen() { try { writeJson(path.join(DIR, "seen.json"), seen); } catch (e) { log("WARN", "messaging: could not save who has seen what: " + e.message); } }
 
+mailUpdates.check("msg", (it, s) => !s.msg || unreadFor(it.chk.conv, s.msg) > 0);
+
 function unreadFor(convId, handle) {
   const read = ((seen[convId] || {})[handle] || {}).read || "";
   const list = (tails.get(convId) || { list: [] }).list;
@@ -811,6 +814,14 @@ async function route(req, res, url, helpers) {
     appendMessage(c.id, entry);
     markSeen(c.id, me.handle, "read", entry.at);
     touch(c.members);
+    /* EMAIL UPDATES: who wrote, never what (the relay cannot read it) */
+    for (const h of c.members) {
+      if (h === me.handle) continue;
+      mailUpdates.notify({ msg: h }, { cat: "messages", key: "msg:" + c.id,
+        text: "New message from @" + me.handle + (c.members.length > 2 ? " in a group." : "."),
+        many: "{n} new messages from @" + me.handle + (c.members.length > 2 ? " in a group." : "."),
+        chk: { k: "msg", conv: c.id } });
+    }
     return send(res, 201, { id: entry.id, seq: entry.seq, at: entry.at }), true;
   }
 

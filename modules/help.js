@@ -305,6 +305,29 @@
     },
 
     {
+      id: "app-email",
+      title: "EMAIL UPDATES",
+      tag: "apps",
+      body: [
+        "Optional. Get an email when something happens while you are away, alongside FieldKit's own notices.",
+        { steps: [
+          "Sign in to MESSAGES, or with your gamertag (POOL HALL or DEEPHOLD), or both.",
+          "Open EMAIL UPDATES, type your address, tick what you want, and press SEND ME A CODE.",
+          "Type the 6-digit code from the email. That proves the address is yours.",
+          "Change what you get, send a test, or turn it off there any time."
+        ] },
+        { rows: [
+          ["MESSAGES", "who wrote to you, never what"],
+          ["GAMES", "POOL HALL challenges, your shot, results"],
+          ["DEEPHOLD", "your colony, new stages, waves"],
+          ["FIELDKIT", "a new version, an admin's announcement"]
+        ] },
+        "The relay waits about 5 minutes after the first thing so everything arrives in one email, sends one at most " +
+        "every 15 minutes, and skips what you already saw in FieldKit. Every email has a link that stops them all. " +
+        "Your address stays on the relay and is used for nothing else."
+      ]
+    },
+    {
       id: "app-pool",
       title: "POOL HALL",
       tag: "apps",

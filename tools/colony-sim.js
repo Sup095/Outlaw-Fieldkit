@@ -46,6 +46,10 @@ function urgent(world, colony, now) {
     if (asked.food) out.push(["mess", 3], ["farm", 3], ["hydro", 2]);
     if (asked.parts) out.push(["foundry", 2]);
     if (asked.arms) out.push(["armoury", 3], ["arsenal", 2]);
+    if (asked.fungus) out.push(["farm", 3]);
+    if (asked.ore) out.push(["drill", 4]);
+    if (asked.water) out.push(["pump", 3]);
+    if (asked.crystal) out.push(["bore", 2]);
   }
   return out;
 }

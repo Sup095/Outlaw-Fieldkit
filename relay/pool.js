@@ -22,6 +22,7 @@ const path = require("path");
 const crypto = require("crypto");
 const jf = require("./jsonfile");
 const players = require("./colony-players");
+const mail = require("./mail-updates");
 let E = null;
 try { E = require("./pool-engine"); } catch (e) { try { E = require("../core/pool-engine"); } catch (e2) { E = null; } }
 
@@ -103,6 +104,20 @@ function lobby(who) {
   };
 }
 
+/* EMAIL UPDATES (relay/mail-updates.js), for someone who has not looked
+   at the hall since; the check runs again just before the email goes. */
+function tell(key, text, chk, mkey) {
+  try { mail.notify({ tag: key }, { cat: "games", text: "POOL HALL: " + text, key: mkey || null, chk: Object.assign({ k: "pool", key: key }, chk || {}) }); } catch (e) { /* never in the way of a game */ }
+}
+mail.check("pool", (it) => {
+  const c = it.chk, m = has(data.matches, c.id) ? data.matches[c.id] : null;
+  const look = seen.get(c.key);
+  if (look && look.at > it.t) return false;
+  if (c.kind === "invite") return !!(m && m.status === "invite");
+  if (c.kind === "turn") return !!(m && m.status === "live" && m.seq === c.seq);
+  return true;
+});
+
 function newId() { return crypto.randomBytes(6).toString("hex"); }
 
 function challenge(who, b) {
@@ -121,6 +136,7 @@ function challenge(who, b) {
   const now = clock(), id = newId();
   data.matches[id] = { id: id, status: "invite", a: who.key, b: null, names: [who.tag, toTag], toKey: toKey, toTag: toTag, created: now, updated: now, seq: 0, state: null, last: null };
   dirty = true;
+  if (toKey) tell(toKey, who.tag + " challenged you to eight-ball.", { id: id, kind: "invite" });
   return { ok: true, match: data.matches[id] };
 }
 
@@ -139,6 +155,7 @@ function accept(who, id) {
   m.state.turn = 1; m.state.msg = names[1] + " breaks. Place the cue ball behind the line, then shoot.";
   delete m.toKey;
   dirty = true;
+  tell(m.a, who.tag + " took your challenge and breaks first.", { id: m.id, kind: "info" });
   return { ok: true, match: m };
 }
 
@@ -158,6 +175,9 @@ function shoot(who, b) {
   m.state = r.state; m.seq++; m.updated = now;
   if (m.state.over) finishMatch(m);
   dirty = true;
+  const other = s === 0 ? m.b : m.a;
+  if (m.state.over) tell(other, m.state.msg || "your match against " + who.tag + " is over.", { id: m.id, kind: "over" }, "pool:" + m.id);
+  else if (m.state.turn !== s) tell(other, "your shot against " + who.tag + ".", { id: m.id, kind: "turn", seq: m.seq }, "pool:" + m.id);
   return { ok: true, match: m };
 }
 
@@ -179,6 +199,7 @@ function resign(who, id) {
   m.updated = clock(); m.seq++;
   finishMatch(m);
   dirty = true;
+  tell(s === 0 ? m.b : m.a, m.state.msg, { id: m.id, kind: "over" }, "pool:" + m.id);
   return { ok: true, match: m };
 }
 

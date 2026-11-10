@@ -163,6 +163,42 @@ function call(method, p, token, body, msgWho) {
     ok("out of room, the advisor points at the dig site", E.adviseFor(full, fc, T0 + 20000).some((x) => x.id === "room" && /dig site/.test(x.text)));
     fc.layers = 2; for (let s2 = 0; s2 < 8; s2++) if (!fc.grid[1][s2]) fc.grid[1][s2] = { t: "bunk", on: true, built: 0 };
     ok("and when it cannot dig yet, says what opens the next layer", E.adviseFor(full, fc, T0 + 20000).some((x) => x.id === "deeper" && /stage 1/.test(x.text)));
+    E.stepWorld(full, T0 + 40000);
+    ok("full of empty beds, it says which plot to clear", E.adviseFor(full, fc, T0 + 40000).some((x) => x.id === "spare" && x.demolish === "bunk"));
+
+    /* advice that would leave you stuck is worse than none (found by simulated play) */
+    const noFuel = world(1); noFuel.civ.stage = 1; const nf = noFuel.colonies.p0; nf.lastSeen = T0; nf.layers = 2;
+    nf.grid[0][1] = null; nf.grid[0][2] = null;   /* the free power cells gone, so power is short */ nf.stock.ore = 500; nf.stock.parts = 200;
+    E.stepWorld(noFuel, T0 + 20000);
+    const pw = E.adviseFor(noFuel, nf, T0 + 20000).find((x) => x.id === "power");
+    ok("short of power with no fuel made, it does not offer a fuel burner", pw && pw.build !== "burner", pw && pw.build);
+    const noParts = world(1); const np = noParts.colonies.p0; np.lastSeen = T0; np.stock.parts = 0; np.stock.ore = 500;
+    np.grid[0][0] = null; E.stepWorld(noParts, T0 + 20000);
+    const airFix = E.adviseFor(noParts, np, T0 + 20000).find((x) => x.id === "air");
+    ok("a fix that needs parts nobody makes names the foundry first", airFix && airFix.build === "foundry" && /FOUNDRY first/.test(airFix.text), airFix && airFix.text);
+    const beds = world(1); const bc = beds.colonies.p0; bc.lastSeen = T0; bc.stock.food = 0;
+    for (let s2 = 0; s2 < 8; s2++) if (!bc.grid[0][s2]) bc.grid[0][s2] = { t: s2 % 2 ? "drill" : "foundry", on: true, built: 0 };
+    run(beds, T0, 10 * 60000, true);
+    const st2 = E.adviseFor(beds, bc, T0 + 10 * 60000).find((x) => x.id === "staff");
+    ok("idle machines with beds to spare: it says what brings people, not more beds", !st2 || (!st2.build && /You have beds/.test(st2.text)), st2 && st2.text);
+    const ship = world(1); ship.civ.stage = 2; const sc = ship.colonies.p0; sc.lastSeen = T0; sc.layers = 3;
+    sc.grid[2][0] = { t: "bore", on: true, built: 0 }; sc.grid[2][1] = { t: "armoury", on: true, built: 0 }; sc.stock.parts = 300; sc.ship.crystal = "all";
+    run(ship, T0, 10 * 60000, true);
+    const sv = E.adviseFor(ship, sc, T0 + 10 * 60000).find((x) => x.id === "starved");
+    ok("a building starved because everything is shipped says so, with a one-click fix", sv && sv.ship && sv.ship.res === "crystal" && sv.ship.mode === "surplus", sv && sv.text);
+    ok("and crystal no longer ships ALL by default", E.DEFAULT_SHIP.crystal === "surplus");
+  }
+
+  section("away, a chain keeps running");
+  {
+    const w = world(1); w.civ.stage = 1; const c = w.colonies.p0; c.layers = 2;
+    c.grid[1][0] = { t: "foundry", on: true, built: 0 }; c.grid[1][1] = { t: "workshop", on: true, built: 0 }; c.grid[1][2] = { t: "drill", on: true, built: 0 };
+    c.stock.parts = 0; c.stock.goods = 0; c.lastSeen = T0;
+    run(w, T0, 10 * 60000, true);
+    c.lastSeen = T0;                             /* then away for six hours */
+    const before = (w.civ.progress.goods || 0) + (c.stock.goods || 0);
+    run(w, T0 + 10 * 60000, 6 * 3600000, false);
+    ok("parts made while away still feed the workshop, so goods keep coming", (w.civ.progress.goods || 0) + (c.stock.goods || 0) - before > 20, String((w.civ.progress.goods || 0) - before));
   }
 
   section("the Civilization receives, and grows");

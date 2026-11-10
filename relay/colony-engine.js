@@ -69,7 +69,7 @@ const MODE_BUFFER_S = { surplus: 900, lean: 3600 };
 /* What an automatic rule keeps for building, before it sends anything:
    a colony that ships its ore away cannot build. Grows with depth. */
 const FUND = { ore: 260, parts: 80, water: 60, fungus: 50, crystal: 20 };
-const DEFAULT_SHIP = { ore: "surplus", water: "surplus", fungus: "surplus", crystal: "all", fuel: "lean", food: "lean", parts: "surplus", goods: "lean", arms: "all" };
+const DEFAULT_SHIP = { ore: "surplus", water: "surplus", fungus: "surplus", crystal: "surplus", fuel: "lean", food: "lean", parts: "surplus", goods: "lean", arms: "all" };
 
 /* ---- biomes --------------------------------------------------
    `at` is how many active colonies the Civ needs before the biome
@@ -193,11 +193,16 @@ function say(list, now, text, keep) {
 /* Something a player should be told, even if they are not looking.
    `to` is a handle, or null for everyone. The panel turns these into
    FieldKit notifications. */
+/* relay/colony.js listens here to pass news on to EMAIL UPDATES. */
+let emitHook = null;
+function onEmit(fn) { emitHook = typeof fn === "function" ? fn : null; }
 function emit(world, now, to, level, text, kind) {
   if (!world.events) { world.events = []; world.evid = 0; }
   world.evid = (world.evid || 0) + 1;
-  world.events.push({ id: world.evid, t: now, to: to || null, level: level || "info", kind: kind || "info", text: String(text).slice(0, 200) });
+  const ev = { id: world.evid, t: now, to: to || null, level: level || "info", kind: kind || "info", text: String(text).slice(0, 200) };
+  world.events.push(ev);
   while (world.events.length > 240) world.events.shift();
+  if (emitHook) { try { emitHook(world, ev); } catch (e) { /* news must never stop the game */ } }
 }
 function eventsFor(world, handle, since, limit) {
   const out = [];
@@ -605,7 +610,12 @@ function stepColony(world, colony, now, dt, asks) {
     room -= send; sentTotal += send;
     if (send > 0) { deliver(world, now, colony, k, send); sentNow[k] = send; }
     const keep = amt - send;
-    st[k] = Math.min(STOCK_CAP, (st[k] || 0) + keep * (online ? 1 : OFFLINE_KEEP));
+    /* Away, what the colony's own buildings use is kept in full up to its
+       working stock, so a chain (ore to parts to goods) keeps running; only
+       the rest falls under the away rule. */
+    let full = online ? keep : 0;
+    if (!online && (colony.use[k] || 0) > 0) full = Math.min(keep, Math.max(0, bufferFor(colony, k, typeof colony.ship[k] === "string" ? colony.ship[k] : "surplus") - (st[k] || 0)));
+    st[k] = Math.min(STOCK_CAP, (st[k] || 0) + full + (keep - full) * OFFLINE_KEEP);
   }
   /* The automatic rules also clear what has piled up beyond twice what the
      colony needs, a little at a time, as far as the lifts allow. */
@@ -794,8 +804,12 @@ function adviseFor(world, colony, now) {
     return !!b && b.stage <= civ.stage && (!b.biomes || b.biomes.indexOf(colony.biome) >= 0) && (!b.max || n(id) < b.max) &&
       (!b.repair || colony.repair >= b.repair) && (b.minLayer || 0) < colony.layers;
   };
-  /* the first that can be built now and paid for, else the first that can be built */
-  const pick = (ids) => ids.find((id) => avail(id) && canAfford(st, B[id].cost)) || ids.find(avail) || null;
+  const MAKER = { ore: "drill", water: "pump", fungus: "farm", parts: "foundry", food: "mess", crystal: "bore", fuel: "siphon", goods: "workshop" };
+  const madeNone = (r) => (colony.made[r] || 0) <= 0 && !(MAKER[r] && n(MAKER[r]));
+  /* a building whose input nobody here makes would stand idle */
+  const fed = (id) => !B[id].inp || Object.keys(B[id].inp).every((r) => !madeNone(r) || (st[r] || 0) >= 30);
+  /* the first that can be built now, runs, and is paid for; else the first that runs; else the first that can be built */
+  const pick = (ids) => ids.find((id) => avail(id) && fed(id) && canAfford(st, B[id].cost)) || ids.find((id) => avail(id) && fed(id)) || ids.find(avail) || null;
   const push = (id, sev, text, build, res) => out.push({ id: id, sev: sev, text: text, build: build || null, res: res || null });
   const rate = (r) => colony.rate[r] || 0;
   const asks = civAsks(world, now);
@@ -812,7 +826,15 @@ function adviseFor(world, colony, now) {
   }
   if (pop >= s.housing - 1 && colony.hap >= 40) push("home", "warn", "Beds are full (" + pop + " of " + s.housing + "). Nobody new can move in.", pick(["habtower", "arcology", "bunk"]));
   if (s.ent[0] < pop) push("ent", pop - s.ent[0] > 6 ? "warn" : "tip", "People need somewhere to unwind (" + s.ent[0] + " of " + pop + " covered).", pick(["arcology", "vidhall", "stimden"]));
-  if (s.staff[0] < s.staff[1]) push("staff", "warn", "There are " + s.staff[1] + " jobs and " + s.staff[0] + " people. Machines are idle. More beds mean more people.", pick(["habtower", "bunk"]));
+  if (s.staff[0] < s.staff[1]) {
+    /* beds only help when the beds are what is full; otherwise say what
+       is stopping people moving in (stepColony: mood 55, air, food) */
+    if (pop >= s.housing - 1) push("staff", "warn", "There are " + s.staff[1] + " jobs and " + s.staff[0] + " people. Machines are idle. More beds mean more people.", pick(["habtower", "bunk"]));
+    else {
+      const why = colony.sat.food <= 0.9 || (st.food || 0) <= pop * 3 ? "food in store" : s.air[0] < pop ? "air for everyone" : colony.hap < 55 ? "a happier colony (" + Math.round(colony.hap) + "%, needs 55%)" : null;
+      if (why) push("staff", "tip", "There are " + s.staff[1] + " jobs and " + s.staff[0] + " people. You have beds; new people come when there is " + why + ".");
+    }
+  }
   if (civ.stage >= 1 && colony.sat.goods < 0.5 && (n("workshop") + n("assembler")) === 0) push("goods", "warn", "People want goods and nobody makes any.", pick(["assembler", "workshop"]));
   if (s.liftUse > 0.95 && Object.keys(colony.made).some((r) => colony.made[r] > 0)) push("lift", "warn", "The lifts are full. What you make piles up instead of going up.", pick(["lift"]));
   if (colony.hap < 40 && colony.hap >= 0) push("mood", "warn", "Your people are unhappy (" + Math.round(colony.hap) + "%). Fix food, air or entertainment first.");
@@ -824,10 +846,12 @@ function adviseFor(world, colony, now) {
     }
   }
   if (civ.brown) push("brown", "bad", "The Civilization cannot pay its upkeep. Ship water and parts.", null, "water");
-  const topAsk = Object.keys(asks).filter((r) => r !== "arms" && (colony.made[r] || 0) === 0 && has(colony.made, r))[0];
+  /* asked for, and nothing goes up: none made, or your own buildings use it all */
+  const usesAll = (r) => (colony.made[r] || 0) > 0 && (colony.sent[r] || 0) < (colony.made[r] || 0) * 0.05 && (colony.use[r] || 0) >= (colony.made[r] || 0) * 0.8;
+  const topAsk = Object.keys(asks).filter((r) => r !== "arms" && has(colony.made, r) && ((colony.made[r] || 0) === 0 || usesAll(r)))[0];
   if (topAsk && !out.some((o) => o.id === "ask")) {
     const mk = { ore: "drill", water: "pump", fungus: "farm", parts: "foundry", goods: pick(["assembler", "workshop"]), food: pick(["hydro", "mess"]), crystal: "bore", fuel: "siphon", arms: "armoury" }[topAsk];
-    if (mk && avail(mk)) push("ask", "tip", "The Civilization is asking for " + topAsk.toUpperCase() + " and you make none.", mk, topAsk);
+    if (mk && avail(mk)) push("ask", "tip", "The Civilization is asking for " + topAsk.toUpperCase() + (usesAll(topAsk) ? ", and your own buildings use all you make. Build another." : " and you make none."), mk, topAsk);
   }
   const freeCount = colony.grid.slice(0, colony.layers).reduce((a, row) => a + row.filter((c) => !c).length, 0);
   const canDeeper = !colony.dig && colony.layers < layerCap(civ);
@@ -839,6 +863,48 @@ function adviseFor(world, colony, now) {
   if (colony.sent && !out.length) {
     const askedRes = Object.keys(asks)[0];
     if (askedRes && typeof colony.ship[askedRes] === "string" && colony.ship[askedRes] !== "all") push("give", "tip", "All is well here. The Civilization needs " + askedRes.toUpperCase() + ": you could send more.", null, askedRes);
+  }
+  /* Starved by your own shipping: the colony makes it, but ships all of it. */
+  {
+    let starved = null;
+    for (const row of colony.grid.slice(0, colony.layers)) for (const c of row) {
+      const b = c && c.on && B[c.t];
+      if (starved || !b || !b.inp) continue;
+      for (const r of Object.keys(b.inp)) {
+        const m = colony.ship[r];
+        if ((colony.made[r] || 0) > 0 && (st[r] || 0) < b.inp[r] * 60 && (m === "all" || (typeof m === "number" && m >= 90))) { starved = { t: c.t, r: r }; break; }
+      }
+    }
+    if (starved) push("starved", "warn", "Your " + B[starved.t].name + " is starved of " + starved.r.toUpperCase() + ": you ship all of it. Set " + starved.r.toUpperCase() + " to SURPLUS so it keeps what it needs.", null, starved.r);
+    if (starved) out[out.length - 1].ship = { res: starved.r, mode: "surplus" };
+  }
+  /* A fix you cannot pay for because you make none of something it needs
+     (no foundry, so no parts) is no fix: say what to build first. */
+  const lacking = (cost) => Object.keys(cost || {}).filter((r) => (st[r] || 0) < cost[r] && madeNone(r) && MAKER[r] && avail(MAKER[r]));
+  for (const o of out) {
+    const cost = o.build ? B[o.build].cost : (o.id === "room" || o.id === "dig") ? digCost(colony) : null;
+    const r = cost && !canAfford(st, cost) ? lacking(cost)[0] : null;
+    if (r && MAKER[r] !== o.build) {
+      o.text += " That needs " + r.toUpperCase() + ", and you make none: build a " + B[MAKER[r]].name + " first.";
+      o.build = MAKER[r]; o.res = r;
+      continue;
+    }
+    const inp = o.build && B[o.build].inp ? Object.keys(B[o.build].inp).filter((x) => madeNone(x) && (st[x] || 0) < 30 && MAKER[x] && avail(MAKER[x]))[0] : null;
+    if (inp) {
+      o.text += " A " + B[o.build].name + " runs on " + inp.toUpperCase() + ", and you make none: build a " + B[MAKER[inp]].name + " first.";
+      o.build = MAKER[inp]; o.res = inp;
+    }
+  }
+  /* Out of room, with plots doing nothing useful: beds nobody sleeps in. */
+  if (!freeSlot && out.some((o) => o.build || o.id === "deeper")) {
+    const spare = s.housing - Math.max(pop, 1) - 6;
+    let idle = null;
+    for (const row of colony.grid.slice(0, colony.layers)) for (const c of row) {
+      const b = c && B[c.t];
+      if (!idle && b && b.inp && Object.keys(b.inp).some((r) => madeNone(r) && (st[r] || 0) < 1)) idle = c.t;
+    }
+    if (idle) out.push({ id: "spare", sev: "bad", text: "Every plot is taken, and your " + B[idle].name + " stands idle: nothing here makes " + Object.keys(B[idle].inp).filter((r) => madeNone(r)).map((r) => r.toUpperCase()).join(" or ") + ". Demolish it (click it, then DEMOLISH) to make room.", build: null, res: null, demolish: idle });
+    else if (n("bunk") && spare >= 6) out.push({ id: "spare", sev: "bad", text: "Every plot is taken, and " + spare + " beds stand empty. Demolish a BUNK BLOCK (click it, then DEMOLISH) to make room for what you need.", build: null, res: null, demolish: "bunk" });
   }
   const rank = { bad: 0, warn: 1, tip: 2 };
   out.sort((x, y) => rank[x.sev] - rank[y.sev]);
@@ -929,5 +995,5 @@ module.exports = {
   SLOTS, MAX_LAYERS, ONLINE_MS, ACTIVE_MS, OFFLINE_KEEP, STOCK_CAP, RESERVE, WAVE_MS, WAVE_FIRST_MS, RES, VALUE, DEFAULT_SHIP, MODES, CATS, BIOMES, B, STAGES, LIBERATE,
   scaleFor, newWorld, newCiv, newColony, build, demolish, toggle, startDig, setShip, setPreset, wake, stepWorld, stepColony, deliver, checkAdvance,
   activeColonies, activeScale, biomeOpen, mayFound, buffs, needFor, liberationNeed, waveStrength, scheduleWave, resolveWave, defenceNow,
-  viewFor, catalogFor, digCost, layerCap, countOf, say, emit, eventsFor, adviseFor, civAsks, isFrozen, STEP
+  viewFor, catalogFor, digCost, layerCap, countOf, say, emit, onEmit, eventsFor, adviseFor, civAsks, isFrozen, STEP
 };

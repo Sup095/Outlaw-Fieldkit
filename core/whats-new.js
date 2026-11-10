@@ -10,6 +10,13 @@
   "use strict";
 
   var NOTES = [
+    { v: "0.15.0", items: [
+      "EMAIL UPDATES (optional): get an email about messages, pool challenges and your shot, DEEPHOLD and new versions.",
+      "It waits a few minutes so several things arrive in one email, skips what you already saw, and every email has a stop link.",
+      "POOL HALL: the computer picks its spin and power like a player, so it scratches far less and plays a better game.",
+      "DEEPHOLD: the advisor names what blocks a fix (no foundry, no fuel, empty beds, crystal all shipped) with one-click answers.",
+      "DEEPHOLD: while you are away, a colony keeps what its own buildings use, so workshops and armouries keep working."
+    ] },
     { v: "0.14.0", items: [
       "POOL HALL: eight-ball with real spin (draw, follow, side), against the computer, a friend on the same screen, or alone to practise.",
       "Play friends online: challenge a gamertag (the same as DEEPHOLD) or post an open challenge. FieldKit tells you when it is your shot.",
