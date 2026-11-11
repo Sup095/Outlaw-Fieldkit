@@ -101,7 +101,7 @@ const remount = () => { def.unmount(); host = fakeElement("div"); def.mount(host
 
 (async () => {
   const app = runnerd.create(Object.assign({}, runnerd.DEFAULTS, { host: "127.0.0.1", port: 0,
-    storePath: path.join(TMP, "store"), driver: "process", dev: true,
+    storePath: path.join(TMP, "store"), driver: "process", dev: true, diskPct: 0.5,
     ticketPublicKey: pair.publicKey.export({ type: "spki", format: "pem" }),
     tiers: { guest: { maxFileBytes: 2000 } } }), () => {});
   port = await app.listen();

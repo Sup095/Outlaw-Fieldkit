@@ -515,6 +515,203 @@ function resolveWave(world, now) {
 /* ---- one colony, one step ------------------------------------ */
 function ema(o, k, v, a) { o[k] = (o[k] || 0) + (v - (o[k] || 0)) * a; }
 
+/* ---- incidents (0.16.3) ----------------------------------------
+   While a colony's owner is here, now and then something happens that
+   wants a decision: a rich seam, drifters at the airlock, a smuggler, a
+   sealed cache, fever in the bunks, a groaning ceiling, a jammed vid
+   feed, or the Civilization asking for a little extra. One at a time,
+   about every forty minutes of play. It waits fifteen minutes; left
+   unanswered it passes and nothing happens, so nobody is punished for
+   being away or for missing it. Nobody dies of one. What comes, and how
+   a gamble goes, is decided by a hash of the colony and how many it has
+   had, so the engine stays deterministic. Sizes grow with the colony. */
+const INCIDENT_FIRST_MS = 15 * 60 * 1000;
+const INCIDENT_GAP_MS = 40 * 60 * 1000;
+const INCIDENT_WAIT_MS = 15 * 60 * 1000;
+function hashUnit(a, b) {
+  let h = (Math.floor(a) ^ 0x9e3779b9) >>> 0;
+  h = Math.imul(h ^ (b + 0x7f4a7c15), 0x85ebca6b) >>> 0;
+  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35) >>> 0;
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
+function incidentSize(colony) { return 1 + (colony.layers - 1) * 0.5; }
+function housingOf(world, colony) {
+  const bf = buffs(world.civ);
+  let h = BASE_HOUSING + bf.housing + (colony.biome === "ruin" ? Math.floor(colony.repair / 25) : 0);
+  for (let l = 0; l < colony.layers; l++) for (let s = 0; s < SLOTS; s++) { const c = colony.grid[l][s]; if (c && c.on && B[c.t].housing) h += B[c.t].housing; }
+  return h;
+}
+function topAsk(world, now) {
+  const civ = world.civ, need = civ.fallen ? liberationNeed(world, now) : needFor(world, now, civ.stage + 1);
+  const have = civ.fallen ? civ.liberation : civ.progress;
+  let best = null, gap = 0;
+  if (need) for (const r of Object.keys(need)) { const g = (need[r] - (have[r] || 0)) * (VALUE[r] || 1); if (g > gap) { gap = g; best = r; } }
+  return best;
+}
+
+/* Each kind: when it may come, its words, and its choices. A choice has
+   a cost (checked when chosen) and what it does. */
+const INCIDENTS = {
+  seam: {
+    when: () => true,
+    title: "A RICH SEAM",
+    text: (i) => "The drill crew broke into a pocket of ore so rich it glitters. Working it now means a double shift.",
+    choices: (i) => [
+      { id: "work", label: "WORK IT HARD", gain: { ore: 110 * i.k }, hap: -4, says: "The crew worked the seam through the night. Ore in, tempers short." },
+      { id: "later", label: "LEAVE IT", says: "The seam can wait. The crew slept." }
+    ]
+  },
+  drifters: {
+    when: () => true,
+    title: "DRIFTERS AT THE AIRLOCK",
+    text: (i) => i.n + " drifters at the lower airlock, thin and quiet. One of them has a child.",
+    choices: (i) => [
+      { id: "take", label: "TAKE THEM IN", cost: { food: 12 * i.n }, pop: i.n, beds: i.n, says: i.n + " new mouths, " + i.n + " new hands. They kept their heads down and went to work." },
+      { id: "feed", label: "FEED THEM, SEND THEM ON", cost: { food: 6 * i.n }, hap: 3, says: "Full bellies, a map to the next hold. People felt decent about it." },
+      { id: "away", label: "TURN THEM AWAY", hap: -3, says: "The lock stayed shut. Nobody talked about it at supper." }
+    ]
+  },
+  smuggler: {
+    when: (w, c) => c.layers >= 2,
+    title: "A SMUGGLER'S CRAWLER",
+    text: () => "A smuggler's crawler at the east lock, engine ticking. Crystal, she says, if you have something worth it.",
+    choices: (i) => [
+      { id: "goods", label: "TRADE GOODS", cost: { goods: Math.round(30 * i.k) }, gain: { crystal: Math.round(6 * i.k) }, says: "Goods out, crystal in. She did not count it twice." },
+      { id: "food", label: "TRADE RATIONS", cost: { food: Math.round(70 * i.k) }, gain: { crystal: Math.round(5 * i.k) }, says: "Rations for crystal. A fair swap, down here." },
+      { id: "no", label: "NO DEAL", says: "The crawler ground away into the dark." }
+    ]
+  },
+  cache: {
+    when: (w, c) => c.layers >= 2,
+    title: "A SEALED CACHE",
+    text: () => "Behind a collapsed wall the diggers found an old imperial cache, still sealed, still humming.",
+    choices: (i) => [
+      { id: "open", label: "CRACK IT OPEN", gamble: true, says: "" },
+      { id: "leave", label: "LEAVE IT SEALED", says: "Some doors are better left shut. The wall went back up." }
+    ],
+    gamble: (i, r) => r < 0.55 ? { gain: { parts: Math.round(60 * i.k) }, says: "Crates of machine parts, packed in grease. Good as new." }
+      : r < 0.8 ? { gain: { arms: Math.round(20 * i.k) }, says: "Rifles. Racks of them. The war just got a little easier." }
+      : { lose: { ore: Math.round(40 * i.k) }, hap: -5, says: "It was rigged. The blast brought the roof down on the ore store. Nobody hurt, everybody shaken." }
+  },
+  fever: {
+    when: (w, c) => c.pop >= 10,
+    title: "SPORE FEVER",
+    text: () => "Spore fever in the bunks. People are coughing, and the coughing is spreading.",
+    choices: (i) => [
+      { id: "quarantine", label: "QUARANTINE (GOODS)", cost: { goods: Math.round(12 * i.k) }, hap: 2, says: "Sealed bunks, blankets and cards. It burned out in a day." },
+      { id: "burn", label: "BURN THE MATS (FUNGUS)", cost: { fungus: Math.round(50 * i.k) }, says: "The infected mats went into the burner. The air cleared." },
+      { id: "wait", label: "LET IT RUN ITS COURSE", hap: -8, says: "It ran its course. Nobody died. Nobody forgot it, either." }
+    ]
+  },
+  groan: {
+    when: () => true,
+    title: "THE ROCK GROANS",
+    text: (i) => "Dust is falling from the ceiling of layer " + (i.layer + 1) + ". The rock is groaning.",
+    choices: (i) => [
+      { id: "shore", label: "SHORE IT UP", cost: { ore: Math.round(45 * i.k), parts: Math.round(12 * i.k) }, hap: 2, says: "Props in, bolts in. The groaning stopped." },
+      { id: "hold", label: "IT WILL HOLD", gamble: true, says: "" }
+    ],
+    gamble: (i, r) => r < 0.5 ? { says: "It held. This time." }
+      : { shut: i.layer, hap: -3, says: "A slab came down. Nobody hurt, but a building on layer " + (i.layer + 1) + " is shut until someone switches it back on." }
+  },
+  jam: {
+    when: (w, c) => c.layers >= 2,
+    title: "THE VID FEED IS JAMMED",
+    text: () => "A pirate broadcast is jamming the vid feed. People want their shows back, and they are getting loud about it.",
+    choices: (i) => [
+      { id: "trace", label: "TRACE IT (PARTS)", cost: { parts: Math.round(18 * i.k) }, hap: 5, says: "The tech crew found the transmitter and pulled its plug. The shows came back to a cheer." },
+      { id: "ignore", label: "IGNORE IT", hap: -2, says: "Static for a day. Grumbling for two." }
+    ]
+  },
+  ask: {
+    when: (w, c, now) => !!topAsk(w, now),
+    title: "THE CIVILIZATION ASKS",
+    text: (i) => "A runner from the Civilization: it needs " + i.res.toUpperCase() + ", and it needs it now. Send " + i.amt + "?",
+    choices: (i) => [
+      { id: "send", label: "SEND " + i.amt + " " + i.res.toUpperCase(), cost: { [i.res]: i.amt }, give: { [i.res]: i.amt }, hap: 3, says: "The shipment went up the lift with a cheer. The Civilization will remember." },
+      { id: "no", label: "NOT NOW", says: "The runner went back up empty-handed." }
+    ]
+  }
+};
+const INCIDENT_KINDS = Object.keys(INCIDENTS);
+
+function startIncident(world, colony, now) {
+  const n = colony.incidents || 0;
+  const r = hashUnit(colony.born, n * 7 + 1);
+  const kinds = INCIDENT_KINDS.filter((k) => INCIDENTS[k].when(world, colony, now) && k !== colony.lastIncident);
+  if (!kinds.length) return;
+  const kind = kinds[Math.floor(r * kinds.length)];
+  const k = incidentSize(colony);
+  const inc = { kind: kind, at: now, until: now + INCIDENT_WAIT_MS, k: Math.round(k * 10) / 10, seq: n };
+  if (kind === "drifters") inc.n = 2 + Math.floor(hashUnit(colony.born, n * 7 + 2) * (2 + k));
+  if (kind === "groan") inc.layer = Math.floor(hashUnit(colony.born, n * 7 + 3) * colony.layers);
+  if (kind === "ask") { inc.res = topAsk(world, now); inc.amt = Math.max(10, Math.round(Math.min(STOCK_CAP * 0.4, 400 / (VALUE[inc.res] || 1)) * Math.min(2, k) / 2)); }
+  colony.incident = inc;
+  colony.incidents = n + 1; colony.lastIncident = kind;
+  emit(world, now, colony.handle, "warn", INCIDENTS[kind].title + ": " + INCIDENTS[kind].text(inc), "incident");
+}
+
+function incidentTick(world, colony, now, online) {
+  const inc = colony.incident;
+  if (inc && now >= inc.until) {
+    colony.incident = null;
+    say(colony.log, now, INCIDENTS[inc.kind] ? INCIDENTS[inc.kind].title.toLowerCase().replace(/^./, (c) => c.toUpperCase()) + ": nobody answered, and it passed." : "It passed.", 20);
+    colony.nextIncident = now + INCIDENT_GAP_MS * (0.6 + 0.8 * hashUnit(colony.born, (colony.incidents || 0) * 7 + 5));
+    return;
+  }
+  if (inc || !online || colony.collapsed) return;
+  if (!colony.nextIncident) colony.nextIncident = Math.max(now, colony.born) + INCIDENT_FIRST_MS;
+  if (now >= colony.nextIncident) startIncident(world, colony, now);
+}
+
+/* Whether a choice can be taken now, and why not. */
+function choiceBlock(world, colony, c, i) {
+  if (c.cost && !canAfford(colony.stock, c.cost)) return "not enough " + Object.keys(c.cost).filter((r) => (colony.stock[r] || 0) < c.cost[r]).join(" or ");
+  if (c.beds && Math.floor(colony.pop) + c.beds > housingOf(world, colony)) return "no beds for them";
+  return null;
+}
+
+function incidentView(world, colony, now) {
+  const inc = colony.incident;
+  if (!inc || !INCIDENTS[inc.kind]) return null;
+  const def = INCIDENTS[inc.kind];
+  return {
+    kind: inc.kind, title: def.title, text: def.text(inc), left: Math.max(0, Math.round((inc.until - now) / 1000)),
+    choices: def.choices(inc).map((c) => {
+      const why = choiceBlock(world, colony, c, inc);
+      return { id: c.id, label: c.label, cost: c.cost || null, gain: c.gain || null, risky: !!c.gamble, ok: !why, why: why };
+    })
+  };
+}
+
+function answerIncident(world, colony, choiceId, now) {
+  const inc = colony.incident;
+  if (!inc || !INCIDENTS[inc.kind]) return { error: "nothing is waiting for an answer" };
+  const def = INCIDENTS[inc.kind];
+  const c = def.choices(inc).find((x) => x.id === choiceId);
+  if (!c) return { error: "that is not one of the choices" };
+  const why = choiceBlock(world, colony, c, inc);
+  if (why) return { error: why };
+  let out = c;
+  if (c.gamble && def.gamble) out = Object.assign({}, def.gamble(inc, hashUnit(colony.born, inc.seq * 7 + 4)), { cost: c.cost });
+  const st = colony.stock;
+  if (out.cost) pay(st, out.cost);
+  if (out.lose) for (const r of Object.keys(out.lose)) st[r] = Math.max(0, (st[r] || 0) - out.lose[r]);
+  if (out.gain) for (const r of Object.keys(out.gain)) st[r] = Math.min(STOCK_CAP, (st[r] || 0) + out.gain[r]);
+  if (out.pop) colony.pop += out.pop;
+  if (out.hap) colony.hap = clamp(colony.hap + out.hap, 0, 100);
+  if (out.give) for (const r of Object.keys(out.give)) deliver(world, now, colony, r, out.give[r]);
+  if (typeof out.shut === "number") {
+    const row = colony.grid[out.shut] || [];
+    const lit = row.map((x, s) => (x && x.on && x.t !== "lift" && x.t !== "scrubber" ? s : -1)).filter((s) => s >= 0);
+    if (lit.length) row[lit[Math.floor(hashUnit(colony.born, inc.seq * 7 + 6) * lit.length)]].on = false;
+  }
+  colony.incident = null;
+  colony.nextIncident = now + INCIDENT_GAP_MS * (0.6 + 0.8 * hashUnit(colony.born, (colony.incidents || 0) * 7 + 5));
+  say(colony.log, now, def.title.toLowerCase().replace(/^./, (x) => x.toUpperCase()) + ": " + out.says, 20);
+  return { ok: true, said: out.says };
+}
+
 function stepColony(world, colony, now, dt, asks) {
   const civ = world.civ;
   if (colony.collapsed) return;
@@ -524,6 +721,7 @@ function stepColony(world, colony, now, dt, asks) {
   }
   const online = now - colony.lastSeen < ONLINE_MS;
   colony.safe = !online;
+  incidentTick(world, colony, now, online);
   const biome = BIOMES[colony.biome] || BIOMES.seam;
   const bf = buffs(civ);
   const st = colony.stock;
@@ -737,6 +935,8 @@ function stepWorld(world, now) {
       const c = world.colonies[h];
       c.lastSeen += ms;
       if (c.dig) { c.dig.done += ms; if (c.dig.start) c.dig.start += ms; }
+      if (c.incident) c.incident.until += ms;
+      if (c.nextIncident) c.nextIncident += ms;
     }
     world.tickAt = now;
     return;
@@ -984,7 +1184,7 @@ function viewFor(world, now, handle, admin) {
       eff: RES.reduce((o, r) => { o[r] = Math.round((colony.eff[r] || 0) * 100); return o; }, {}),
       pop: Math.floor(colony.pop), hap: Math.round(colony.hap), stats: colony.stats, ship: colony.ship,
       given: Math.round(colony.given), shipped: colony.shipped, log: colony.log.slice(-8).reverse(),
-      safe: colony.safe, since: colony.born, advice: adv,
+      safe: colony.safe, since: colony.born, advice: adv, incident: incidentView(world, colony, now),
       recommend: adv.map((a) => a.build).filter(Boolean)
     };
   }
@@ -992,6 +1192,7 @@ function viewFor(world, now, handle, admin) {
 }
 
 module.exports = {
+  INCIDENTS, INCIDENT_KINDS, INCIDENT_FIRST_MS, INCIDENT_GAP_MS, INCIDENT_WAIT_MS, answerIncident, incidentView, hashUnit,
   SLOTS, MAX_LAYERS, ONLINE_MS, ACTIVE_MS, OFFLINE_KEEP, STOCK_CAP, RESERVE, WAVE_MS, WAVE_FIRST_MS, RES, VALUE, DEFAULT_SHIP, MODES, CATS, BIOMES, B, STAGES, LIBERATE,
   scaleFor, newWorld, newCiv, newColony, build, demolish, toggle, startDig, setShip, setPreset, wake, stepWorld, stepColony, deliver, checkAdvance,
   activeColonies, activeScale, biomeOpen, mayFound, buffs, needFor, liberationNeed, waveStrength, scheduleWave, resolveWave, defenceNow,

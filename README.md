@@ -431,11 +431,28 @@ stays, as the fallback and for what lens cannot do.
   private addresses refused; a monthly ceiling on its own meter, and the
   provider's own count; passes signed by the relay; a notice to everyone when
   it falls back, which clears itself.
-- *What it cannot do:* YouTube refuses a rented server's address, so it opens
-  in the full mode by itself. All sites in it share one origin, so sign-ins
-  belong in the full mode.
+- *What it cannot do:* YouTube refuses a rented server's address, so it leaves
+  through WARP or a bought proxy (0.10.0). Until 0.16.3 all sites shared one
+  origin; now each has its own (below), once the lens host's `*.` DNS record
+  is there.
 - *Next:* a cache for pages you open twice, which the test showed would
   roughly halve what a second visit costs.
+
+**Done in 0.16.3: a space of its own for every site in the lighter browser;
+nine-ball and a ladder in POOL HALL; incidents and sound in DEEPHOLD.**
+The lens page now runs no site itself: each site runs in a slot,
+`s0.`…`s15.<lens host>`, an origin of its own, wiped (Clear-Site-Data) when
+it changes hands. Navigations, popups and new-window links to another site
+open in that site's slot; a sign-in box framed in from another site is
+flagged; a slot can only name its own site in the address bar; the service
+worker fetches through the lens anything Scramjet missed (pictures, fonts,
+styles) and refuses the rest. Caddy gets slot certificates on demand, asking
+the lens server first. Without the DNS record the page falls back to one
+shared slot and says not to sign in (lens/README.md). POOL HALL: nine-ball in
+core/pool-engine.js (finish9; the computer needed no change), an Elo ladder in
+relay/pool.js. DEEPHOLD: incidents in relay/colony-engine.js (deterministic,
+only while the owner plays, unanswered ones pass harmlessly), answered at
+POST /colony/incident; synthesised sound in modules/colony.js.
 
 **Done in 0.16.2: OUTPOST gets DEEPHOLD, sign-in at start and the screen lock.**
 OUTPOST.html now loads core/colony-sprites.js, core/colony-scene.js,

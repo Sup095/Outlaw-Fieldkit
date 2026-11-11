@@ -141,7 +141,7 @@
   /* ---- talking to the relay ---------------------------------------------------- */
   var reqSeq = 0, shownSeq = 0;
   /* a view is shown only if it was asked for after the one on screen */
-  function take(v, seq) { if (seq < shownSeq) return; shownSeq = seq; view = v; viewAt = Date.now(); lastErr = ""; applyView(); }
+  function take(v, seq) { if (seq < shownSeq) return; shownSeq = seq; view = v; viewAt = Date.now(); lastErr = ""; listen(v); applyView(); }
 
   async function load() {
     if (gone || !session) return;
@@ -153,14 +153,73 @@
       setText(R.err, lastErr);
     }
   }
+  /* ---- sound (0.16.3): quiet, synthesised, and off with one switch in the menu.
+     Heavy and mechanical, as the place is: a clank when something is built,
+     a rumble when a layer is dug, a low chord when the Civilization rises a
+     stage, a siren when a wave is ten minutes out, and how the wave went. */
+  var actx = null, heard = null, played = [];
+  function soundOn() { return (store("get") || {}).sound !== false; }
+  function noise(ctx, at, len, freq, q, vol, curve) {
+    var buf = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * len), ctx.sampleRate), d = buf.getChannelData(0);
+    for (var i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d.length, curve || 3);
+    var src = ctx.createBufferSource(); src.buffer = buf;
+    var f = ctx.createBiquadFilter(); f.type = "bandpass"; f.frequency.value = freq; f.Q.value = q;
+    var g = ctx.createGain(); g.gain.value = vol;
+    src.connect(f); f.connect(g); g.connect(ctx.destination); src.start(at);
+  }
+  function note(ctx, at, len, freq, type, vol, to) {
+    var o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = type || "sawtooth"; o.frequency.setValueAtTime(freq, at);
+    if (to) o.frequency.linearRampToValueAtTime(to, at + len);
+    g.gain.setValueAtTime(0.0001, at); g.gain.linearRampToValueAtTime(vol, at + 0.02); g.gain.linearRampToValueAtTime(0.0001, at + len);
+    o.connect(g); g.connect(ctx.destination); o.start(at); o.stop(at + len + 0.05);
+  }
+  function sound(kind) {
+    if (!soundOn()) return;
+    played.push(kind); if (played.length > 30) played.shift();
+    try {
+      if (!actx) { var AC = window.AudioContext || window.webkitAudioContext; if (!AC) return; actx = new AC(); }
+      if (actx.state === "suspended") actx.resume();
+      var t = actx.currentTime;
+      if (kind === "build") { noise(actx, t, 0.09, 900, 3, 0.25, 5); noise(actx, t + 0.11, 0.14, 380, 2, 0.22, 4); note(actx, t, 0.12, 110, "square", 0.03); }
+      else if (kind === "dig") { noise(actx, t, 0.7, 90, 0.8, 0.5, 2); noise(actx, t + 0.05, 0.35, 260, 1.5, 0.18, 3); }
+      else if (kind === "stage") { [0, 0.18, 0.36].forEach(function (d, i) { note(actx, t + d, 0.9 - d, [98, 117, 147][i], "sawtooth", 0.035); }); noise(actx, t, 1.2, 70, 0.7, 0.2, 1.5); }
+      else if (kind === "siren") { note(actx, t, 0.6, 440, "triangle", 0.05, 660); note(actx, t + 0.6, 0.6, 660, "triangle", 0.05, 440); note(actx, t + 1.2, 0.6, 440, "triangle", 0.05, 660); }
+      else if (kind === "held") { note(actx, t, 0.25, 147, "square", 0.04); note(actx, t + 0.22, 0.5, 196, "square", 0.04); }
+      else if (kind === "lost") { note(actx, t, 0.5, 196, "sawtooth", 0.05, 98); noise(actx, t, 0.8, 120, 0.8, 0.35, 2); }
+      else if (kind === "incident") { note(actx, t, 0.09, 660, "square", 0.035); note(actx, t + 0.13, 0.09, 660, "square", 0.035); noise(actx, t, 0.05, 1800, 3, 0.12, 5); }
+      else if (kind === "no") { note(actx, t, 0.12, 82, "square", 0.04); }
+      else if (kind === "click") { noise(actx, t, 0.03, 2200, 3, 0.12, 5); }
+    } catch (e) { /* no sound is fine */ }
+  }
+  /* What changed since the last view: a stage risen, a wave held or lost,
+     a wave ten minutes out. The first view after opening says nothing. */
+  function listen(v) {
+    var civ = v && v.civ; if (!civ) return;
+    var w = civ.war || {}, now = { stage: civ.stage, wins: w.wins || 0, losses: w.losses || 0, at: w.at || 0 };
+    var inc = v.colony && v.colony.incident ? v.colony.incident.title + v.colony.incident.text : "";
+    now.inc = inc;
+    if (heard) {
+      if (inc && inc !== heard.inc) sound("incident");
+      if (now.stage > heard.stage) sound("stage");
+      else if (now.losses > heard.losses) sound("lost");
+      else if (now.wins > heard.wins) sound("held");
+    }
+    heard = now;
+  }
+  var sirenFor = 0;
+  function sirenCheck(left, at) {
+    if (left != null && left > 0 && left < 600000 && sirenFor !== at) { sirenFor = at; if (heard) sound("siren"); }
+  }
+
   /* actions run one after another, in the order clicked; none is dropped */
   var actChain = Promise.resolve();
   function act(path, body, quiet) {
     actChain = actChain.then(async function () {
       if (gone || !session) return;
       var my = ++reqSeq;
-      try { take(await api("POST", path, body || {}), my); }
-      catch (e) { if (!quiet || e.status !== 400) ui().toast(String(e.message || "failed").toUpperCase(), "warn"); }
+      try { take(await api("POST", path, body || {}), my); sound(path === "build" ? "build" : path === "dig" ? "dig" : "click"); }
+      catch (e) { if (!quiet || e.status !== 400) { sound("no"); ui().toast(String(e.message || "failed").toUpperCase(), "warn"); } }
     });
     return actChain;
   }
@@ -303,7 +362,8 @@
     R.away = el("div", { class: "dh-note", text: "" });
     R.advice = el("div", { class: "dh-advice" });
     R.pick = el("div", { class: "dh-pick" });
-    R.panes.colony = el("div", { class: "dh-pane" }, [R.pick, R.vitals, R.away, el("div", { class: "dh-sec-h", text: "ADVISOR" }), R.advice, R.colLog = el("div", { class: "dh-logs" })]);
+    R.incident = el("div", { class: "dh-incident" });
+    R.panes.colony = el("div", { class: "dh-pane" }, [R.incident, R.pick, R.vitals, R.away, el("div", { class: "dh-sec-h", text: "ADVISOR" }), R.advice, R.colLog = el("div", { class: "dh-logs" })]);
     R.panes.ship = el("div", { class: "dh-pane" }, [buildShip()]);
     R.panes.civ = el("div", { class: "dh-pane" }, [buildCiv()]);
     if (view.admin) R.panes.admin = el("div", { class: "dh-pane" }, [buildAdmin()]);
@@ -414,6 +474,11 @@
           applyMenu();
         } });
       }))),
+      el("div", { class: "dh-row" }, [el("span", { class: "dh-dim", text: "SOUND:" })].concat(["on", "off"].map(function (m) {
+        return el("button", { class: "dh-mini wide" + ((m === "on") === soundOn() ? " on" : ""), type: "button", text: m.toUpperCase(), onclick: function () {
+          var s = store("get") || {}; s.sound = m === "on"; store("set", s); if (m === "on") sound("build"); applyMenu();
+        } });
+      }))),
       el("div", { class: "dh-note", text: "HOW IT WORKS: buildings make things, lifts carry what you choose to send up to the Civilization, and the Civilization unlocks new buildings for everyone. Keep your people breathing, fed and entertained. From stage 2 a war arrives in waves: arms and guns hold it." })
     ];
     if (view && view.admin) kids.push(ui().button(view.paused ? "RESUME THE GAME FOR EVERYONE" : "PAUSE THE GAME FOR EVERYONE", function () { act("admin", { action: "pause", on: !view.paused }); close(); }, { danger: !view.paused }));
@@ -437,6 +502,7 @@
     fillCivilization();
     fillShip();
     fillAdvice();
+    fillIncident();
     fillPick();
     fillVitals();
     if (R.pauseBtn) setText(R.pauseBtn, view.paused ? "RESUME THE GAME" : "PAUSE THE GAME");
@@ -482,6 +548,33 @@
       }
       R.advice.appendChild(el("div", { class: "dh-adv " + a.sev }, kids));
     });
+  }
+
+  /* An incident (0.16.3): something happened, and it wants an answer. */
+  function fillIncident() {
+    var inc = view.colony.incident, sig = jsonSig(inc ? [inc.title, inc.text, inc.choices.map(function (c) { return c.ok; })] : null);
+    if (sigs.incident === sig) return;
+    sigs.incident = sig; ui().clear(R.incident);
+    show(R.incident, !!inc);
+    if (!inc) return;
+    var row = el("div", { class: "dh-row wrap" });
+    inc.choices.forEach(function (c) {
+      var bits = [];
+      if (c.cost) bits.push("costs " + costText(c.cost));
+      if (c.gain) bits.push("gives " + costText(c.gain));
+      if (c.risky) bits.push("a gamble");
+      if (c.why) bits.push(c.why);
+      row.appendChild(el("button", { class: "dh-mini wide" + (c.ok ? "" : " off"), type: "button", disabled: !c.ok, text: c.label, title: bits.join(" · "),
+        onclick: function () { if (c.ok) act("incident", { choice: c.id }); } }));
+    });
+    var notes = inc.choices.filter(function (c) { return c.cost || c.gain || c.risky || c.why; }).map(function (c) {
+      return c.label + ": " + [c.cost ? "costs " + costText(c.cost) : "", c.gain ? "gives " + costText(c.gain) : "", c.risky ? "a gamble" : "", c.why ? "(" + c.why + ")" : ""].filter(Boolean).join(", ");
+    });
+    R.incident.appendChild(el("div", { class: "dh-inc-h", text: "⚠ " + inc.title }));
+    R.incident.appendChild(el("div", { class: "dh-inc-t", text: inc.text }));
+    R.incident.appendChild(row);
+    if (notes.length) R.incident.appendChild(el("div", { class: "dh-note", text: notes.join(" · ") }));
+    R.incident.appendChild(el("div", { class: "dh-note", text: "Left alone, it passes in about " + Math.max(1, Math.round(inc.left / 60)) + " min and nothing happens." }));
   }
 
   /* the dig site: scroll the picture to it and open its card */
@@ -678,6 +771,7 @@
     else if (civ.next) { var t2 = 0, g2 = 0; Object.keys(civ.next.need).forEach(function (r) { t2 += civ.next.need[r]; g2 += Math.min(civ.next.need[r], (civ.next.progress[r] || 0) + (civ.flow[r] || 0) * dt); }); frac = t2 ? g2 / t2 : 0; label = "TO " + civ.next.name + " — " + (Math.floor(frac * 1000) / 10) + "%"; }
     R.prog.style.width = Math.round(frac * 100) + "%"; setText(R.progT, label);
     var wv = civ.war && civ.war.at ? civ.war.at - nowS : null;
+    if (!view.paused) sirenCheck(wv, civ.war && civ.war.at);
     setText(R.wave, view.paused ? "PAUSED" : wv != null ? (wv < 600000 ? "WAVE IN " : "NEXT WAVE ") + clock(wv) : "");
     setCls(R.wave, "dh-chip warnchip" + (view.paused ? " bad" : wv != null && wv < 600000 ? " bad" : ""));
     show(R.wave, view.paused || wv != null);
@@ -745,6 +839,9 @@
       ".dh-vbar{height:8px;border:1px solid var(--line2);background:rgba(0,0,0,.35)}.dh-vfill{height:100%;background:var(--pass);opacity:.7;width:0;transition:width .6s linear}",
       ".dh-vrow.warn .dh-vfill{background:var(--warn)}.dh-vrow.bad .dh-vfill{background:var(--fail)}.dh-vrow .vv{font-size:10px;text-align:right}",
       ".dh-adv{border:1px solid var(--line2);padding:5px 7px;display:flex;flex-wrap:wrap;gap:4px 6px;align-items:center;justify-content:space-between;background:rgba(0,0,0,.18)}.dh-adv .dh-mini{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-left:auto}",
+      ".dh-incident{border:1px solid var(--warn);background:linear-gradient(rgba(224,160,60,.10),rgba(0,0,0,.25));padding:8px 9px;margin-bottom:8px;display:flex;flex-direction:column;gap:6px;animation:dhInc 1.2s ease-out}" +
+      ".dh-inc-h{color:var(--warn);letter-spacing:.14em;font-size:11px}.dh-inc-t{line-height:1.45;font-size:11px}.dh-incident .dh-row.wrap{display:flex;flex-wrap:wrap;gap:5px}.dh-incident .dh-mini.off{opacity:.45;cursor:not-allowed}" +
+      "@keyframes dhInc{0%{box-shadow:0 0 0 0 rgba(224,160,60,.6)}100%{box-shadow:0 0 0 10px rgba(224,160,60,0)}}",
       ".dh-adv.bad{border-color:var(--fail)}.dh-adv.warn{border-color:var(--warn)}.dh-adv-t{line-height:1.4;font-size:10px;flex:1 1 170px;min-width:0}",
       ".dh-mini{font:inherit;font-size:9px;letter-spacing:.08em;min-width:22px;height:20px;background:none;border:1px solid var(--line2);color:var(--fg-dim);cursor:pointer;padding:0 6px;white-space:nowrap}",
       ".dh-mini:hover{border-color:var(--accent);color:var(--accent)}.dh-mini.on{border-color:var(--accent);color:var(--accent)}",
@@ -802,7 +899,7 @@
       if (host && !gone) { screen = ""; route(); load(); }
     },
     _select: function (layer, slot) { if (scene) scene.select(layer, slot, true); else { sel = { layer: layer, slot: slot }; tab = "colony"; sigs.pick = ""; applyTabs(); fillPick(); } },
-    _api: api, _pollEvents: pollEvents, _state: function () { return { screen: screen, tab: tab, sel: sel, view: view }; }
+    _api: api, _pollEvents: pollEvents, _played: function () { return played.slice(); }, _state: function () { return { screen: screen, tab: tab, sel: sel, view: view }; }
   });
 
   FieldKit.register("colony", {
@@ -818,7 +915,7 @@
 
     async mount(h, context) {
       ctx = context; el = ctx.ui.el; host = h; gone = false;
-      view = null; lastErr = ""; busy = false; sel = null; screen = ""; menuOpen = false; sigs = {};
+      view = null; lastErr = ""; busy = false; sel = null; screen = ""; menuOpen = false; sigs = {}; heard = null; sirenFor = 0;
       css();
       route();
       if (session) { await load(); }

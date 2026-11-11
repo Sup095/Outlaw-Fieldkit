@@ -114,7 +114,7 @@ const cut = (f) => { const t = fs.readFileSync(f, "utf8"); fs.writeFileSync(f, t
     const pub = pair.publicKey.export({ type: "spki", format: "pem" });
     const storePath = path.join(TMP, "killed");
     const cfgFile = path.join(TMP, "killed.json");
-    fs.writeFileSync(cfgFile, JSON.stringify({ host: "127.0.0.1", port: 0, storePath, driver: "process", dev: true, ticketPublicKey: pub }));
+    fs.writeFileSync(cfgFile, JSON.stringify({ host: "127.0.0.1", port: 0, storePath, driver: "process", dev: true, diskPct: 0.5, ticketPublicKey: pub }));
     const start = () => new Promise((resolve, reject) => {
       const p = spawn(process.execPath, [path.join(__dirname, "..", "runnerd", "server.js")], { stdio: ["ignore", "pipe", "pipe"], env: Object.assign({}, process.env, { FK_RUNNER_CONFIG: cfgFile }) });
       let out = "";

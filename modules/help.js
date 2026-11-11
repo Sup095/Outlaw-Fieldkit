@@ -161,10 +161,12 @@
         "bookmark, PLACES opens bookmarks and history, and TAB opens the page in a tab of its " +
         "own. YouTube plays there when the lens server has its way past YouTube's check; if not, " +
         "it opens in FULL MODE for those who have it.",
-        { note: "The lighter mode is NOT private. Every site in it shares one server, and sites can " +
-                "read each other's sign-ins. Do not sign in to anything there: no email, no school " +
-                "account, no social media, no shopping. It says so at the top, and again if you " +
-                "click a password box." },
+        { note: "Signing in, in the lighter mode: when the bar at the top is GREEN, every site has a " +
+                "space of its own and no other site can read its sign-ins, so signing in to sites you " +
+                "trust is fine (sign out when you finish on a shared computer). A sign-in box that one " +
+                "site puts inside its own page for another gets a red STOP: press the button to open " +
+                "that site on its own. When the bar is YELLOW, sites share one space: do not sign in " +
+                "to anything there." },
         "FULL MODE uses the home internet, so it is for admins and the members an admin allows " +
         "(PEOPLE, in ADMIN CENTER or MESSAGES). If you have it, it is where to sign in to things. " +
         "If the lighter mode does not load on a network, BROWSER moves to FULL MODE by itself for " +
@@ -293,8 +295,11 @@
         "The picture is your colony as it is: drag or scroll to look deeper, click a room to inspect it. " +
         "To get more room, dig: the DIG SITE sits under your deepest layer (or press DIG DEEPER by the picture). " +
         "It shows the cost, and if the next layer is not open yet, which Civilization stage opens it. " +
-        "MENU has PICTURE (HIGH, LOW or OFF) for slower machines. Warnings such as an incoming wave or " +
+        "MENU has PICTURE (HIGH, LOW or OFF) for slower machines, and SOUND (ON or OFF). Warnings such as an incoming wave or " +
         "hunger appear in the FieldKit notices even when DEEPHOLD is closed.",
+        "INCIDENTS: while you play, now and then something happens and a card asks what to do (drifters at the " +
+        "airlock, a smuggler, a sealed cache, spore fever...). Each choice says what it costs or gives; some are a " +
+        "gamble. Leave it and it passes in fifteen minutes with nothing lost. None come while you are away.",
         "You never dig or gather by hand: buildings do the work. Away from the screen your colony keeps " +
         "working. Everything it ships reaches the Civilization in full; you keep 30% of what you would " +
         "have kept, and nobody in your colony can die while you are away.",
@@ -334,8 +339,8 @@
       title: "POOL HALL",
       tag: "apps",
       body: [
-        "Eight-ball on a nine-foot table. Play the computer (EASY, NORMAL or HARD), a friend on the same " +
-        "screen, practise alone, or challenge friends online through the relay.",
+        "Eight-ball or nine-ball on a nine-foot table (pick the game at the top of the hall). Play the computer " +
+        "(EASY, NORMAL or HARD), a friend on the same screen, practise alone, or challenge friends online through the relay.",
         { steps: [
           "Move over the table to aim. The dashed line shows where the cue ball meets the first ball, the yellow line where that ball goes, the blue line where the cue ball goes after.",
           "Press on the table and pull back to set the power, then let go to shoot. Or set the POWER bar and press Space or SHOOT.",
@@ -347,11 +352,14 @@
           ["SOLIDS / STRIPES", "the first ball you pot after the break decides"],
           ["FOUL", "scratch, wrong ball first, or no cushion after the hit"],
           ["AFTER A FOUL", "the other player has ball in hand"],
-          ["THE 8", "last, in the called pocket; otherwise you lose"]
+          ["THE 8", "last, in the called pocket; otherwise you lose"],
+          ["NINE-BALL", "lowest ball first; a legal 9 wins, even on the break"]
         ] },
         "Online uses a gamertag, the same one as DEEPHOLD. Challenge someone by gamertag or post an open challenge " +
         "anyone can take. Matches are turn by turn: you can leave and come back, and FieldKit tells you when it is your shot. " +
-        "The relay plays every shot itself, so both screens always agree on what happened."
+        "The relay plays every shot itself, so both screens always agree on what happened. " +
+        "THE LADDER: every finished online match moves both ratings (everyone starts at 1000; beating someone above " +
+        "you is worth more). The hall shows the top ten, your place and your streak."
       ]
     },
 

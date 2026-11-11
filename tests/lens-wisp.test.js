@@ -332,6 +332,7 @@ async function client(port, who) {
     const client = path.join(TMP, "client");
     fs.mkdirSync(client);
     fs.writeFileSync(path.join(client, "index.html"), "<p>lens</p>");
+    fs.writeFileSync(path.join(client, "slot.html"), "<p>slot</p>");
     fs.writeFileSync(path.join(TMP, "secret.txt"), "no");
     const L = await lens.start({ config: { port: 0, host: "127.0.0.1", dataDir: path.join(TMP, "lensdata"), clientDir: client },
       relayKey, judge, log: () => {} });
@@ -389,6 +390,21 @@ async function client(port, who) {
     let refused = 0;
     for (let i = 0; i < 35; i++) { const r = await tryOpen(url()); if (/429/.test(r.message)) refused++; }
     ok("one address opening too many sockets a minute is slowed", refused > 0);
+
+    /* Rooms (0.16.3): each site on an origin of its own, s0. to s15.<host>. */
+    ok("a slot name is s0 to s15 of this lens's own name, nothing else",
+      lens.slotName("s0.lens.example.com", "lens.example.com") && lens.slotName("s15.lens.example.com", "lens.example.com") &&
+      !lens.slotName("s16.lens.example.com", "lens.example.com") && !lens.slotName("s01.lens.example.com", "lens.example.com") &&
+      !lens.slotName("s0.other.example.com", "lens.example.com") && !lens.slotName("s0.lens.example.com.evil.test", "lens.example.com") &&
+      !lens.slotName("x.lens.example.com", "lens.example.com") && !lens.slotName("lens.example.com", "lens.example.com") && lens.SLOTS === 16);
+    const ask = (d) => get("/lens/tls-ok/lens.example.com?domain=" + encodeURIComponent(d)).then((r) => r.code);
+    ok("Caddy may get a certificate for a slot", (await ask("s3.lens.example.com")) === 200);
+    ok("…and for no other name pointed here", (await ask("s16.lens.example.com")) === 403 && (await ask("evil.test")) === 403 && (await ask("")) === 403);
+    const slot = await get("/slot.html"), slotWipe = await get("/slot.html?wipe=1");
+    ok("a slot may be framed by the lens page, another origin (its CORP says so)",
+      slot.code === 200 && slot.h["cross-origin-resource-policy"] === "cross-origin" && page.h["cross-origin-resource-policy"] === "same-site");
+    ok("a slot changing hands is wiped: Clear-Site-Data, only when asked",
+      slotWipe.h["clear-site-data"] === "\"storage\"" && !slot.h["clear-site-data"] && !page.h["clear-site-data"]);
     L.close();
 
     /* Behind Caddy every socket comes from loopback: with trustProxy
@@ -462,27 +478,60 @@ async function client(port, who) {
     L.close();
   }
 
-  section("the one fix to Scramjet, and the client's files");
+  section("our fixes to Scramjet and the libcurl transport, and the client's files");
   {
     const P = require("../lens/patch-scramjet");
-    const code = 'let x=v["set-cookie"]||[];for(let t in x)if(h){let r=f.dispatch(h,{});' + P.BEFORE + '}';
+    /* A stand-in for scramjet.all.js: each piece of code we fix, once, with other code between. */
+    const code = P.FIXES.map((f, i) => "/*" + i + "*/let x" + i + "=1;" + f.before).join(";");
     const fixed = P.patch(code);
-    ok("the cookie wait is taken out", fixed && fixed.includes(P.AFTER) && !fixed.includes(P.BEFORE));
-    ok("…and nothing else changes", fixed.replace(P.AFTER, P.BEFORE) === code);
+    ok("every fix is made", !!fixed && P.FIXES.every((f) => fixed.includes(f.after)));
+    ok("…the cookie wait is taken out", fixed && fixed.includes(P.AFTER) && !fixed.includes(P.BEFORE));
+    let back = fixed;
+    for (const f of P.FIXES) back = back.replace(f.after, f.before);
+    ok("…and nothing else changes", back === code);
     ok("it refuses when the code is not there (a new Scramjet is looked at again)", P.patch("other code") === null);
     ok("…or is there twice", P.patch(code + code) === null);
     ok("…or was already fixed", P.patch(fixed) === null);
+    ok("…or when any one fix does not fit, naming it", P.patchAll(code.replace(P.CSS_BEFORE, "")).missing === P.FIXES[1].name);
+
+    /* The stylesheet fix, run as Scramjet runs it: an empty url() keeps its brackets. */
+    const re = eval(P.CSS_AFTER.slice("replace(".length, -1));
+    const css = (s) => s.replace(re, (t, u) => t.replace(u, "/c/" + u));
+    ok("an empty url() inside var() keeps both brackets (YouTube lost half its stylesheet)",
+      css("a{b:var(--x,url()),var(--y)}") === "a{b:var(--x,url()),var(--y)}");
+    ok("…url(\"\") and url('') are left alone too", css('a{b:url("")}') === 'a{b:url("")}' && css("a{b:url('')}") === "a{b:url('')}");
+    ok("…and real addresses are still rewritten", css("a{b:url(x.png)}") === "a{b:url(/c/x.png)}" && css('a{b:url("x.png")}') === 'a{b:url("/c/x.png")}');
+    const old = eval(P.CSS_BEFORE.slice("replace(".length, -1));
+    ok("…which the old one did not (the test would catch the fix going away)",
+      "a{b:var(--x,url()),var(--y)}".replace(old, (t, u) => t.replace(u, "/c/" + u)) !== "a{b:var(--x,url()),var(--y)}");
+
+    const C = require("../lens/patch-libcurl");
+    const lc = "  async init() {\n    if (this.transport)\n      libcurl.transport = this.transport;\n" + C.BEFORE +
+      "\n      proxy: this.proxy\n    });\n  }\n  connect() {\n" + C.WS_BEFORE + "\n    };\n  }\n";
+    const lcFixed = C.patch(lc);
+    ok("the transport waits for its WebAssembly before making a session", !!lcFixed && lcFixed.includes("!libcurl.ready") &&
+      lcFixed.indexOf("!libcurl.ready") < lcFixed.indexOf("new libcurl.HTTPSession"));
+    ok("…makes the session once, however many asked at the start", lcFixed.includes("if (this.session) { this.ready = true; return; }"));
+    ok("…and passes on a WebSocket's subprotocol", lcFixed.includes('onopen(socket.protocol || "")'));
+    ok("…in a file with Windows line ends too", !!C.patch(lc.replace(/\n/g, "\r\n")));
+    ok("…and refuses a transport it does not know", C.patch("other code") === null && C.patch(lcFixed) === null);
 
     const dir = path.join(__dirname, "..", "lens");
     const read = (f) => fs.readFileSync(path.join(dir, f), "utf8");
-    const docker = read("Dockerfile"), page = read("client/index.html"), js = read("client/lens.js"), sw = read("client/sw.js");
+    const docker = read("Dockerfile"), js = read("client/lens.js"), sw = read("client/sw.js");
+    const page = read("client/slot.html"), slotJs = read("client/slot.js");
     const folder = (/client\/v\/(scramjet-[^/]+)\//.exec(docker) || [])[1];
     ok("the image patches Scramjet when it is built", /RUN node lens\/patch-scramjet\.js lens\/client\/v\/scramjet-[^ ]+\/scramjet\.all\.js/.test(docker));
     ok("the patched copy has a folder of its own (browsers keep v/ for a month)", /-fk\d+$/.test(folder || ""), folder);
-    ok("…and the page, the script and the worker all load that folder",
-      page.includes("/v/" + folder + "/") && js.includes("/v/" + folder + "/") && sw.includes("/v/" + folder + "/"));
-    ok("the deploy carries the patch", /lens\/patch-scramjet\.js/.test(fs.readFileSync(path.join(__dirname, "..", "tools", "make-deploy.js"), "utf8")));
-    ok("the Wisp address ends in /", /"\/wisp\/" \+ encodeURIComponent\(pass\) \+ "\/"/.test(js));
+    ok("…and the slot's page, its script and the worker all load that folder",
+      page.includes("/v/" + folder + "/") && slotJs.includes("/v/" + folder + "/") && sw.includes("/v/" + folder + "/"));
+    const deployJs = fs.readFileSync(path.join(__dirname, "..", "tools", "make-deploy.js"), "utf8");
+    ok("the deploy carries both patches", /lens\/patch-scramjet\.js/.test(deployJs) && /lens\/patch-libcurl\.js/.test(deployJs));
+    const curlFolder = (/client\/v\/(libcurl-transport-[^/]+)\//.exec(docker) || [])[1];
+    ok("the image patches the transport, the file lens loads included",
+      new RegExp("node lens/patch-libcurl\\.js lens/client/v/" + curlFolder + "/index\\.mjs").test(docker));
+    ok("…in a folder of its own, which lens loads", /-fk\d+$/.test(curlFolder || "") && slotJs.includes("/v/" + curlFolder + "/"), curlFolder);
+    ok("the Wisp address ends in /", /"\/wisp\/" \+ encodeURIComponent\(pass\) \+ "\/"/.test(slotJs));
     ok("searching uses DuckDuckGo's plain page, strict", /html\.duckduckgo\.com\/html\/\?kp=1&q=/.test(js));
     ok("YouTube is handed to the full mode", /youtube\\\.com/.test(js) && /t: "stream"/.test(js));
     ok("[hidden] hides, whatever display an element has", /\[hidden\]\{display:none!important\}/.test(read("client/lens.css")));
@@ -582,8 +631,11 @@ async function client(port, who) {
     const srv = fs.readFileSync(path.join(__dirname, "..", "lens", "server.js"), "utf8");
     ok("the server says whether YouTube can play here", /youtube: !!\(egress && egress\.usable\(\)\)/.test(srv));
     ok("…and the page plays it here when so, handing it over only when not", /youtubeHere = !!\(st && st\.youtube\)/.test(js) && /if \(youtubeHere \|\| !HANDOFF/.test(js));
-    ok("the bar always says not to sign in", /id="warn"[^>]*>⚠ Not private: do not sign in/.test(page));
-    ok("…and a password box says it again, loudly", /String\(t\.type\)\.toLowerCase\(\) !== "password"/.test(js) && /STOP: do not type a password here/.test(js));
+    const slotJs = fs.readFileSync(path.join(__dirname, "..", "lens", "client", "slot.js"), "utf8");
+    ok("the bar says, before anything loads, whether sites here are kept apart",
+      /id="warn"[^>]*>Starting…/.test(page) && /⚠ Not private: do not sign in to anything here/.test(js) && /Each site here has a space of its own/.test(js));
+    ok("…and a password box, where sites share one space, says STOP",
+      /String\(t\.type\)\.toLowerCase\(\) !== "password"/.test(slotJs) && /STOP: do not type a password here/.test(js));
     const setup = fs.readFileSync(path.join(__dirname, "..", "lens", "setup.sh"), "utf8");
     ok("setup runs WARP in a container of its own, its door on loopback only",
       /docker run -d --name fk-warp/.test(setup) && /-p 127\.0\.0\.1:1080:1080/.test(setup) && /--cap-drop ALL --cap-add NET_ADMIN/.test(setup));
@@ -595,6 +647,56 @@ async function client(port, who) {
       !/curl[^\n]*\| *(sh|bash)/.test(start + fs.readFileSync(path.join(__dirname, "..", "lens", "warp", "Dockerfile"), "utf8")));
     const deploy = fs.readFileSync(path.join(__dirname, "..", "tools", "make-deploy.js"), "utf8");
     ok("the deploy carries egress and the WARP container", /"lens\/egress\.js"/.test(deploy) && /"lens\/warp\/start\.sh"/.test(deploy) && /"lens\/warp\/socks\.js"/.test(deploy));
+  }
+
+  section("the lens page: each site in a space of its own");
+  {
+    const vm = require("vm");
+    const dir = path.join(__dirname, "..", "lens");
+    const read = (f) => fs.readFileSync(path.join(dir, f), "utf8");
+    const box = { self: {}, TextEncoder, TextDecoder, btoa, atob, URL };
+    vm.runInNewContext(read("client/codec.js"), box);
+    const K = box.self.FK_LENS, enc = K.CODEC.encode, dec = K.CODEC.decode;
+    const yt = "https://www.youtube.com/watch?v=jNQXAC9IVRw";
+    ok("an address is masked, and comes back the same", !/youtube/i.test(enc(yt)) && /^[A-Za-z0-9_-]+$/.test(enc(yt)) && dec(enc(yt)) === yt);
+    ok("…unicode too", dec(enc("https://ru.wikipedia.org/wiki/Москва")) === "https://ru.wikipedia.org/wiki/Москва");
+    ok("a GET form's query replaces the address's own, as a browser does",
+      dec(enc("https://example.com/search?old=1") + "?q=new") === "https://example.com/search?q=new");
+    ok("a #fragment is left as it is (it never leaves the browser) and comes back unchanged",
+      enc("identifiers") === "identifiers" && dec(enc("https://example.com/a") + "#identifiers") === "https://example.com/a#identifiers");
+    ok("an unmasked address still reads (Scramjet's own form)", dec(encodeURIComponent("https://example.com/x")) === "https://example.com/x");
+    ok("the site is the registrable name, not the whole host",
+      K.siteOf("https://a.b.example.com/x") === "example.com" && K.siteOf("https://www.bbc.co.uk/") === "bbc.co.uk" &&
+      K.siteOf("https://someone.github.io/p") === "someone.github.io" && K.siteOf("https://github.io/") === "github.io" &&
+      K.siteOf("http://192.0.2.4:8080/") === "192.0.2.4" && K.siteOf("not a url") === "");
+    ok("…so two people's pages on one host are two sites", K.siteOf("https://ana.itch.io/") !== K.siteOf("https://bo.itch.io/"));
+
+    const lensJs = read("client/lens.js"), slotJs = read("client/slot.js"), sw = read("client/sw.js"), page = read("client/index.html");
+    ok("the lens page no longer runs Scramjet itself: only slots do", !/<script[^>]*scramjet/i.test(page) && /codec\.js/.test(page));
+    ok("a slot changing hands is opened once with ?wipe=1", /slot\.html" \+ \(s\.wipe \? "\?wipe=1" : ""\)/.test(lensJs) && /\[\?&\]wipe=1/.test(slotJs));
+    ok("a slot listens only to the lens page of its own host", /e\.source !== window\.parent \|\| e\.origin !== TOP/.test(slotJs));
+    ok("the lens page listens only to the slot it made", /e\.source !== cur\.el\.contentWindow \|\| e\.origin !== cur\.origin/.test(lensJs));
+    ok("…and a slot cannot name another site in the address bar", /rooms && cur\.site && siteOf\(u\) !== cur\.site\) return/.test(lensJs));
+    ok("…nor send it anywhere but http(s)", /if \(\/\^https\?:\\\/\\\/\/i\.test\(to\)\) open\(to/.test(lensJs));
+    ok("another site loading in a slot is stopped before its scripts run, and opened in its own",
+      /ev\.window\.stop\(\)/.test(slotJs) && /t: "foreign"/.test(slotJs));
+    ok("a popup or new-window link to another site opens in that site's own space, never in this one",
+      /w\.open = function/.test(slotJs) && /foreignTo\(to\)\) \{ tell\(\{ t: "foreign", url: to, replace: false, popup: true \}\); return null; \}/.test(slotJs) &&
+      /t !== "_blank"/.test(slotJs));
+    ok("a sign-in box framed in from another site gets a STOP of its own",
+      /msg\.inside = hostOf/.test(slotJs) && /STOP: this sign-in box is/.test(lensJs) && /ON ITS OWN/.test(lensJs));
+    ok("the worker never lets a page reach another site straight from this computer",
+      /origin !== self\.location\.origin/.test(sw) || /u\.origin === self\.location\.origin\) return await fetch\(req\)/.test(sw));
+    const rescue = (/RESCUE = (\[[^\]]*\])/.exec(sw) || [])[1] || "[]";
+    ok("…pictures, fonts, sounds and styles go through the lens; scripts, pages and workers are refused",
+      /"image"/.test(rescue) && /"font"/.test(rescue) && /"style"/.test(rescue) && !/script|document|worker|iframe/.test(rescue) &&
+      /return Response\.error\(\)/.test(sw) && /importScripts\([^)]*"\/codec\.js"\)/.test(sw));
+    const caddy = read("Caddyfile"), setup = read("setup.sh");
+    ok("Caddy gets slot certificates on demand, asking the lens server first",
+      /on_demand_tls \{\s*ask http:\/\/127\.0\.0\.1:8080\/lens\/tls-ok\/LENS_HOST/.test(caddy) && /\*\.LENS_HOST \{\s*tls \{\s*on_demand/.test(caddy));
+    ok("…and setup fills in every LENS_HOST", /s\/LENS_HOST\/\$HOST\/g/.test(setup));
+    const deploy = fs.readFileSync(path.join(__dirname, "..", "tools", "make-deploy.js"), "utf8");
+    ok("the deploy carries the slot's files", ["codec.js", "slot.html", "slot.js"].every((f) => deploy.includes('"lens/client/' + f + '"')));
   }
 
   section("a client that sends first");

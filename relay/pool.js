@@ -1,11 +1,11 @@
 /* ============================================================
-   FieldKit relay :: pool — POOL HALL, eight-ball against friends
+   FieldKit relay :: pool — POOL HALL, eight-ball and nine-ball against friends
 
    Who plays: the same gamertags as DEEPHOLD (relay/colony-players.js).
    One gamertag for FieldKit's games; nothing here touches MESSAGES.
 
    How a match runs. A challenge names a gamertag, or is left open for
-   anyone. Once taken, the two take turns: a shot is sent as a
+   anyone, and a game: eight-ball, or nine-ball (0.16.3). Once taken, the two take turns: a shot is sent as a
    direction, a power and where the tip hits, and the relay plays it
    with the same engine the panels use (core/pool-engine.js) and
    decides what happened. Each player's panel replays the shot from the
@@ -13,7 +13,13 @@
    is what counted, and nobody can claim a shot that did not happen.
 
    What is kept: open challenges and matches (pool.json), and each
-   gamertag's wins and losses. A challenge nobody takes goes after two
+   gamertag's wins, losses, rating and streak.
+
+   THE LADDER (0.16.3). Every finished match moves both ratings, the
+   way chess does it (Elo): everyone starts at 1000, beating someone
+   rated above you is worth more than beating someone below, and the
+   first ten games move faster so a new player finds their place. A
+   concession counts as a loss. The lobby shows the top ten. A challenge nobody takes goes after two
    days; a match nobody touches for a week is called off.
    ============================================================ */
 "use strict";
@@ -63,7 +69,30 @@ function sweep() {
 }
 
 const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
-function record(key) { if (!has(data.records, key)) data.records[key] = { w: 0, l: 0 }; return data.records[key]; }
+const START = 1000, LADDER = 10;
+function record(key) {
+  if (!has(data.records, key)) data.records[key] = { w: 0, l: 0 };
+  const r = data.records[key];
+  if (typeof r.r !== "number") r.r = START;
+  if (typeof r.s !== "number") r.s = 0;
+  if (typeof r.best !== "number") r.best = 0;
+  return r;
+}
+/* Elo: K 40 for a player's first ten games, 24 after. */
+function rate(win, lose) {
+  const exp = 1 / (1 + Math.pow(10, (lose.r - win.r) / 400));
+  const kw = win.w + win.l < 10 ? 40 : 24, kl = lose.w + lose.l < 10 ? 40 : 24;
+  const up = Math.max(1, Math.round(kw * (1 - exp))), down = Math.max(1, Math.round(kl * (1 - exp)));
+  win.r += up; lose.r = Math.max(100, lose.r - down);
+  return [up, -down];
+}
+function ladder(meKey) {
+  const rows = Object.keys(data.records).map((k) => ({ k: k, x: record(k) })).filter((o) => o.x.w + o.x.l > 0 && o.x.tag)
+    .sort((a, b) => b.x.r - a.x.r || b.x.w - a.x.w || String(a.x.tag).localeCompare(String(b.x.tag)));
+  const rank = rows.findIndex((o) => o.k === meKey);
+  return { top: rows.slice(0, LADDER).map((o, i) => ({ n: i + 1, tag: o.x.tag, r: o.x.r, w: o.x.w, l: o.x.l, s: o.x.s, me: o.k === meKey })),
+    rank: rank >= 0 ? rank + 1 : null, of: rows.length };
+}
 function seat(m, key) { return m.a === key ? 0 : m.b === key ? 1 : -1; }
 function mine(key) { return Object.keys(data.matches).map((id) => data.matches[id]).filter((m) => m.a === key || m.b === key); }
 
@@ -71,19 +100,19 @@ function mine(key) { return Object.keys(data.matches).map((id) => data.matches[i
 function viewOf(m, key) {
   const s = seat(m, key);
   return {
-    id: m.id, status: m.status, seat: s, names: [m.names[0], m.names[1] || null], open: !m.b && m.status === "invite",
+    id: m.id, status: m.status, seat: s, names: [m.names[0], m.names[1] || null], open: !m.b && m.status === "invite", game: m.game || "8ball",
     to: m.toTag || null, created: m.created, updated: m.updated, seq: m.seq,
     yourTurn: m.status === "live" && s >= 0 && m.state.turn === s && !m.state.over,
     state: m.status === "invite" ? null : m.state,
-    last: m.last || null
+    last: m.last || null, rated: m.rated || null
   };
 }
 function brief(m, key) {
   const s = seat(m, key), st = m.state;
   return {
-    id: m.id, status: m.status, seat: s, names: m.names, open: !m.b, to: m.toTag || null, seq: m.seq, updated: m.updated,
+    id: m.id, status: m.status, seat: s, names: m.names, open: !m.b, to: m.toTag || null, seq: m.seq, updated: m.updated, game: m.game || "8ball",
     yourTurn: m.status === "live" && st && st.turn === s && !st.over,
-    winner: st && st.over ? st.winner : null,
+    winner: st && st.over ? st.winner : null, delta: m.rated && s >= 0 ? m.rated[s] : null,
     groups: st ? st.groups : null, left: st ? [E.groupLeft(st, 0), E.groupLeft(st, 1)] : null
   };
 }
@@ -94,7 +123,7 @@ function lobby(who) {
   for (const [k, v] of seen) if (now - v.at < ONLINE_MS && k !== who.key) online.push(v.tag);
   const all = Object.keys(data.matches).map((id) => data.matches[id]);
   return {
-    me: who.tag, record: record(who.key), up: !!E,
+    me: who.tag, record: Object.assign({}, record(who.key), { tag: undefined }), ladder: ladder(who.key), up: !!E,
     online: online.sort().slice(0, 50),
     open: all.filter((m) => m.status === "invite" && !m.toKey && m.a !== who.key).slice(0, 20).map((m) => brief(m, who.key)),
     invites: all.filter((m) => m.status === "invite" && m.toKey === who.key).map((m) => brief(m, who.key)),
@@ -119,7 +148,8 @@ function challenge(who, b) {
     if (mine(who.key).some((m) => m.status === "invite" && m.toKey === toKey)) return { error: "you already challenged " + toTag };
   }
   const now = clock(), id = newId();
-  data.matches[id] = { id: id, status: "invite", a: who.key, b: null, names: [who.tag, toTag], toKey: toKey, toTag: toTag, created: now, updated: now, seq: 0, state: null, last: null };
+  const game = b.game === "9ball" ? "9ball" : "8ball";
+  data.matches[id] = { id: id, status: "invite", game: game, a: who.key, b: null, names: [who.tag, toTag], toKey: toKey, toTag: toTag, created: now, updated: now, seq: 0, state: null, last: null };
   dirty = true;
   return { ok: true, match: data.matches[id] };
 }
@@ -135,7 +165,7 @@ function accept(who, id) {
   /* who breaks: the one who was challenged */
   const seed = crypto.randomBytes(4).readUInt32LE(0);
   const names = [m.names[0], m.names[1]];
-  m.state = E.newGame(seed, "8ball", names);
+  m.state = E.newGame(seed, m.game === "9ball" ? "9ball" : "8ball", names);
   m.state.turn = 1; m.state.msg = names[1] + " breaks. Place the cue ball behind the line, then shoot.";
   delete m.toKey;
   dirty = true;
@@ -164,7 +194,13 @@ function shoot(who, b) {
 function finishMatch(m) {
   m.status = "over";
   const w = m.state.winner;
-  if (w === 0 || w === 1) { record(w === 0 ? m.a : m.b).w++; record(w === 0 ? m.b : m.a).l++; }
+  if (w !== 0 && w !== 1) return;
+  const win = record(w === 0 ? m.a : m.b), lose = record(w === 0 ? m.b : m.a);
+  win.tag = m.names[w]; lose.tag = m.names[1 - w];
+  const d = rate(win, lose);
+  win.w++; lose.l++;
+  win.s = Math.max(0, win.s) + 1; win.best = Math.max(win.best, win.s); lose.s = 0;
+  m.rated = w === 0 ? [d[0], d[1]] : [d[1], d[0]];
 }
 
 function resign(who, id) {
@@ -232,4 +268,4 @@ function summary() {
   return { up: !!E, live: ms.filter((m) => m.status === "live").length, waiting: ms.filter((m) => m.status === "invite").length, players: Object.keys(data.records).length };
 }
 
-module.exports = { init, flush, stop, route, summary, _data: () => data, _sweep: sweep };
+module.exports = { init, flush, stop, route, summary, START, _data: () => data, _sweep: sweep, _rate: rate };

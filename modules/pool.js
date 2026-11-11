@@ -119,6 +119,8 @@
   function sig(o) { try { return JSON.stringify(o); } catch (e) { return String(Math.random()); } }
   function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
   function rgb(c, k) { return "rgb(" + Math.round(c[0] * k) + "," + Math.round(c[1] * k) + "," + Math.round(c[2] * k) + ")"; }
+  function gameOf() { return prefs().game === "9ball" ? "9ball" : "8ball"; }
+  function gameTitle(g) { return g === "9ball" ? "NINE-BALL" : "EIGHT-BALL"; }
   function groupName(g) { return g === "solid" ? "SOLIDS" : g === "stripe" ? "STRIPES" : "OPEN TABLE"; }
 
   /* ---- what is on screen ---------------------------------------------------- */
@@ -448,7 +450,7 @@
   }
 
   /* ---- shooting -------------------------------------------------------------- */
-  function needCall() { return gs && mode !== "practice" && gs.phase !== "break" && PE().onEight(gs, gs.turn); }
+  function needCall() { return gs && gs.mode === "8ball" && mode !== "practice" && gs.phase !== "break" && PE().onEight(gs, gs.turn); }
   function autoCall() {
     if (!needCall() || callManual) return;
     var E = PE(), c = cuePos(), pr = E.predict(gs, c.x, c.y, aim.dx, aim.dy);
@@ -651,9 +653,11 @@
       var pl = R.plates[p], g = gs.groups[p], active = !gs.over && gs.turn === p && mode !== "practice";
       pl.box.className = "ph-plate" + (active ? " on" : "") + (gs.over && gs.winner === p ? " win" : "") + (mode === "practice" && p === 1 ? " gone" : "");
       pl.name.textContent = nm[p] || "";
-      pl.grp.textContent = gs.over && gs.winner === p ? "WINNER" : g ? groupName(g) + (E.onEight(gs, p) ? " · ON THE 8" : "") : gs.phase === "break" ? (active ? "TO BREAK" : "") : "OPEN TABLE";
+      var nine = gs.mode === "9ball";
+      pl.grp.textContent = gs.over && gs.winner === p ? "WINNER" : nine ? (gs.phase === "break" ? (active ? "TO BREAK" : "") : active ? "ON THE " + E.lowest(gs) : (gs.pots[p] || 0) + " POTTED")
+        : g ? groupName(g) + (E.onEight(gs, p) ? " · ON THE 8" : "") : gs.phase === "break" ? (active ? "TO BREAK" : "") : "OPEN TABLE";
       for (var n = 1; n <= 15; n++) {
-        var chip = pl.chips[n], mineK = g ? E.kind(n) === g : false, b = gs.balls.filter(function (x) { return x.n === n; })[0];
+        var chip = pl.chips[n], mineK = nine ? n <= 9 && p === 0 : g ? E.kind(n) === g : false, b = gs.balls.filter(function (x) { return x.n === n; })[0];
         chip.className = "ph-chip" + (n > 8 ? " st" : "") + (mineK ? "" : " hide") + (b && !b.on ? " down" : "");
       }
     }
@@ -697,6 +701,8 @@
       ".ph-hud{display:flex;gap:10px;width:100%;align-items:stretch}.ph-plate{flex:1;border:1px solid var(--line);padding:6px 10px;background:rgba(0,0,0,.35);transition:border-color .2s,box-shadow .2s}",
       ".ph-plate.on{border-color:#ffd27a;box-shadow:0 0 14px rgba(255,210,122,.25)}.ph-plate.win{border-color:#6fdc90}.ph-plate.gone{visibility:hidden}",
       ".ph-plate .n{font-weight:bold;letter-spacing:.1em;font-size:13px}.ph-plate .g{font-size:10px;letter-spacing:.14em;color:var(--fg-dim);margin:2px 0 4px}.ph-plate.on .g{color:#ffd27a}",
+      ".ph-ladder{display:flex;flex-direction:column;gap:2px}.ph-lrow{display:grid;grid-template-columns:34px 1fr 52px 56px 40px 104px;align-items:center;gap:6px;padding:3px 6px;border:1px solid rgba(255,210,122,.12);background:rgba(0,0,0,.25)}" +
+      ".ph-lrow.me{border-color:#ffd27a;background:rgba(255,210,122,.08)}.ph-lrow .n{opacity:.7}.ph-lrow .r{color:#ffd27a;font-weight:bold;text-align:right}.ph-lrow .wl{opacity:.8;text-align:right}.ph-lrow .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
       ".ph-chips{display:flex;gap:3px;flex-wrap:wrap}.ph-chip{width:16px;height:16px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:bold;color:#111;box-shadow:inset -2px -2px 3px rgba(0,0,0,.35)}",
       ".ph-chip.hide{display:none}.ph-chip.down{opacity:.18}.ph-chip span{background:#fff;border-radius:50%;width:9px;height:9px;display:flex;align-items:center;justify-content:center;line-height:1}",
       ".ph-mid{flex:1.6;display:flex;flex-direction:column;justify-content:center;text-align:center;gap:3px}",
@@ -725,8 +731,15 @@
   function showHome() {
     stopMatch();
     screen = "home"; mode = null; gs = null; match = null; vis = {};
-    var root = shell("EIGHT-BALL · NINE-FOOT TABLE");
+    var root = shell(gameTitle(gameOf()) + " · NINE-FOOT TABLE");
     var home = el("div", { class: "ph-home" });
+    var gameRow = el("div", { class: "ph-row" });
+    ["8ball", "9ball"].forEach(function (g) {
+      gameRow.appendChild(ui().button(gameTitle(g), function () { setPref("game", g); showHome(); }, { primary: g === gameOf() }));
+    });
+    home.appendChild(el("div", { class: "ph-card ph-wide" }, [el("h3", { text: "WHICH GAME" }),
+      el("p", { text: gameOf() === "9ball" ? "Nine-ball: always hit the lowest ball first. Pot the 9 without a foul to win, even off another ball, even on the break." : "Eight-ball: solids or stripes, then the 8 in the pocket you call." }),
+      gameRow]));
     var lv = el("div", { class: "ph-row" });
     ["easy", "normal", "hard"].forEach(function (l) {
       lv.appendChild(ui().button(l.toUpperCase(), function () { level = l; setPref("level", l); startLocal("ai"); }, { primary: l === (prefs().level || "normal") }));
@@ -737,6 +750,7 @@
     R.online = el("div", { class: "ph-card ph-wide" });
     home.appendChild(R.online);
     home.appendChild(el("div", { class: "ph-card ph-wide" }, [el("h3", { text: "HOW TO PLAY" }), el("p", { text: "Move over the table to aim. Press, pull back for power and let go to shoot (or set the bar and press Space). Arrow keys fine-tune the aim. Click the small cue ball to hit it high (follow), low (draw) or on a side. The dashed line shows where the cue ball meets the first ball, the yellow line where that ball goes and the blue line where the cue ball goes after." }),
+      el("p", { text: "Nine-ball: only balls 1 to 9. The cue ball must hit the lowest ball on the table first; after that, anything you pot keeps your turn. Pot the 9 on a legal shot and you win, on the break or off another ball. A foul gives the other player ball in hand anywhere, and a 9 potted on a foul comes back up." }),
       el("p", { text: "Eight-ball: after the break the table is open; the first ball you pot makes you SOLIDS (1-7) or STRIPES (9-15). Pot all of yours, then the 8 in the pocket you call. A foul (scratch, hitting the wrong ball first, or no ball reaching a cushion) gives the other player ball in hand. Potting the 8 early, or scratching on it, loses." }),
       el("div", { class: "ph-row" }, [R.snd = ui().button(prefs().sound === false ? "SOUND: OFF" : "SOUND: ON", function () { var on = prefs().sound === false; setPref("sound", on); R.snd.textContent = on ? "SOUND: ON" : "SOUND: OFF"; })])]));
     root.appendChild(home);
@@ -783,26 +797,30 @@
       R.lob = el("div", { class: "ph-list" });
       box.appendChild(el("div", { class: "ph-row" }, [el("h3", { class: "ph-grow", text: "PLAY FRIENDS ONLINE" }), R.who, ui().button("SIGN OUT", function () { dropSession(); lastLobby = null; paintOnline(true); })]));
       box.appendChild(el("div", { class: "ph-row" }, [R.toInput, ui().button("CHALLENGE", function () { challenge(R.toInput.input.value); }, { primary: true }), ui().button("OPEN CHALLENGE (ANYONE)", function () { challenge(""); })]));
+      box.appendChild(el("div", { class: "ph-note", text: "Challenges are for " + gameTitle(gameOf()).toLowerCase() + ", the game picked above." }));
       box.appendChild(R.lob);
     }
     var L = lastLobby;
-    R.who.textContent = s.tag + (L && L.record ? "  ·  " + L.record.w + " WON " + L.record.l + " LOST" : "");
+    var rec = L && L.record;
+    R.who.textContent = s.tag + (rec ? "  ·  " + (typeof rec.r === "number" ? "RATING " + rec.r + "  ·  " : "") + rec.w + " WON " + rec.l + " LOST" +
+      (rec.s >= 2 ? "  ·  " + rec.s + " IN A ROW" : "") + (L.ladder && L.ladder.rank ? "  ·  #" + L.ladder.rank + " OF " + L.ladder.of : "") : "");
     clearNode(R.lob);
     if (!L) { R.lob.appendChild(el("div", { class: "ph-note", text: "Asking the relay…" })); return; }
     if (L.up === false) { R.lob.appendChild(el("div", { class: "ph-note", text: "This relay does not run POOL HALL yet." })); return; }
     var sect = function (title, items) { if (!items.length) return; R.lob.appendChild(el("div", { class: "ph-h", text: title })); items.forEach(function (x) { R.lob.appendChild(x); }); };
     sect("CHALLENGES FOR YOU", L.invites.map(function (m) {
-      return el("div", { class: "ph-item turn" }, [el("span", { class: "t", text: m.names[0] + " challenges you" }), ui().button("ACCEPT", function () { accept(m.id); }, { primary: true }), ui().button("DECLINE", function () { simple("decline", m.id); })]);
+      return el("div", { class: "ph-item turn" }, [el("span", { class: "t", text: m.names[0] + " challenges you to " + gameTitle(m.game).toLowerCase() }), ui().button("ACCEPT", function () { accept(m.id); }, { primary: true }), ui().button("DECLINE", function () { simple("decline", m.id); })]);
     }));
     sect("YOUR MATCHES", L.matches.map(function (m) {
       var opp = m.names[1 - m.seat] || "?", over = m.status === "over";
-      var badge = over ? (m.winner === m.seat ? el("span", { class: "ph-badge win", text: "WON" }) : m.winner == null ? el("span", { class: "ph-badge", text: "OFF" }) : el("span", { class: "ph-badge loss", text: "LOST" }))
+      var dl = typeof m.delta === "number" ? " " + (m.delta > 0 ? "+" : "") + m.delta : "";
+      var badge = over ? (m.winner === m.seat ? el("span", { class: "ph-badge win", text: "WON" + dl }) : m.winner == null ? el("span", { class: "ph-badge", text: "OFF" }) : el("span", { class: "ph-badge loss", text: "LOST" + dl }))
         : m.yourTurn ? el("span", { class: "ph-badge go", text: "YOUR TURN" }) : el("span", { class: "ph-badge", text: "THEIR TURN" });
       var grp = m.groups && m.groups[m.seat] ? " · you have " + groupName(m.groups[m.seat]).toLowerCase() + (m.left ? " (" + m.left[m.seat] + " left, they have " + m.left[1 - m.seat] + ")" : "") : "";
-      return el("div", { class: "ph-item" + (m.yourTurn ? " turn" : "") }, [el("span", { class: "t", text: "vs " + opp + grp }), badge, ui().button(over ? "LOOK" : "PLAY", function () { openMatch(m.id); }, { primary: !!m.yourTurn })]);
+      return el("div", { class: "ph-item" + (m.yourTurn ? " turn" : "") }, [el("span", { class: "t", text: (m.game === "9ball" ? "9-ball " : "") + "vs " + opp + grp }), badge, ui().button(over ? "LOOK" : "PLAY", function () { openMatch(m.id); }, { primary: !!m.yourTurn })]);
     }));
     sect("OPEN CHALLENGES: ANYONE CAN TAKE ONE", L.open.map(function (m) {
-      return el("div", { class: "ph-item" }, [el("span", { class: "t", text: m.names[0] + " wants a game" }), ui().button("PLAY THEM", function () { accept(m.id); }, { primary: true })]);
+      return el("div", { class: "ph-item" }, [el("span", { class: "t", text: m.names[0] + " wants a game of " + gameTitle(m.game).toLowerCase() }), ui().button("PLAY THEM", function () { accept(m.id); }, { primary: true })]);
     }));
     sect("WAITING FOR AN ANSWER", L.sent.map(function (m) {
       return el("div", { class: "ph-item" }, [el("span", { class: "t", text: m.to ? "You challenged " + m.to : "Your open challenge" }), ui().button("CANCEL", function () { simple("cancel", m.id); })]);
@@ -813,6 +831,20 @@
       L.online.forEach(function (t) { row.appendChild(el("button", { class: "fk-btn", type: "button", text: t, title: "Challenge " + t, onclick: function () { R.toInput.input.value = t; } })); });
       R.lob.appendChild(row);
     }
+    if (L.ladder && L.ladder.top && L.ladder.top.length) {
+      R.lob.appendChild(el("div", { class: "ph-h", text: "THE LADDER" }));
+      var tb = el("div", { class: "ph-ladder" });
+      L.ladder.top.forEach(function (x) {
+        tb.appendChild(el("div", { class: "ph-lrow" + (x.me ? " me" : "") }, [
+          el("span", { class: "n", text: "#" + x.n }), el("span", { class: "t", text: x.tag }),
+          el("span", { class: "r", text: String(x.r) }), el("span", { class: "wl", text: x.w + "–" + x.l }),
+          el("span", { class: "s", text: x.s >= 2 ? "🔥" + x.s : "" }),
+          x.me ? el("span", { class: "c" }) : el("button", { class: "fk-btn", type: "button", text: "CHALLENGE", onclick: function () { challenge(x.tag); } })
+        ]));
+      });
+      R.lob.appendChild(tb);
+      if (L.ladder.rank && L.ladder.rank > L.ladder.top.length) R.lob.appendChild(el("div", { class: "ph-note", text: "You are #" + L.ladder.rank + " of " + L.ladder.of + ". Beat someone above you to climb." }));
+    }
     if (!L.invites.length && !L.matches.length && !L.open.length && !L.sent.length) R.lob.appendChild(el("div", { class: "ph-note", text: "No games yet. Challenge a friend by gamertag, or post an open challenge that anyone can take." }));
   }
   function clearNode(n) { while (n.firstChild) n.removeChild(n.firstChild); }
@@ -822,8 +854,8 @@
     try { lastLobby = await api("GET", "lobby"); } catch (e) { if (e.status === 404) lastLobby = { up: false, invites: [], matches: [], open: [], sent: [], online: [] }; }
     if (screen === "home") paintOnline();
   }
-  async function challenge(to) {
-    try { await api("POST", "challenge", { to: String(to || "").trim() || null }); if (R.toInput) R.toInput.input.value = ""; ui().toast(to ? "CHALLENGE SENT TO " + String(to).toUpperCase() : "OPEN CHALLENGE POSTED", "ok"); refreshLobby(); }
+  async function challenge(to, game) {
+    try { await api("POST", "challenge", { to: String(to || "").trim() || null, game: game || gameOf() }); if (R.toInput) R.toInput.input.value = ""; ui().toast(to ? "CHALLENGE SENT TO " + String(to).toUpperCase() : "OPEN CHALLENGE POSTED", "ok"); refreshLobby(); }
     catch (e) { ui().toast(String(e.message).toUpperCase(), "warn"); }
   }
   async function accept(id) {
@@ -867,7 +899,7 @@
     R.again = ui().button("NEW GAME", function () { startLocal(mode); }, { primary: true });
     R.rerack = ui().button("RE-RACK", function () { startLocal("practice"); });
     R.resign = ui().button("CONCEDE", function () { if (ctx.confirm ? ctx.confirm("Concede this match?") : true) simple("resign", match.id).then(function () { loadMatch(match.id); }); });
-    R.rematch = ui().button("REMATCH", function () { var opp = gs.names[1 - match.seat]; challenge(opp); showHome(); }, { primary: true });
+    R.rematch = ui().button("REMATCH", function () { var opp = gs.names[1 - match.seat]; challenge(opp, gs.mode); showHome(); }, { primary: true });
     t.appendChild(el("div", { class: "ph-bar" }, [
       el("div", { class: "ph-row" }, [R.spin, el("div", {}, [R.spinT, el("div", { class: "ph-note", text: "click the ball to set spin; double-click to centre" })])]),
       el("div", {}, [R.powT, pow, el("div", { class: "ph-note", text: "or press on the table and pull back" })]),
@@ -882,12 +914,12 @@
     stopMatch();
     mode = m; level = prefs().level || level;
     var E = PE(), seed = Math.floor(Math.random() * 4294967296);
-    gs = E.newGame(seed, m === "practice" ? "practice" : "8ball", names());
+    gs = E.newGame(seed, m === "practice" ? "practice" : gameOf(), names());
     if (m === "practice") gs.msg = "Practice: shoot as you like. Scratch and you place the cue ball again.";
     if (m === "ai") gs.msg = "You break. Place the cue ball behind the line, then shoot.";
     vis = {}; syncVis(gs.balls, true);
     aim = { dx: 1, dy: 0 }; spin = { x: 0, y: 0 }; callPocket = null; callManual = false;
-    showTable(m === "ai" ? "AGAINST THE COMPUTER · " + level.toUpperCase() : m === "hot" ? "TWO PLAYERS, ONE SCREEN" : "PRACTICE");
+    showTable(m === "ai" ? gameTitle(gs.mode) + " AGAINST THE COMPUTER · " + level.toUpperCase() : m === "hot" ? gameTitle(gs.mode) + " · TWO PLAYERS, ONE SCREEN" : "PRACTICE");
     paintHud();
   }
 

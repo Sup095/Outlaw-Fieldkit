@@ -233,6 +233,7 @@ async function route(req, res, url, h) {
   else if (what === "demolish") r = act(who, now, (c) => E.demolish(c, int(body.layer), int(body.slot)));
   else if (what === "toggle") r = act(who, now, (c) => E.toggle(c, int(body.layer), int(body.slot)));
   else if (what === "dig") r = act(who, now, (c) => E.startDig(world, c, now));
+  else if (what === "incident") r = act(who, now, (c) => E.answerIncident(world, c, String(body.choice || ""), now));
   else if (what === "ship") {
     r = act(who, now, (c) => body.preset !== undefined ? E.setPreset(c, String(body.preset)) : E.setShip(c, String(body.res), body.mode !== undefined ? body.mode : body.pct));
   }

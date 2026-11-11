@@ -1,13 +1,39 @@
 # FieldKit lens: Caddy in front of the lens server. setup.sh puts the
 # real name where LENS_HOST is and installs this as /etc/caddy/Caddyfile.
 #
-# Caddy gets and renews the certificate (Let's Encrypt; ports 80 and
+# Caddy gets and renews the certificates (Let's Encrypt; ports 80 and
 # 443 must be open). It replaces any X-Forwarded-For a visitor sends
 # with their real address, which is the one lens/server.js reads
 # (trustProxy "loopback"). No access log: nothing about who opened
 # what is kept on this machine.
+#
+# s0.LENS_HOST to s15.LENS_HOST are the slots, one origin per site the
+# lens page opens (lens/client/slot.js). Their certificates are got the
+# first time each name is asked for (on-demand), and only for names the
+# lens server says are slots, so a stray name pointed here gets none.
+# They need a DNS record, *.LENS_HOST, to this machine; until it is
+# there the lens page finds no slots and keeps every site in one space,
+# as before.
+
+{
+	on_demand_tls {
+		ask http://127.0.0.1:8080/lens/tls-ok/LENS_HOST
+	}
+}
 
 LENS_HOST {
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:8080
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
+}
+
+*.LENS_HOST {
+	tls {
+		on_demand
+	}
 	encode zstd gzip
 	reverse_proxy 127.0.0.1:8080
 	header {

@@ -125,6 +125,44 @@ const cueAt = (r) => r.state.balls[0];
     ok("with ball in hand it puts the cue ball somewhere legal", sh.cue && E.placeOk(bih, sh.cue.x, sh.cue.y));
   }
 
+  section("nine-ball");
+  {
+    const g = E.newGame(7, "9ball", ["A", "B"]);
+    const onT = g.balls.filter((b) => b.on && b.n).map((b) => b.n).sort((a, b) => a - b);
+    ok("the rack is the 1 to the 9 in a diamond", g.mode === "9ball" && onT.join() === "1,2,3,4,5,6,7,8,9" && g.balls.length === 10);
+    const one = g.balls.find((b) => b.n === 1), nine = g.balls.find((b) => b.n === 9), xs = g.balls.filter((b) => b.n).map((b) => b.x);
+    ok("…the 1 at the front, the 9 in the middle", one.x === Math.min(...xs) && Math.abs(nine.y - E.W / 2) < 1e-9 && nine.x > one.x);
+    ok("…the same deal from the same seed", JSON.stringify(E.newGame(7, "9ball").balls) === JSON.stringify(g.balls));
+    ok("the ball to hit is the lowest on the table", E.targets(g).join() === "1");
+    /* a straight shot at the corner pocket, with only the balls we put there */
+    const setUp = (ns) => {
+      const s = E.newGame(3, "9ball", ["A", "B"]); s.phase = "play"; s.behind = false; s.inHand = false;
+      const P = E.POCKETS[2], dir = { x: P.mx - E.L * 0.75, y: P.my - E.W / 2 }, m = Math.hypot(dir.x, dir.y);
+      dir.x /= m; dir.y /= m;
+      s.balls.forEach((b) => { b.on = false; });
+      const tgt = ns[0], at = { x: P.mx - dir.x * 0.25, y: P.my - dir.y * 0.25 };
+      Object.assign(s.balls.find((b) => b.n === tgt), { on: true, x: at.x, y: at.y });
+      Object.assign(s.balls[0], { on: true, x: at.x - dir.x * 0.5, y: at.y - dir.y * 0.5 });
+      ns.slice(1).forEach((n, i) => Object.assign(s.balls.find((b) => b.n === n), { on: true, x: 0.3 + i * 0.1, y: 0.15 }));
+      return { s, shot: { dx: dir.x, dy: dir.y, power: 0.45, sx: 0, sy: -0.3 } };
+    };
+    const w = setUp([9]), rw = E.play(w.s, w.shot).state;
+    ok("potting the 9 on a legal shot wins", rw.over && rw.winner === 0 && /sinks the 9/.test(rw.msg), rw.msg);
+    const f = setUp([9, 3]), rf = E.play(f.s, f.shot).state;
+    ok("hitting another ball before the lowest is a foul, and a 9 potted on it comes back up",
+      !rf.over && rf.foul && /not the 3/.test(rf.foul) && rf.turn === 1 && rf.inHand && rf.balls.find((b) => b.n === 9).on, rf.msg);
+    const k = setUp([4, 6]), rk = E.play(k.s, k.shot).state;
+    ok("a legal pot keeps the turn and names the next ball", !rk.foul && rk.turn === 0 && /on the 6/.test(rk.msg), rk.msg);
+    let ended = 0, errs = 0;
+    for (let sd = 1; sd <= 4; sd++) {
+      let s = E.newGame(sd, "9ball", ["A", "B"]); const rng = E.mulberry(sd); let n = 0;
+      while (!s.over && n < 150) { const r = E.play(s, E.aiShot(s, "normal", rng)); if (r.error) { errs++; break; } s = r.state; n++; }
+      if (s.over) ended++;
+    }
+    ok("the computer plays whole games of it", ended === 4 && errs === 0, ended + " ended, " + errs + " errors");
+    ok("eight-ball is still the default", E.newGame(1).mode === "8ball" && E.newGame(1, "other").mode === "8ball");
+  }
+
   section("online, through the relay");
   {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fk-pool-"));
@@ -165,9 +203,26 @@ const cueAt = (r) => r.state.balls[0];
     const res = await call("POST", "/pool/resign", other, { id });
     ok("conceding ends it and counts", res.b.match.status === "over" && (await call("GET", "/pool/lobby", turn)).b.record.w === 1 && (await call("GET", "/pool/lobby", other)).b.record.l === 1);
     ok("a finished match takes no more shots", (await call("POST", "/pool/shot", turn, { id, seq: res.b.match.seq, shot: brk })).status === 400);
+    const lw = (await call("GET", "/pool/lobby", turn)).b, ll = (await call("GET", "/pool/lobby", other)).b;
+    ok("the ladder: the winner's rating goes up as much as the loser's goes down, from 1000",
+      lw.record.r === 1020 && ll.record.r === 980 && res.b.match.rated && res.b.match.rated[res.b.match.state.winner] === 20);
+    ok("…a streak starts for the winner and ends for the loser", lw.record.s === 1 && ll.record.s === 0 && lw.record.best === 1);
+    ok("…the lobby shows the ladder, top first, with your own row marked",
+      lw.ladder.top.length === 2 && lw.ladder.top[0].tag === turn && lw.ladder.top[0].me && lw.ladder.rank === 1 && ll.ladder.rank === 2 && ll.ladder.of === 2);
+    ok("…and your finished match says what it did to your rating", lw.matches[0].delta === 20 && ll.matches[0].delta === -20);
+    ok("…and no one's secret key or token is in it", !/key|token|pass/i.test(JSON.stringify(lw.ladder)));
+    const up = { w: 0, l: 0, r: 1000 }, top = { w: 30, l: 2, r: 1400 };
+    const d = pool._rate(up, top);
+    ok("beating someone far above you is worth more; they lose less, being settled", d[0] > 30 && -d[1] < d[0] && up.r === 1000 + d[0]);
+    const fav = { w: 30, l: 2, r: 1400 }, low = { w: 30, l: 30, r: 1000 };
+    ok("…and beating someone far below is worth little", pool._rate(fav, low)[0] <= 3);
     const open = await call("POST", "/pool/challenge", "Cal", {});
     ok("an open challenge is seen by everyone else", (await call("GET", "/pool/lobby", "Ava")).b.open.some((m) => m.id === open.b.match.id) && !(await call("GET", "/pool/lobby", "Cal")).b.open.length);
     ok("and anyone can take it", (await call("POST", "/pool/accept", "Ava", { id: open.b.match.id })).b.match.status === "live");
+    const n9 = await call("POST", "/pool/challenge", "Cal", { to: "Ben", game: "9ball" });
+    ok("a challenge can be for nine-ball, and says so", n9.b.match.game === "9ball" && (await call("GET", "/pool/lobby", "Ben")).b.invites.some((m) => m.game === "9ball"));
+    ok("…and the match it starts is nine-ball", (await call("POST", "/pool/accept", "Ben", { id: n9.b.match.id })).b.match.state.mode === "9ball");
+    ok("anything else asked for is eight-ball", (await call("POST", "/pool/challenge", "Ben", { game: "snooker" })).b.match.game === "8ball");
     const c2 = await call("POST", "/pool/challenge", "Ava", { to: "Cal" });
     ok("a challenge can be declined", (await call("POST", "/pool/decline", "Cal", { id: c2.b.match.id })).b.gone && !(await call("GET", "/pool/lobby", "Ava")).b.sent.length);
     const c3 = await call("POST", "/pool/challenge", "Ben", { to: "Cal" });
@@ -206,6 +261,13 @@ const cueAt = (r) => r.state.balls[0];
     P._shoot({ dx: 1, dy: 0.003, power: 1, cue: { x: E.HEAD - 0.12, y: E.W / 2 } }); P._finishNow();
     const st = P._state().gs;
     ok("against the computer, its turn comes when yours ends", st.turn === 0 || st.turn === 1);
+    window.localStorage = global.localStorage;
+    window.localStorage.setItem("fk.pool", JSON.stringify(Object.assign(JSON.parse(window.localStorage.getItem("fk.pool") || "{}"), { game: "9ball" })));
+    P._home();
+    ok("the hall offers both games, and remembers nine-ball", /WHICH GAME/.test(text()) && /NINE-BALL/.test(text()) && /lowest ball first/.test(text()));
+    P._start("ai");
+    ok("…and a game against the computer is then nine-ball", P._state().gs.mode === "9ball" && /NINE-BALL/.test(text()));
+    window.localStorage.setItem("fk.pool", JSON.stringify(Object.assign(JSON.parse(window.localStorage.getItem("fk.pool") || "{}"), { game: "8ball" })));
     FieldKit.need("settings").set("relayUrl", "http://relay.test");
     window.localStorage = global.localStorage;
     window.localStorage.setItem("fk.deephold", JSON.stringify({ token: tok.Ben, tag: "Ben" }));

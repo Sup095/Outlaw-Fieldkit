@@ -76,6 +76,13 @@ const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", "
   ".wasm": "application/wasm", ".css": "text/css", ".json": "application/json", ".map": "application/json",
   ".svg": "image/svg+xml", ".png": "image/png", ".ico": "image/x-icon" };
 
+/* s0.<host> to s15.<host>: the origins a site may be given (lens.js). */
+const SLOTS = 16;
+function slotName(domain, host) {
+  const m = /^s(\d{1,2})\.(.+)$/.exec(String(domain || ""));
+  return !!m && Number(m[1]) < SLOTS && String(Number(m[1])) === m[1] && m[2] === String(host || "").toLowerCase();
+}
+
 function log(level, msg) { console.log(new Date().toISOString() + " " + level + " " + msg); }
 
 function readConfig(file) {
@@ -204,6 +211,19 @@ function start(opts) {
       });
       return;
     }
+    /* Caddy asks before it gets a certificate for a name it was not
+       told of (on-demand TLS, lens/Caddyfile): yes for the slots of
+       this lens, s0. to s15.<host>, and no for any other name. Only this
+       machine is answered; a visitor coming through Caddy learns no
+       more than which names are slots, which lens.js says anyway. */
+    const tlsAsk = /^\/lens\/tls-ok\/([a-z0-9.-]{1,200})$/.exec(url.pathname);
+    if (tlsAsk && req.method === "GET") {
+      const local = /^(127\.|::1$|::ffff:127\.)/.test(String(req.socket.remoteAddress || ""));
+      const domain = String(url.searchParams.get("domain") || "").toLowerCase();
+      const ok = local && slotName(domain, tlsAsk[1]);
+      res.writeHead(ok ? 200 : 403, { "Content-Type": "text/plain", "Cache-Control": "no-store" });
+      return res.end(ok ? "ok" : "no");
+    }
     if (!clientDir || (req.method !== "GET" && req.method !== "HEAD")) { res.writeHead(404); return res.end(); }
     let rel;
     try { rel = decodeURIComponent(url.pathname).replace(/^\/+/, ""); } catch (e) { res.writeHead(400); return res.end(); }
@@ -212,13 +232,22 @@ function start(opts) {
     if (!file.startsWith(clientDir)) { res.writeHead(404); return res.end(); }
     fs.readFile(file, (e, body) => {
       if (e) { res.writeHead(404); return res.end(); }
-      res.writeHead(200, { "Content-Type": TYPES[path.extname(file)] || "application/octet-stream",
+      const head = { "Content-Type": TYPES[path.extname(file)] || "application/octet-stream",
         "Cross-Origin-Opener-Policy": "same-origin", "Cross-Origin-Embedder-Policy": "require-corp",
+        /* The lens page asks for COEP, so what it frames must say it may
+           be: a slot (another origin) may be framed by any page, which is
+           harmless, since it only listens to the lens page of its host. */
+        "Cross-Origin-Resource-Policy": rel === "slot.html" ? "cross-origin" : "same-site",
         "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer",
         /* Scramjet's own files carry their version in the folder name
            and never change; ours are asked again each time, so an
            update reaches everyone at once. */
-        "Cache-Control": /^v\//.test(rel) ? "public, max-age=2592000, immutable" : "no-cache" });
+        "Cache-Control": /^v\//.test(rel) ? "public, max-age=2592000, immutable" : "no-cache" };
+      /* A slot given to a new site is opened once with ?wipe=1 (lens.js):
+         everything the last site kept in this origin is cleared, its
+         service worker included, before the new one loads. */
+      if (rel === "slot.html" && url.searchParams.get("wipe") === "1") head["Clear-Site-Data"] = "\"storage\"";
+      res.writeHead(200, head);
       res.end(req.method === "HEAD" ? undefined : body);
     });
   });
@@ -262,7 +291,7 @@ function start(opts) {
   });
 }
 
-module.exports = { start, readConfig, passOptions, AUD, PASS_MS, TYPES };
+module.exports = { start, readConfig, passOptions, AUD, PASS_MS, TYPES, slotName, SLOTS };
 
 if (require.main === module) {
   const file = process.env.FK_LENS_CONFIG || path.join(__dirname, "config.json");

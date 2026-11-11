@@ -145,9 +145,11 @@ function create(cfg, logFn) {
   const RENEW_MS = 20 * 60 * 1000;     /* the panel renews every 10 */
 
   /* Disk pressure (RUNNER_PLAN.md §7): at 80% the expiry clock drops
-     to 14 days; at 90% only admins can upload. */
+     to 14 days; at 90% only admins can upload. A dev server (the tests)
+     may name how full its disk is with diskPct, so the tests do not
+     depend on how full the computer running them happens to be. */
   function pressure() {
-    const p = store.disk().pct;
+    const p = cfg.dev === true && typeof cfg.diskPct === "number" ? cfg.diskPct : store.disk().pct;
     return p >= 0.9 ? "full" : p >= 0.8 ? "high" : "ok";
   }
   const ttlMs = () => (pressure() === "ok" ? cfg.ttlDays : Math.min(cfg.ttlDays, cfg.pressureTtlDays)) * DAY;

@@ -1909,7 +1909,7 @@
         if (open) { drawPlaces(); findIn.focus(); }
       }),
       btn("TAB", "open this page in a browser tab of its own", openTab),
-      fullOk() ? btn("FULL MODE", "a real browser on the relay, shown as video: for YouTube, and for sites the lighter mode cannot run", function () { toFull(view.url); }) : null,
+      fullOk() ? btn("FULL MODE", "a real browser on the relay, shown as video: for sites the lighter mode cannot run", function () { toFull(view.url); }) : null,
       ui.button("FULLSCREEN", function () {
         var sh = FieldKit.service("shell");
         if (sh && sh.fullscreen) sh.fullscreen("browser");
@@ -1975,6 +1975,8 @@
         say(view.title || shorten(view.url), "");
       } else if (m.t === "blocked") {
         showBlocked(m);
+      } else if (m.t === "private") {
+        setLightPrivate(m.on === true);
       } else if (m.t === "expired") {
         renew();
       } else if (m.t === "stream") {
@@ -2240,26 +2242,55 @@
     "your relay sees every address.";
 
   /* And the lighter mode, which is different again: the page runs in
-     THIS browser, under one origin (the lens page's), and its traffic
-     is encrypted here, so the lens server sees which sites, not what. */
+     THIS browser, and its traffic is encrypted here, so the lens server
+     sees which sites, not what. Since 0.16.3 each site has an origin of
+     its own there (a "space"), when the lens server has the names for
+     them; the lens page says which (message "private") and the note
+     follows. Until it has said, the cautious one shows. */
+  var LIGHT_TAIL =
+    "Downloads come straight to this computer. This is NOT anonymity: the " +
+    "relay's owner can see which sites you open, and the network you are on " +
+    "sees a connection to the lens server. It hides what you read from the " +
+    "local network; it does not hide you from anyone else.";
   var LIGHT_FULL =
     "Pages run here, in this browser, through Scramjet; their traffic goes, " +
     "encrypted from this computer to each site, through FieldKit's lens " +
     "server, which blocks ads, trackers, malware and adult sites for " +
     "everyone. That server sees which sites you open and how much comes from " +
-    "them, not what is on the pages. Every site here shares one origin, the " +
-    "lens page's, so a site could read what another left in storage: do not " +
-    "sign in to anything private here, use FULL MODE for that. YouTube will " +
-    "not play for a rented server and opens in FULL MODE by itself; some " +
-    "other heavy sites may need it too. Downloads come straight to this " +
-    "computer. This is NOT anonymity: the relay's owner can see which sites " +
-    "you open, and the network you are on sees a connection to the lens " +
-    "server. It hides what you read from the local network; it does not hide " +
-    "you from anyone else.";
+    "them, not what is on the pages. Here every site shares one space, so a " +
+    "site could read what another left in storage: do not sign in to " +
+    "anything private here, use FULL MODE for that. Some heavy sites may " +
+    "need FULL MODE too. " + LIGHT_TAIL;
 
   var LIGHT_SHORT =
-    "Do not sign in to anything private: all sites here share one origin. " +
+    "Do not sign in to anything private: all sites here share one space. " +
     "Not anonymity: FieldKit's server sees which sites you open.";
+
+  var LIGHT_ROOMS_FULL =
+    "Pages run here, in this browser, through Scramjet. Each site gets a " +
+    "space of its own (an origin of its own, as in an ordinary browser), so " +
+    "one site cannot read what another keeps or reach its sign-ins. Traffic " +
+    "goes encrypted from this computer to each site through FieldKit's lens " +
+    "server, which blocks ads, trackers, malware and adult sites for " +
+    "everyone; it sees which sites you open, not what is on the pages or " +
+    "what you type. Signing in is fine on sites you trust. A sign-in box " +
+    "that one site sets into its own page for another (say, Google's inside " +
+    "a game site) is flagged, with a button that opens it on its own, and a " +
+    "popup to another site opens in that site's own space. The last 16 " +
+    "sites keep what they stored, sign-ins included, in this browser; the " +
+    "17th takes the place of the one used longest ago, which is wiped. Sign " +
+    "out when you finish on a computer other people use. " + LIGHT_TAIL;
+
+  var LIGHT_ROOMS_SHORT =
+    "Each site has a space of its own: sign in only where you trust the site. " +
+    "Not anonymity: FieldKit's server sees which sites you open.";
+
+  /* The lens page said whether its sites have spaces of their own. */
+  function setLightPrivate(on) {
+    if (!nodes.noteBody || !nodes.noteShort) return;
+    nodes.noteBody.textContent = on ? LIGHT_ROOMS_FULL : LIGHT_FULL;
+    nodes.noteShort.textContent = on ? LIGHT_ROOMS_SHORT : LIGHT_SHORT;
+  }
 
   function buildNote(streamed, light) {
     nodes.noteBody = el("div", { class: "br-note-body", text: light ? LIGHT_FULL : streamed ? LIVE_FULL : NOTE_FULL });
@@ -2270,7 +2301,7 @@
     });
     nodes.note = el("div", { class: "br-note" + (noteOpen ? " open" : "") }, [
       el("div", { class: "br-note-line" }, [
-        el("span", { class: "br-note-short", text: light ? LIGHT_SHORT : streamed ? LIVE_SHORT : NOTE_SHORT }),
+        nodes.noteShort = el("span", { class: "br-note-short", text: light ? LIGHT_SHORT : streamed ? LIVE_SHORT : NOTE_SHORT }),
         nodes.noteToggle
       ]),
       nodes.noteBody

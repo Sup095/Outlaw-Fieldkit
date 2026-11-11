@@ -115,7 +115,7 @@ docker run -d --name fk-lens --restart unless-stopped \
   fieldkit-lens:1 >/dev/null
 
 echo "== caddy"
-sed "s/LENS_HOST/$HOST/" "$DIR/lens/Caddyfile" > /etc/caddy/Caddyfile
+sed "s/LENS_HOST/$HOST/g" "$DIR/lens/Caddyfile" > /etc/caddy/Caddyfile
 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1 || { echo "the Caddyfile did not validate" >&2; exit 1; }
 systemctl enable caddy >/dev/null 2>&1
 systemctl reload caddy 2>/dev/null || systemctl restart caddy

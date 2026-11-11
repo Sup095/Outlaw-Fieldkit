@@ -198,7 +198,7 @@ const NOISY = "setInterval(() => process.stdout.write('x'.repeat(1000)), 5);";
   /* ---- a real run server, on a real port ---- */
   const STORE = path.join(TMP, "store");
   const mkApp = (extra) => runnerd.create(Object.assign({}, runnerd.DEFAULTS, {
-    host: "127.0.0.1", port: 0, storePath: STORE, driver: "process", dev: true,
+    host: "127.0.0.1", port: 0, storePath: STORE, driver: "process", dev: true, diskPct: 0.5,
     ticketPublicKey: pem,
     tiers: { guest: { timeoutSec: 3, outputBytes: 20000, maxFileBytes: 4096 } } }, extra || {}), () => {});
   let app = mkApp();

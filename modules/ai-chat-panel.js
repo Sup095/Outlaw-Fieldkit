@@ -176,8 +176,8 @@
       ctx.error("chat failed: " + e.message);
     } finally {
       busy = false;
-      nodes.send.disabled = false;
-      nodes.input.focus();
+      if (nodes.send) nodes.send.disabled = false;
+      if (nodes.input) nodes.input.focus();
     }
   }
 
@@ -275,7 +275,8 @@
         "offline rules. The badge on each reply says which.", 3);
 
       await refreshAvailability();
-      nodes.input.focus();
+      /* Closed while the models were being asked: nothing to focus. */
+      if (nodes.input) nodes.input.focus();
     },
 
     unmount() {

@@ -5,7 +5,17 @@
    runs here, in their browser, through Scramjet (a service worker that
    rewrites it) and libcurl.js (its TLS, in WebAssembly), and every
    connection it makes goes over one WebSocket to FieldKit's lens server
-   (lens/wisp.js), which blocks what the relay blocks.
+   (lens/wisp.js), which blocks what the relay blocks. The server only
+   ever carries encrypted bytes: TLS is made and read here.
+
+   EACH SITE IN A ROOM OF ITS OWN (0.16.3). A site runs in a slot
+   (slot.html, slot.js) on an origin of its own, s0.<this host> to
+   s15.<this host>, so the browser keeps its storage and sign-ins apart
+   from every other site's and from this page, which holds the pass and
+   the history. A slot given to a new site is wiped first. A site's own
+   frames (a video, a game) stay in its slot, as a browser keeps them.
+   When the slot names do not answer (no DNS for them yet), every site
+   shares one slot on this origin, and the page says it is not private.
 
    HOW IT IS OPENED. FieldKit's BROWSER asks the relay for a PASS (a
    signed note naming the account, 12 hours) and opens this page with it
@@ -16,64 +26,24 @@
    INSIDE BROWSER (an iframe) the panel and this page talk by
    postMessage, always tagged fk:"lens":
      out: ready, nav {url,title}, blocked {host,kind,why}, expired, failed {why},
-          password {host} (a password box was touched: warned here),
-          stream {url} (a site lens cannot play: open it in full mode)
+          password {host} (a password box was touched), private {on}
+          (whether sites have rooms of their own), stream {url} (a site
+          lens cannot play: open it in full mode)
      in:  go {url}, pass {pass}, back, forward, reload
    On its own tab, it works the same with nobody listening.
    ============================================================ */
 (function () {
   "use strict";
 
-  var V = { scram: "/v/scramjet-1.1.0-fk1/", mux: "/v/bare-mux-2.1.9/", curl: "/v/libcurl-transport-1.5.2/" };
-  var PASS_KEY = "fk.lens.pass";
+  var L = self.FK_LENS, CODEC = L.CODEC, siteOf = L.siteOf;
+  var PASS_KEY = "fk.lens.pass", SLOTS_KEY = "fk.lens.slots.v1", ISO_KEY = "fk.lens.rooms";
+  var SLOTS = 16;
   /* DuckDuckGo's plain page, strict safe search: a tenth of the main
-     page's bytes, against the month's allowance, and the main page is
-     the quicker of the two to ask a shared server's address to prove
-     it is human. Any other engine is an address away. */
+     page's bytes, against the month's allowance. Any other engine is an
+     address away. */
   var SEARCH = "https://html.duckduckgo.com/html/?kp=1&q=";
   var RENEW_MS = 10 * 60 * 1000;
   var embedded = window.parent !== window;
-
-  /* ---- addresses that do not say where they go ---------------------
-     A school's monitor (Linewise and the like) reads every address a
-     tab and its frames load. Scramjet's default puts the site in plain
-     text, /scramjet/https%3A%2F%2Fwww.youtube.com%2F..., and a filter
-     that sees YouTube there blocks the lens address itself. So the site
-     is mixed with a fixed pattern and written as base64url under /c/:
-     the monitor sees lens.<domain>/c/<letters> and nothing else. This
-     is masking, not secrecy: anyone with this file can read it back.
-
-     Scramjet runs these two as text (it sends them to its service
-     worker), so each must stand alone. decode() keeps what a page adds
-     after the letters: a GET form replaces the query, as a browser
-     would, and a #fragment replaces the fragment. */
-  var CODEC = {
-    encode: function (e) {
-      if (!e) return e;
-      var b = new TextEncoder().encode(e), s = "";
-      for (var i = 0; i < b.length; i++) s += String.fromCharCode(b[i] ^ ((i * 31 + 7) & 255));
-      return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-    },
-    decode: function (e) {
-      if (!e) return e;
-      var cut = e.search(/[?#]/), head = cut < 0 ? e : e.slice(0, cut), tail = cut < 0 ? "" : e.slice(cut);
-      var out;
-      try {
-        var s = atob(head.replace(/-/g, "+").replace(/_/g, "/")), b = new Uint8Array(s.length);
-        for (var i = 0; i < s.length; i++) b[i] = s.charCodeAt(i) ^ ((i * 31 + 7) & 255);
-        out = new TextDecoder().decode(b);
-      } catch (x) {
-        try { return decodeURIComponent(e); } catch (y) { return e; }
-      }
-      if (!/^[a-z][a-z0-9+.-]*:/i.test(out)) { try { return decodeURIComponent(e); } catch (y) { return e; } }
-      if (!tail) return out;
-      var hashAt = out.indexOf("#");
-      if (tail.charAt(0) === "#") return (hashAt < 0 ? out : out.slice(0, hashAt)) + tail;
-      var base = hashAt < 0 ? out : out.slice(0, hashAt), q = base.indexOf("?");
-      return (q < 0 ? base : base.slice(0, q)) + tail;
-    }
-  };
-  var PREFIX = "/c/";
   function unmask(x) { return x ? CODEC.decode(x) : ""; }
 
   var $ = function (id) { return document.getElementById(id); };
@@ -103,7 +73,7 @@
     try { window.parent.postMessage(msg, "*"); } catch (e) {}
   }
 
-  function say(text, level, keep) {
+  function say(text, level, keep, act) {
     note.hidden = !text;
     note.className = level || "";
     note.textContent = "";
@@ -111,6 +81,12 @@
     var t = document.createElement("span");
     t.textContent = text;
     note.appendChild(t);
+    if (act) {
+      var b = document.createElement("button");
+      b.className = "act"; b.type = "button"; b.textContent = act.label;
+      b.onclick = function () { say(""); act.run(); };
+      note.appendChild(b);
+    }
     var x = document.createElement("button");
     x.className = "x"; x.type = "button"; x.textContent = "✕"; x.title = "close";
     x.onclick = function () { say(""); };
@@ -118,18 +94,173 @@
     if (!keep) setTimeout(function () { if (note.firstChild === t) say(""); }, 9000);
   }
 
-  /* ---- Scramjet ---------------------------------------------------- */
-  var scramjet = null, connection = null, frame = null, ready = false;
+  /* ---- rooms: may sites have origins of their own here? -------------- */
+  var rooms = false, ready = false;
+  function slotOrigin(n) { return n < 0 ? location.origin : location.protocol + "//s" + n + "." + location.host; }
 
-  function wispUrl() {
-    /* In the path, not the query: libcurl.js wants the address to end in "/". */
-    return (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/wisp/" + encodeURIComponent(pass) + "/";
+  async function probeRooms() {
+    try { var k = sessionStorage.getItem(ISO_KEY); if (k === "1" || k === "0") return k === "1"; } catch (e) {}
+    if (/^s\d{1,2}\./.test(location.host) || /^[\d.]+(:\d+)?$/.test(location.host) || /^\[/.test(location.host)) return false;
+    var ok = false;
+    try {
+      var ctl = new AbortController(), t = setTimeout(function () { ctl.abort(); }, 5000);
+      var r = await fetch(slotOrigin(0) + "/lens/status", { cache: "no-store", mode: "cors", signal: ctl.signal });
+      clearTimeout(t);
+      ok = r.ok && !!(await r.json()).up;
+    } catch (e) { ok = false; }
+    try { sessionStorage.setItem(ISO_KEY, ok ? "1" : "0"); } catch (e) {}
+    return ok;
   }
 
-  async function setTransport() {
-    await connection.setTransport(V.curl + "index.mjs", [{ websocket: wispUrl() }]);
+  function showMode() {
+    $("warn").textContent = rooms
+      ? "Each site here has a space of its own: other sites cannot read what it keeps. Ads, trackers and adult sites are blocked."
+      : "⚠ Not private: do not sign in to anything here. Sites in this browser share one space and can read each other's sign-ins.";
+    $("warn").className = rooms ? "ok" : "";
+    $("start-warn").textContent = rooms
+      ? "Each site runs on its own here, apart from the others, and the server only passes on encrypted bytes. " +
+        "Signing in is fine on sites you trust; sign out when you finish if other people use this computer."
+      : "Do not sign in to anything here: no email, no school account, no social media, no shopping. " +
+        "Every site in this browser shares one space, so it is not private.";
+    tell({ t: "private", on: rooms });
   }
 
+  /* ---- the slots ----------------------------------------------------- */
+  function loadMap() {
+    try { var m = JSON.parse(localStorage.getItem(SLOTS_KEY) || "{}"); return m && typeof m === "object" ? m : {}; }
+    catch (e) { return {}; }
+  }
+  function saveMap(m) { try { localStorage.setItem(SLOTS_KEY, JSON.stringify(m)); } catch (e) {} }
+
+  /* The slot for a site: the one it had, or a free one, or the one used
+     longest ago. A slot that changes hands is wiped first. */
+  function slotFor(site) {
+    var m = loadMap(), now = Date.now();
+    if (m[site] && m[site].n >= 0 && m[site].n < SLOTS) { m[site].at = now; saveMap(m); return { n: m[site].n, wipe: false }; }
+    var used = {}, oldest = null;
+    Object.keys(m).forEach(function (s) {
+      used[m[s].n] = s;
+      if (!oldest || m[s].at < m[oldest].at) oldest = s;
+    });
+    var n = -1;
+    for (var i = 0; i < SLOTS; i++) if (!(i in used)) { n = i; break; }
+    if (n < 0) { n = m[oldest].n; delete m[oldest]; }
+    m[site] = { n: n, at: now };
+    saveMap(m);
+    return { n: n, wipe: true };
+  }
+
+  var cur = null;           /* { n, site, origin, el, up, queue } */
+  function drop() {
+    if (cur) { try { cur.el.remove(); } catch (e) {} }
+    cur = null;
+  }
+  function post(msg) {
+    if (!cur) return;
+    msg.fk = "slot";
+    if (!cur.up && msg.t !== "init") { cur.queue.push(msg); return; }
+    try { cur.el.contentWindow.postMessage(msg, cur.origin); } catch (e) {}
+  }
+
+  function openSlot(site) {
+    var s = rooms ? slotFor(site) : { n: -1, wipe: false };
+    drop();
+    var el = document.createElement("iframe");
+    el.setAttribute("allow", "fullscreen; autoplay; clipboard-write; gamepad");
+    el.setAttribute("allowfullscreen", "");
+    el.className = "slot";
+    cur = { n: s.n, site: rooms ? site : "", origin: slotOrigin(s.n), el: el, up: false, queue: [] };
+    el.src = cur.origin + "/slot.html" + (s.wipe ? "?wipe=1" : "");
+    view.appendChild(el);
+    return cur;
+  }
+
+  /* ---- history across slots ----------------------------------------- */
+  var trail = [], at = -1;
+
+  /* Open an address: in the slot of its site, the current one when it is
+     the same site. how: "new" (a fresh step), "replace", or "history". */
+  function open(u, how) {
+    if (handOff(u)) return;
+    var site = siteOf(u);
+    if (how === "new") { trail = trail.slice(0, at + 1); trail.push({ url: u }); at = trail.length - 1; }
+    else if (how === "replace" && at >= 0) trail[at] = { url: u };
+    else if (how === "replace") { trail = [{ url: u }]; at = 0; }
+    say("");
+    start.hidden = true;
+    addr.value = u;
+    if (!cur || (rooms && cur.site !== site)) openSlot(site);
+    post({ t: "go", url: u });
+    setTimeout(function () { why(hostOf(u)); }, 5000);
+  }
+
+  function move(dir) {
+    if (cur) post({ t: dir < 0 ? "back" : "forward" });
+    else if (dir < 0 && at >= 0) { at = Math.max(0, at); open(trail[at].url, "history"); }
+  }
+  function moved(m) {
+    if (m.ok) return;
+    var to = at + m.dir;
+    if (to < 0 || to >= trail.length) return;
+    at = to;
+    open(trail[at].url, "history");
+  }
+
+  /* ---- messages from the slot ---------------------------------------- */
+  var warnedFor = "";
+  window.addEventListener("message", function (e) {
+    if (!cur || e.source !== cur.el.contentWindow || e.origin !== cur.origin) return;
+    var m = e.data;
+    if (!m || m.fk !== "slot") return;
+    if (m.t === "hello") {
+      cur.up = false;
+      try { cur.el.contentWindow.postMessage({ fk: "slot", t: "init", pass: pass, site: cur.site }, cur.origin); } catch (x) {}
+    } else if (m.t === "ready") {
+      cur.up = true;
+      var q = cur.queue; cur.queue = [];
+      q.forEach(post);
+    } else if (m.t === "failed") {
+      fail(String(m.why || "Lens could not start here.") + (embedded ? " Try TAB above to open it in a tab of its own." : ""));
+    } else if (m.t === "nav" || m.t === "loaded") {
+      var u = String(m.url || "");
+      /* A slot speaks for its own site only. A page there that got past
+         Scramjet could post as the slot; it still cannot make the address
+         bar name another site over its own page. */
+      if (rooms && cur.site && siteOf(u) !== cur.site) return;
+      if (handOff(u)) { post({ t: "back" }); return; }
+      if (at >= 0) trail[at] = { url: u };
+      if (document.activeElement !== addr) addr.value = u;
+      /* The tab's title stays FieldKit's: a monitor reads titles too. */
+      tell({ t: "nav", url: u, title: String(m.title || "") });
+      if (m.t === "loaded") why(hostOf(u));
+    } else if (m.t === "foreign") {
+      var to = String(m.url || "");
+      if (/^https?:\/\//i.test(to)) open(to, m.replace ? "replace" : "new");
+    } else if (m.t === "moved") {
+      moved(m);
+    } else if (m.t === "password") {
+      var h = String(m.host || ""), inside = rooms ? String(m.inside || "") : "";
+      if (warnedFor === h + " " + inside) return;
+      warnedFor = h + " " + inside;
+      var own = "";
+      try { own = new URL(String(m.url || "")).origin + "/"; } catch (x) { own = ""; }
+      if (inside && /^https?:/i.test(own)) {
+        say("STOP: this sign-in box is " + h + "'s, set into " + inside + "'s page, so " + inside +
+          " could read what you type in it. To sign in to " + h + ", open it on its own.", "fail", true,
+          { label: "OPEN " + h.toUpperCase() + " ON ITS OWN", run: function () { open(own, "new"); } });
+      } else if (rooms) {
+        say("Signing in to " + h + ": it has a space of its own here that other sites cannot read. " +
+          "Only sign in to sites you trust, and sign out when you finish if other people use this computer.", "warn", false);
+      } else {
+        say("STOP: do not type a password here. This browser is not private: sites in it can read " +
+          "each other's sign-ins. Sign in to things only in your own browser" +
+          (embedded ? ", or in BROWSER's FULL MODE if an admin has given you it." : "."), "fail", true);
+      }
+      tell({ t: "password", host: h, private: rooms && !inside });
+    }
+  });
+
+  /* ---- start ----------------------------------------------------------- */
   async function boot() {
     if (!pass) return fail("This page needs to be opened from BROWSER in FieldKit, which signs you in to it.");
     if (passLeft() <= 0) return expired();
@@ -138,22 +269,8 @@
       var st = await fetch("/lens/status", { cache: "no-store" }).then(function (r) { return r.json(); });
       youtubeHere = !!(st && st.youtube);
     } catch (e) { youtubeHere = false; }
-    try {
-      var Loader = window.$scramjetLoadController;
-      scramjet = new (Loader().ScramjetController)({
-        prefix: PREFIX,
-        codec: { encode: CODEC.encode, decode: CODEC.decode },
-        files: { wasm: V.scram + "scramjet.wasm.wasm", all: V.scram + "scramjet.all.js", sync: V.scram + "scramjet.sync.js" }
-      });
-      await scramjet.init();
-      await navigator.serviceWorker.register("/sw.js", { scope: "/" });
-      await navigator.serviceWorker.ready;
-      connection = new BareMux.BareMuxConnection(V.mux + "worker.js");
-      await setTransport();
-    } catch (e) {
-      return fail("Lens could not start here: " + (e && e.message || e) +
-        (embedded ? ". Try TAB above to open it in a tab of its own." : "."));
-    }
+    rooms = await probeRooms();
+    showMode();
     ready = true;
     state.textContent = "Ready.";
     tell({ t: "ready" });
@@ -220,99 +337,16 @@
     } catch (e) { /* the server will say it again next time */ }
   }
 
-  function ensureFrame() {
-    if (frame) return frame;
-    frame = scramjet.createFrame();
-    frame.frame.setAttribute("allow", "fullscreen; autoplay; clipboard-write; gamepad");
-    frame.frame.setAttribute("allowfullscreen", "");
-    view.appendChild(frame.frame);
-    frame.addEventListener("urlchange", function (e) {
-      var u = String(e.url || "");
-      /* A link to YouTube clicked inside some other site: back to the
-         page it came from, and over to the mode that can play it. */
-      if (handOff(u)) { frame.back(); return; }
-      if (document.activeElement !== addr) addr.value = u;
-      var title = "";
-      try { title = frame.frame.contentDocument.title || ""; } catch (x) {}
-      /* The tab's title stays FieldKit's: a monitor reads titles too. */
-      tell({ t: "nav", url: u, title: title });
-    });
-    frame.frame.addEventListener("load", function () {
-      var u = "", title = "";
-      try { u = String(frame.url || ""); } catch (x) {}
-      watchPasswords();
-      if (!u) return;
-      why(hostOf(u));
-      /* urlchange comes before the page has a title; now it has one. */
-      try { title = frame.frame.contentDocument.title || ""; } catch (x) {}
-      if (title) {
-        tell({ t: "nav", url: u, title: title });
-      }
-    });
-    return frame;
-  }
-
-  /* Every site here shares this one origin and leaves through a shared
-     server, so a sign-in is not private: anything kept for one site can
-     be read by another. The bar says so all the time; a password box
-     says it again, loudly, the moment it is touched. */
-  var warnedFor = "";
-  function watchPasswords() {
-    var doc = null;
-    try { doc = frame && frame.frame.contentDocument; } catch (x) { doc = null; }
-    if (!doc || doc.fkWatched) return;
-    doc.fkWatched = true;
-    doc.addEventListener("focusin", function (e) {
-      var t = e.target;
-      if (!t || t.tagName !== "INPUT" || String(t.type).toLowerCase() !== "password") return;
-      var h = "";
-      try { h = hostOf(String(frame.url || "")); } catch (x) {}
-      if (warnedFor === h) return;
-      warnedFor = h;
-      say("STOP: do not type a password here. This browser is shared and is not private: sites in it can read " +
-        "each other's sign-ins. Sign in to things only in your own browser" +
-        (embedded ? ", or in BROWSER's FULL MODE if an admin has given you it." : "."), "fail", true);
-      tell({ t: "password", host: h });
-    }, true);
-    /* A GET form (a site's search box) is sent by the browser itself as
-       <masked address>?q=what+was+typed, in plain text before Scramjet
-       sees it. So it is caught here and opened as one masked address. */
-    doc.addEventListener("submit", function (e) {
-      var f = e.target;
-      if (!f || String(f.method || "get").toLowerCase() !== "get" || (f.target && f.target !== "_self") || e.defaultPrevented) return;
-      var real = "";
-      try {
-        /* Scramjet shows a page its real addresses, so .action is usually
-           the site's own; the masked one is read back if not. */
-        var a = new URL(f.action, doc.baseURI);
-        real = a.origin === location.origin && a.pathname.indexOf(PREFIX) === 0 ? CODEC.decode(a.pathname.slice(PREFIX.length)) : a.href;
-        var u = new URL(real);
-        if (u.protocol !== "https:" && u.protocol !== "http:") return;
-        u.search = new URLSearchParams(new FormData(f, e.submitter || undefined)).toString();
-        u.hash = "";
-        real = u.href;
-      } catch (x) { return; }
-      e.preventDefault();
-      addr.value = real;
-      frame.go(real);
-    }, true);
-  }
-
-  async function go(text) {
+  function go(text) {
     var u = target(text);
     if (!u) return;
     if (!ready) { first = u; return; }
     if (passLeft() <= 0) return expired();
-    if (handOff(u)) return;
-    say("");
-    start.hidden = true;
-    addr.value = u;
-    ensureFrame().go(u);
-    setTimeout(function () { why(hostOf(u)); }, 4000);
+    open(u, "new");
   }
 
   function home() {
-    if (frame) { frame.frame.remove(); frame = null; }
+    drop();
     start.hidden = false;
     addr.value = "";
     document.title = "FieldKit BROWSER";
@@ -323,17 +357,17 @@
   $("go-form").addEventListener("submit", function (e) { e.preventDefault(); go(addr.value); });
   $("search-form").addEventListener("submit", function (e) { e.preventDefault(); go($("search").value); });
   $("go").onclick = function () { go(addr.value); };
-  $("back").onclick = function () { if (frame) frame.back(); };
-  $("fwd").onclick = function () { if (frame) frame.forward(); };
-  $("reload").onclick = function () { if (frame) frame.reload(); };
+  $("back").onclick = function () { move(-1); };
+  $("fwd").onclick = function () { move(1); };
+  $("reload").onclick = function () { post({ t: "reload" }); };
   $("home").onclick = home;
   addr.addEventListener("focus", function () { addr.select(); });
 
   document.addEventListener("keydown", function (e) {
     if ((e.ctrlKey || e.metaKey) && (e.key === "l" || e.key === "L")) { e.preventDefault(); addr.focus(); }
-    if (e.key === "F5" && frame) { e.preventDefault(); frame.reload(); }
-    if (e.altKey && e.key === "ArrowLeft" && frame) { e.preventDefault(); frame.back(); }
-    if (e.altKey && e.key === "ArrowRight" && frame) { e.preventDefault(); frame.forward(); }
+    if (e.key === "F5" && cur) { e.preventDefault(); post({ t: "reload" }); }
+    if (e.altKey && e.key === "ArrowLeft") { e.preventDefault(); move(-1); }
+    if (e.altKey && e.key === "ArrowRight") { e.preventDefault(); move(1); }
   });
 
   /* From BROWSER, the panel this page sits in, and from nobody else. */
@@ -342,14 +376,14 @@
     var m = e.data;
     if (!m || m.fk !== "lens") return;
     if (m.t === "go") go(m.url);
-    else if (m.t === "back" && frame) frame.back();
-    else if (m.t === "forward" && frame) frame.forward();
-    else if (m.t === "reload" && frame) frame.reload();
+    else if (m.t === "back") move(-1);
+    else if (m.t === "forward") move(1);
+    else if (m.t === "reload") post({ t: "reload" });
     else if (m.t === "pass" && typeof m.pass === "string" && m.pass) {
       pass = m.pass;
       try { sessionStorage.setItem(PASS_KEY, pass); } catch (x) {}
-      if (connection) setTransport().then(function () { if (!ready) { ready = true; state.textContent = "Ready."; } }, function () {});
-      else boot();
+      if (cur && cur.up) post({ t: "pass", pass: pass });
+      if (!ready) boot();
     }
   });
 

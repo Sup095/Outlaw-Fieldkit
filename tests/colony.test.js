@@ -340,6 +340,64 @@ function call(method, p, token, body, msgWho) {
     ok("then it all carries on", w.colonies.p0.stock.ore !== stock);
   }
 
+  section("incidents: now and then, something wants an answer");
+  {
+    const w = world(1); const c = w.colonies.p0;
+    let t = run(w, T0, E.INCIDENT_FIRST_MS - 60000, true);
+    ok("not in a colony's first quarter of an hour", !c.incident);
+    t = run(w, t, 120000, true);
+    ok("then one comes, while its owner is here", !!c.incident && !!E.INCIDENTS[c.incident.kind]);
+    const v = E.viewFor(w, t, "p0").colony.incident;
+    ok("the view shows it with its choices and how long it waits",
+      v && v.title && v.text && v.choices.length >= 2 && v.choices.every((x) => x.id && x.label && typeof x.ok === "boolean") && v.left > 0 && v.left <= E.INCIDENT_WAIT_MS / 1000);
+    ok("the owner is told, so FieldKit's notices show it", w.events.some((e) => e.to === "p0" && e.kind === "incident"));
+    const kind = c.incident.kind, stockBefore = JSON.stringify(c.stock);
+    const w2 = world(1); run(w2, T0, E.INCIDENT_FIRST_MS + 60000, true);
+    ok("the same colony on the same day gets the same one (the engine stays deterministic)", w2.colonies.p0.incident && w2.colonies.p0.incident.kind === kind);
+    run(w, t, E.INCIDENT_WAIT_MS + 30000, false);
+    ok("left unanswered it passes, and says so", !c.incident && c.log.some((l) => /nobody answered/.test(l.text)));
+    ok("…and an absent owner gets no new one", !c.incident);
+
+    const away = world(1); run(away, T0, 2 * H, false);
+    ok("nothing comes while nobody is playing", !away.colonies.p0.incident && !(away.colonies.p0.incidents > 0));
+
+    const fresh = (kind, extra) => { const x = world(1); const xc = x.colonies.p0; xc.layers = 3; Object.assign(xc, extra || {}); xc.incident = Object.assign({ kind, at: T0, until: T0 + E.INCIDENT_WAIT_MS, k: 2, seq: 0 }, (extra && extra.inc) || {}); return { x, xc }; };
+    const a = fresh("seam");
+    const ore0 = a.xc.stock.ore, hap0 = a.xc.hap;
+    const r1 = E.answerIncident(a.x, a.xc, "work", T0 + 1000);
+    ok("a choice does what it says: the seam worked gives ore and costs mood", r1.ok && a.xc.stock.ore > ore0 && a.xc.hap < hap0 && !a.xc.incident && /seam/i.test(a.xc.log[a.xc.log.length - 1].text));
+    ok("…and nothing is left to answer", E.answerIncident(a.x, a.xc, "work", T0 + 2000).error === "nothing is waiting for an answer");
+    const b = fresh("smuggler"); b.xc.stock.goods = 0;
+    ok("a choice that costs what you do not have is refused, and shown as not possible",
+      /not enough goods/.test(E.answerIncident(b.x, b.xc, "goods", T0).error || "") && !E.incidentView(b.x, b.xc, T0).choices.find((x) => x.id === "goods").ok && !!b.xc.incident);
+    ok("nonsense is not a choice", /not one of the choices/.test(E.answerIncident(b.x, b.xc, "__proto__", T0).error || ""));
+    const d = fresh("drifters", { inc: { n: 40 } }); d.xc.stock.food = 1000;
+    ok("drifters need beds", /no beds/.test(E.answerIncident(d.x, d.xc, "take", T0).error || ""));
+    const d2 = fresh("drifters", { inc: { n: 1 } }); d2.xc.stock.food = 1000; const pop0 = d2.xc.pop;
+    ok("…and with a bed free, they join", E.answerIncident(d2.x, d2.xc, "take", T0).ok && d2.xc.pop === pop0 + 1);
+    const g = fresh("cache"), g2 = fresh("cache");
+    E.answerIncident(g.x, g.xc, "open", T0); E.answerIncident(g2.x, g2.xc, "open", T0);
+    ok("a gamble goes the same way for the same colony and the same incident", JSON.stringify(g.xc.stock) === JSON.stringify(g2.xc.stock) && g.xc.log.slice(-1)[0].text === g2.xc.log.slice(-1)[0].text);
+    let shut = 0, held = 0;
+    for (let i = 0; i < 12; i++) {
+      const q = fresh("groan", { born: T0 + i * 977, inc: { layer: 0, seq: i } });
+      const on0 = q.xc.grid[0].filter((x) => x && x.on).length;
+      E.answerIncident(q.x, q.xc, "hold", T0);
+      const on1 = q.xc.grid[0].filter((x) => x && x.on).length;
+      if (on1 < on0) shut++; else held++;
+      if (q.xc.grid[0].some((x) => x && !x.on && (x.t === "lift" || x.t === "scrubber"))) shut = -99;
+    }
+    ok("a ceiling left alone sometimes holds and sometimes shuts a building, never the lift or the air", shut > 0 && held > 0, shut + " shut, " + held + " held");
+    const ask = world(1); ask.civ.stage = 0; const ac = ask.colonies.p0; ac.stock.ore = 1500; ac.stock.water = 1500; ac.stock.fungus = 1500;
+    ac.incident = { kind: "ask", at: T0, until: T0 + 60000, k: 1, seq: 0, res: "ore", amt: 100 };
+    const given0 = ac.given, prog0 = ask.civ.progress.ore || 0;
+    ok("the Civilization's ask, answered, reaches the Civilization", E.answerIncident(ask, ac, "send", T0).ok && ac.given > given0 && (ask.civ.progress.ore || 0) + (ask.civ.stock.ore || 0) > prog0);
+    const p = world(1); const pc = p.colonies.p0; run(p, T0, E.INCIDENT_FIRST_MS + 60000, true);
+    const until0 = pc.incident && pc.incident.until;
+    p.paused = { since: T0, by: "admin" }; E.stepWorld(p, T0 + E.INCIDENT_FIRST_MS + 60000 + 3 * H);
+    ok("a paused world stops the incident's clock too", pc.incident && pc.incident.until === until0 + 3 * H - 15000 || (pc.incident && pc.incident.until > until0 + 2 * H));
+  }
+
   section("the balance holds (a short simulated run)");
   {
     const r = sim.run({ days: 4, mix: { grinder: 1, casual: 2, ghost: 0 } });
@@ -397,6 +455,12 @@ function call(method, p, token, body, msgWho) {
     ok("they found a colony, and the name is cleaned", found.status === 200 && found.body.colony && found.body.colony.name === "bDeepb Haven");
     ok("one colony each", (await call("POST", "/colony/found", tok, { biome: "seam" })).status === 409);
     const wd = colony._world();
+    wd.colonies.sam.incident = { kind: "seam", at: clockNow, until: clockNow + E.INCIDENT_WAIT_MS, k: 1, seq: 0 };
+    const seen = (await call("GET", "/colony/me", tok)).body.colony.incident;
+    ok("an incident reaches the panel over the wire", seen && seen.title === "A RICH SEAM" && seen.choices.length === 2);
+    const ans = await call("POST", "/colony/incident", tok, { choice: "later" });
+    ok("…and is answered over it", ans.status === 200 && !ans.body.colony.incident && !wd.colonies.sam.incident);
+    ok("…once", (await call("POST", "/colony/incident", tok, { choice: "later" })).status === 400);
     wd.colonies.sam.stock.ore = 500;
     const b1 = await call("POST", "/colony/build", tok, { layer: 0, slot: 6, type: "bunk" });
     ok("they can build", b1.status === 200 && b1.body.colony.grid[0][6].t === "bunk" && wd.colonies.sam.stock.ore === 460);

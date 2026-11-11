@@ -75,7 +75,21 @@
   function num(v, lo, hi, d) { v = Number(v); if (!isFinite(v)) return d; return v < lo ? lo : v > hi ? hi : v; }
 
   /* ---- a new game ----------------------------------------------------- */
-  function rack(seed) {
+  /* Nine-ball's diamond: the 1 at the front, the 9 in the middle, the
+     rest anywhere. */
+  function rack9(seed) {
+    var r = mulberry(seed >>> 0), balls = [{ n: 0, x: HEAD - 0.12, y: WD / 2, on: true }];
+    var rest = [2, 3, 4, 5, 6, 7, 8];
+    for (var i = rest.length - 1; i > 0; i--) { var j = Math.floor(r() * (i + 1)); var t = rest[i]; rest[i] = rest[j]; rest[j] = t; }
+    var dx = 2 * R * 0.8660254 + 0.0008, dy = 2 * R + 0.0008, rows = [1, 2, 3, 2, 1];
+    for (var k = 0; k < 5; k++) for (var j2 = 0; j2 < rows[k]; j2++) {
+      var n = k === 0 ? 1 : k === 2 && j2 === 1 ? 9 : rest.pop();
+      balls.push({ n: n, x: FOOT.x + k * dx, y: FOOT.y + (j2 - (rows[k] - 1) / 2) * dy, on: true });
+    }
+    return balls;
+  }
+  function rack(seed, mode) {
+    if (mode === "9ball") return rack9(seed);
     var r = mulberry(seed >>> 0), balls = [{ n: 0, x: HEAD - 0.12, y: WD / 2, on: true }];
     var solids = [2, 3, 4, 5, 6, 7], stripes = [9, 10, 11, 12, 13, 14, 15];
     function take(list) { return list.splice(Math.floor(r() * list.length), 1)[0]; }
@@ -96,11 +110,14 @@
     return balls;
   }
 
-  /* mode: "8ball" (rules) or "practice" (no rules, it is always your turn) */
+  /* mode: "8ball" (rules), "9ball" (0.16.3: hit the lowest ball first;
+     whoever pots the 9 legally wins) or "practice" (no rules, it is
+     always your turn) */
   function newGame(seed, mode, names) {
+    mode = mode === "practice" || mode === "9ball" ? mode : "8ball";
     return {
-      v: 1, mode: mode === "practice" ? "practice" : "8ball", seed: seed >>> 0,
-      balls: rack(seed), turn: 0, groups: [null, null], phase: "break", inHand: true, behind: true,
+      v: 1, mode: mode, seed: seed >>> 0,
+      balls: rack(seed, mode), turn: 0, groups: [null, null], phase: "break", inHand: true, behind: true,
       over: false, winner: null, shots: 0, names: names || ["PLAYER 1", "PLAYER 2"],
       msg: (names ? names[0] : "PLAYER 1") + " breaks. Place the cue ball behind the line, then shoot.", foul: null, pots: [0, 0]
     };
@@ -116,12 +133,15 @@
   function targets(state, p) {
     if (p == null) p = state.turn;
     if (state.mode === "practice") return state.balls.filter(function (b) { return b.on && b.n; }).map(function (b) { return b.n; });
+    if (state.mode === "9ball") { var lo = lowest(state); return lo ? [lo] : []; }
     var g = state.groups[p];
     if (state.phase === "break") return state.balls.filter(function (b) { return b.on && b.n; }).map(function (b) { return b.n; });
     if (!g) return state.balls.filter(function (b) { return b.on && b.n && b.n !== 8; }).map(function (b) { return b.n; });
     var mine = state.balls.filter(function (b) { return b.on && kind(b.n) === g; }).map(function (b) { return b.n; });
     return mine.length ? mine : [8];
   }
+
+  function lowest(state) { var lo = 0; state.balls.forEach(function (b) { if (b.on && b.n && (!lo || b.n < lo)) lo = b.n; }); return lo; }
 
   /* can the cue ball go here? */
   function placeOk(state, x, y) {
@@ -318,6 +338,8 @@
       return s;
     }
 
+    if (s.mode === "9ball") return finish9(state, s, shot, ev, potted, cueBall);
+
     var wasBreak = s.phase === "break";
     var g = state.groups[me];
     var onEight = !!g && state.balls.filter(function (b) { return b.on && kind(b.n) === g; }).length === 0;
@@ -371,6 +393,40 @@
     } else {
       s.inHand = false; s.turn = opp;
       s.msg = (potted.length ? names[me] + " potted " + potted.join(", ") + " but none of theirs. " : wasBreak ? "Nothing down on the break. " : "") + names[opp] + " to shoot.";
+    }
+    return s;
+  }
+  /* Nine-ball. The cue ball must hit the lowest ball on the table first;
+     after that any ball potted keeps the turn, and potting the 9 without
+     a foul wins, on the break too. A foul gives the other player ball in
+     hand anywhere, and a 9 potted on a foul comes back to the foot spot. */
+  function finish9(state, s, shot, ev, potted, cueBall) {
+    var me = s.turn, opp = 1 - me, names = s.names, wasBreak = s.phase === "break", lo = lowest(state);
+    var foul = null;
+    if (ev.cueOff) foul = "scratch: the cue ball went in";
+    else if (ev.first === null) foul = "the cue ball hit nothing";
+    else if (ev.first !== lo) foul = "hit the " + ev.first + " first, not the " + lo;
+    else if (wasBreak && !potted.length && Object.keys(ev.railBalls).length < 4) foul = "weak break: fewer than four balls reached a cushion";
+    else if (!wasBreak && !potted.length && !ev.railAfter) foul = "no ball reached a cushion after the hit";
+    s.phase = "play"; s.behind = false;
+    s.pots[me] += potted.filter(function (n) { return n !== 9; }).length;
+    var nine = potted.indexOf(9) >= 0;
+    if (nine && !foul) {
+      s.over = true; s.winner = me; s.phase = "over"; s.inHand = false;
+      s.msg = names[me] + (wasBreak ? " sinks the 9 on the break and wins!" : ev.first !== 9 ? " sinks the 9 off the " + ev.first + " and wins!" : " sinks the 9 and wins!");
+      return s;
+    }
+    if (nine) { var e = ball(s, 9); e.on = true; e.x = FOOT.x; e.y = FOOT.y; while (!spotFree(s, e)) e.x += 0.004; }
+    if (foul) {
+      s.foul = foul; s.turn = opp; s.inHand = true;
+      if (!cueBall.on) { cueBall.on = true; cueBall.x = HEAD - 0.12; cueBall.y = WD / 2; nudgeFree(s); }
+      s.msg = "FOUL by " + names[me] + ": " + foul + "." + (nine ? " The 9 comes back up." : "") + " " + names[opp] + " has ball in hand on the " + lowest(s) + ".";
+    } else if (potted.length) {
+      s.inHand = false;
+      s.msg = names[me] + " potted " + potted.join(", ") + " and shoots again, on the " + lowest(s) + ".";
+    } else {
+      s.inHand = false; s.turn = opp;
+      s.msg = (wasBreak ? "Nothing down on the break. " : "") + names[opp] + " to shoot, on the " + lowest(s) + ".";
     }
     return s;
   }
@@ -542,7 +598,7 @@
     L: L, W: WD, R: R, HEAD: HEAD, FOOT: FOOT, POCKETS: POCKETS, SEGS: SEGS, DT: DT, VMAX: VMAX, LEVELS: LEVELS,
     kind: kind, rack: rack, newGame: newGame, prepare: prepare, finish: finish, play: play, clean: clean, Sim: Sim,
     targets: targets, groupLeft: groupLeft, placeOk: placeOk, predict: predict, pocketFor: pocketFor, aiShot: aiShot, options: options,
-    onEight: onEightNow, mulberry: mulberry, clone: clone
+    onEight: onEightNow, lowest: lowest, mulberry: mulberry, clone: clone
   };
   if (typeof module !== "undefined" && module.exports) module.exports = API;
   else if (root && root.FieldKit) root.FieldKit.provide("poolEngine", API);

@@ -173,6 +173,22 @@ const inputs = () => all(host).filter((n) => n.tagName === "INPUT");
     ok("the card then shows the dig going", /DIGGING LAYER/.test(text()) && /left/.test(text()));
   }
 
+  section("sound");
+  {
+    const D = FieldKit.service("deephold");
+    ok("building clanks and digging rumbles", D._played().includes("build") && D._played().includes("dig"), D._played().join());
+    click(all(host).find((n) => n.tagName === "BUTTON" && /MENU/.test(n.textContent)));
+    ok("the menu has a SOUND switch", /SOUND:/.test(text()) && !!all(host).find((n) => n.tagName === "BUTTON" && n.textContent === "OFF"));
+    click(all(host).find((n) => n.tagName === "BUTTON" && n.textContent === "OFF"));
+    const before = D._played().length;
+    try { await D._api("POST", "build", { layer: 0, slot: 0, type: "nothing" }); } catch (e) { /* refused is fine */ }
+    click(button("RESUME"));
+    ok("…and OFF means silence", D._played().length === before);
+    click(all(host).find((n) => n.tagName === "BUTTON" && /MENU/.test(n.textContent)));
+    click(all(host).find((n) => n.tagName === "BUTTON" && n.textContent === "ON"));
+    click(button("RESUME"));
+  }
+
   section("the menu, and the notifications");
   {
     click(all(host).find((n) => n.tagName === "BUTTON" && /MENU/.test(n.textContent)));

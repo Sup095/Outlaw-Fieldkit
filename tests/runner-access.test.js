@@ -308,7 +308,7 @@ const MIN = 60000;
     const pair = crypto.generateKeyPairSync("ed25519");
     const sign = (handle, tier) => ticket.sign(pair.privateKey, { handle, tier, exp: Date.now() + 60000 });
     const app = runnerd.create(Object.assign({}, runnerd.DEFAULTS, { host: "127.0.0.1", port: 0,
-      storePath: STORE, driver: "process", dev: true,
+      storePath: STORE, driver: "process", dev: true, diskPct: 0.5,
       ticketPublicKey: pair.publicKey.export({ type: "spki", format: "pem" }) }), () => {});
     const port = await app.listen();
     const A = app.access;

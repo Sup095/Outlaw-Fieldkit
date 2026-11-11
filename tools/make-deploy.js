@@ -188,8 +188,9 @@ const tarOk = tar.status === 0 && fs.existsSync(tarball);
    here: lens/setup.sh writes one on the server the first time. */
 const LENS = ["lens/server.js", "lens/wisp.js", "lens/meter.js", "lens/egress.js", "lens/Dockerfile", "lens/setup.sh", "lens/Caddyfile",
   "lens/warp/Dockerfile", "lens/warp/start.sh", "lens/warp/socks.js",
-  "lens/patch-scramjet.js", "lens/config.example.json", "lens/vendor/package.json", "lens/vendor/package-lock.json",
-  "lens/client/index.html", "lens/client/lens.js", "lens/client/lens.css", "lens/client/sw.js"];
+  "lens/patch-scramjet.js", "lens/patch-libcurl.js", "lens/config.example.json", "lens/vendor/package.json", "lens/vendor/package-lock.json",
+  "lens/client/index.html", "lens/client/lens.js", "lens/client/lens.css", "lens/client/sw.js",
+  "lens/client/codec.js", "lens/client/slot.html", "lens/client/slot.js"];
 const lensOut = path.join(OUT, "lens");
 fs.rmSync(lensOut, { recursive: true, force: true });
 for (const f of RELAY_CODE) {

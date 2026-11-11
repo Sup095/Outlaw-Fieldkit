@@ -10,6 +10,15 @@
   "use strict";
 
   var NOTES = [
+    { v: "0.16.3", items: [
+      "BROWSER (lighter): each site gets a space of its own, so no site can read another's sign-ins. When the bar is green, signing in to sites you trust is fine.",
+      "BROWSER (lighter): popups to another site open in that site's own space; a sign-in box set inside another site's page gets a STOP and a button to open it alone.",
+      "BROWSER (lighter): pictures a page tried to load straight from a site now come through the lens, so your computer never asks the site directly.",
+      "POOL HALL: nine-ball, against the computer, with a friend here, or online.",
+      "POOL HALL: the ladder. Online matches move your rating; see the top ten, your place and your streak, and challenge anyone on it in one click.",
+      "DEEPHOLD: incidents. Now and then something wants a decision: drifters at the airlock, a smuggler, a sealed cache, spore fever. Ignore one and it passes.",
+      "DEEPHOLD: sound. Building, digging, a new stage, a wave coming and how it went. Quiet, with a switch in the menu."
+    ] },
     { v: "0.16.2", items: [
       "OUTPOST: DEEPHOLD is here too, the same shared colony as in FieldKit.",
       "OUTPOST asks you to sign in when it starts (you can turn that off), and has the screen lock: set a PIN in SETTINGS, lock with Ctrl+L or after a few idle minutes.",
