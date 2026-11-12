@@ -213,7 +213,7 @@ CHECKS, then open a build from its buttons.
 ## GAME MODE: your choice of games, or none
 
 GAME MODE opens a library of games and apps full screen, with one bar to
-come back. **No download here has any games inside it.** The games sit in a
+come back. **No FieldKit file has any games inside it.** The games sit in a
 `games/` folder on a drive, or on a relay for the people signed in to it.
 So there are three ways to have it, and each is one step:
 
@@ -221,7 +221,7 @@ So there are three ways to have it, and each is one step:
 |---|---|
 | **No GAME MODE at all** | Download the `-NO-GAME-MODE` files from the release. If you build your own copy, answer **n** to setup's GAME MODE question (or `node build.js --no-game-mode`). Its code is left out of those files, and no games go on your drives or relay. |
 | **Your own games and apps** | `node tools/add-games.js "a folder of your games"`. A game is a `.html` file, or a folder with an `index.html` in it. They get a library page with search and groups, go on drives, and open through your relay for signed-in people. |
-| **The Outlaw Engine** | The library GAME MODE was first made for. Its games are All rights reserved (Outlaw Systems) and are not in this repository or its releases. On the owner's relay they open for signed-in people. If you are given a pack of them (a zip), unzip it into `games/` so that `games/outlaw-engine/index.html` exists. |
+| **The Outlaw Engine** | The library GAME MODE was first made for: 29 games and 3 apps. Download `OUTLAW-ENGINE-GAMES.zip` from the [latest release](../../releases/latest) and unzip it into your FieldKit folder's `games/`, so that `games/outlaw-engine/index.html` exists. Then restart the relay, or build the drive or the deploy bundle again. The games are © Outlaw Systems, All rights reserved, and are not in this repository: the `LICENSE.md` inside the pack (section 2.7) lets you offer them on your own relay to the people signed in to it, unchanged and never for money, and nothing more. |
 | GAME MODE, nothing in it yet | Use the ordinary files. GAME MODE says there are no games and how to add some. |
 
 Your own library and the Outlaw Engine can sit side by side: your library's

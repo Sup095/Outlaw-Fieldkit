@@ -12,10 +12,12 @@
    drive after `node build.js --deploy`, and through their relay after a
    restart (or `node tools/make-deploy.js` for a relay in Docker).
 
-   THIS TOOL NEVER PUBLISHES ANYTHING. games/ is gitignored and no build,
-   release or snapshot includes it. Whether a pack is given out, and to
-   whom, is the decision of whoever owns the games in it: the Outlaw
-   Engine is All rights reserved (its LICENSE.md is inside the pack).
+   THIS TOOL NEVER PUBLISHES ANYTHING. games/ is gitignored and no build
+   or snapshot includes it. Whether a pack is given out, and to whom, is
+   the decision of whoever owns the games in it. The Outlaw Engine is All
+   rights reserved; its owner publishes its pack beside each FieldKit
+   release (gh release upload), and section 2.7 of the LICENSE.md inside
+   says what someone running their own relay may do with it.
 
    No packages: a zip is written here with Node's own zlib.
    ============================================================ */
