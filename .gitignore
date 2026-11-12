@@ -90,3 +90,7 @@ games.local.json
 
 # a relay started from the repo root by mistake writes here
 /data/
+
+# The same two builds without GAME MODE (build.js)
+FIELDKIT-NO-GAME-MODE.html
+OUTPOST-NO-GAME-MODE.html

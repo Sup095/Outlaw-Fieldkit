@@ -1,11 +1,49 @@
 # SETTING UP FIELDKIT FROM NOTHING
 
+## THE SHORT WAY
+
+If you only want a relay of your own running, this is all of it. You need
+[Node.js](https://nodejs.org) 22 or newer and the files (the green **Code**
+button on GitHub, **Download ZIP**, unzip).
+
+```bash
+node tools/setup.js
+```
+
+answers six questions (Enter keeps each suggestion), writes your settings,
+and builds your copy. Then:
+
+```bash
+node relay/start.js
+```
+
+Open `http://localhost:8080/health` in a browser: `"up": true` means it is
+running. Open `OUTPOST-STANDALONE.html` in Chrome, press **C** while it
+starts, type `http://localhost:8080`, then MESSAGES, CREATE ACCOUNT with the
+admin name you gave setup. Done.
+
+| Then | Do |
+|---|---|
+| Let people in from outside your network | [Part 3](#part-3--the-subdomain-and-the-tunnel) makes a tunnel; run setup again and paste its token |
+| See what is wrong | `node tools/setup.js --check` |
+| Change an answer | `node tools/setup.js` again |
+| Your own games in GAME MODE, or no GAME MODE | [README, GAME MODE](README.md#game-mode-your-choice-of-games-or-none) |
+| A drive, a container, your own signed updates | the parts below |
+
+The rest of this page is the long way: every part in order, with what each
+is for, so that when something breaks you know which part to look at. It
+was written around one setup (a working copy on an SSD at `F:\FieldKit`, a
+thumb drive, and a relay in a Pterodactyl container); swap in your own
+folder and wherever your relay runs. The streamed browser, RUNNER and the AI
+models come after, and the [README](README.md#running-your-own-server)
+lists them.
+
+---
+
+## THE LONG WAY
+
 This assumes you have the files and a domain on Cloudflare, and nothing
-else set up. It goes in order. Each part says what it is for, so if
-something breaks you know which part to look at rather than starting
-over. It covers the drive, the relay and the tunnel; the streamed browser,
-RUNNER and the AI models come after, and the
-[README](README.md#running-your-own-server) lists them in order.
+else set up.
 
 There are **three places** and each has one job. Almost every confusing
 failure comes from doing something in the wrong one:
@@ -150,12 +188,17 @@ neither.
 
 ### 2.2 Make config.json
 
-On your PC, copy `relay/config.example.json` to `relay/config.local.json`
-and edit it, then run `node build.js`, which writes `relay/config.json` to
-upload. The example file is heavily commented — every `"_name"` key is a
-note about the key below it, and the relay ignores them.
+The quick way: `node tools/setup.js` asks for the few things that are yours,
+makes the provision token, writes `relay/config.local.json` and runs the
+build. `node tools/setup.js --check` then says what, if anything, is wrong.
 
-The three things you must change:
+By hand: make `relay/config.local.json` holding only the settings you want
+to change (it is laid over `relay/config.example.json`, so you do not copy
+the whole example), then run `node build.js`, which writes
+`relay/config.json` to upload. The example file is heavily commented: every
+`"_name"` key is a note about the key below it, and the relay ignores them.
+
+The three things that matter:
 
 **`provisionToken`** — a one-time secret that authorises creating the
 vault. Generate one on your PC:
@@ -172,8 +215,8 @@ Pterodactyl sets `SERVER_PORT` at runtime and that **overrides** this
 value, so if they disagree the panel wins. Check the panel for the real
 number.
 
-**`aiTargets`** — only matters if you want the AI relay. Delete the
-entries or leave them; unreachable targets just report unreachable.
+**`aiTargets`** — only matters if you want the AI relay. It is empty unless
+you fill it in; `_aiTargets_example` in the example file shows the shape.
 
 Leave `trustProxy` as `false` for now. Part 3 says when to change it,
 and changing it early is the one mistake in this document that is
@@ -317,7 +360,12 @@ Upload the result to `/home/container/cloudflared-bin/cloudflared`.
 
 ### 3.5 Wire it up
 
-In `config.json`:
+The quick way: run `node tools/setup.js` again and paste the token at
+question 3. It also does 3.6 for you (the relay then listens only for the
+tunnel, and believes only the tunnel about who is calling), which is right
+whenever nothing else forwards a port to the relay.
+
+By hand, in `relay/config.local.json` (then `node build.js`):
 
 ```json
 "cloudflared": {
@@ -575,6 +623,11 @@ changed", not "the drive changed".
 ---
 
 ## WHEN SOMETHING IS WRONG
+
+On the computer that has the code, `node tools/setup.js --check` reads your
+settings and says what is wrong in plain words (a missing admin, a
+placeholder token, the dangerous `trustProxy` combination, settings newer
+than the built config). For everything else:
 
 Start with the app, not the terminal — on the Chromebook there is no
 terminal, and the app is built to diagnose itself.

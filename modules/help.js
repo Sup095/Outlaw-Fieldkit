@@ -318,20 +318,24 @@
       title: "GAME MODE",
       tag: "apps",
       body: [
-        "The Outlaw Engine, your library of games and apps, inside FieldKit and OUTPOST.",
+        "A library of games and apps inside FieldKit and OUTPOST: the Outlaw Engine, a library of your relay owner's own, or both.",
         { steps: [
           "Open GAME MODE (GAMES group, or type game in Ctrl+K).",
           "Press ENTER GAME MODE for full screen, or PLAY IN THIS WINDOW.",
-          "Press any key at the engine's screen, then pick a game from its library.",
+          "Pick a game from the library. (At the Outlaw Engine's first screen, press any key or tap.)",
           "BACK TO FIELDKIT, on the bar at the top, closes it."
         ] },
         { rows: [
-          ["ON A DRIVE", "opens the copy beside FIELDKIT.html"],
+          ["ON A DRIVE", "opens the games folder beside FIELDKIT.html"],
           ["NO COPY", "opens through the relay when signed in"],
+          ["NO GAMES", "it says so; whoever runs your relay can add some"],
+          ["TOUCH", "sticks and buttons appear when you touch a game"],
+          ["GAMEPAD", "plug one in; the action games use it"],
           ["SAVES", "kept by each game, as before"],
-          ["CHECKS", "the engine's own SYSTEM CHECK, inside"]
+          ["CHECKS", "the Outlaw Engine's own SYSTEM CHECK, inside"]
         ] },
-        "Everything inside is the Outlaw Engine as it is. FieldKit only opens it. © Outlaw Systems."
+        "Everything inside runs as it is; FieldKit only opens it. The Outlaw Engine is © Outlaw Systems. Running your own FieldKit? " +
+        "node tools/add-games.js adds any folder of HTML games, and every release also has a FIELDKIT and an OUTPOST file without GAME MODE."
       ]
     },
     {

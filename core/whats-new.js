@@ -10,6 +10,15 @@
   "use strict";
 
   var NOTES = [
+    { v: "0.17.0", items: [
+      "GAME MODE: every game works on a phone or tablet. Sticks and buttons appear at the first touch, and a gamepad works in the action games.",
+      "GAME MODE: PANTHEON is redrawn (pixel-art land, sprites, a picture on every event) with a calmer panel: three suggested miracles, the rest in tabs.",
+      "GAME MODE: PANTHEON asks you less often (you choose how often), has 18 new events and 12 great turnings of the age, and rival gods and kings play smarter.",
+      "GAME MODE: Rustgrid Rebellion, AstroLab, IRONFALL and others now fit a small screen, and wide games say to turn the phone.",
+      "GAME MODE can hold games of your own: whoever builds your FieldKit can add any folder of HTML games. With none, it says so and how to add some.",
+      "Every release also has FIELDKIT and OUTPOST without GAME MODE, for anyone who wants neither. PREFLIGHT and UPDATE know both kinds.",
+      "Making your own relay is one command (node tools/setup.js), with a plain-word check of your settings. The README lists the steps."
+    ] },
     { v: "0.16.3", items: [
       "BROWSER (lighter): each site gets a space of its own, so no site can read another's sign-ins. When the bar is green, signing in to sites you trust is fine.",
       "BROWSER (lighter): popups to another site open in that site's own space; a sign-in box set inside another site's page gets a STOP and a button to open it alone.",

@@ -2150,9 +2150,10 @@ server.listen(config.port, config.host, () => {
   try { pool.init({ dataDir: DATA_DIR, log: log }); } catch (e) { log("ERROR", "pool: not started: " + e.message); }
   try {
     /* in the image the copy sits beside the relay; in the repo, one level up */
-    const gr = [path.join(__dirname, "games", "outlaw-engine"), path.join(__dirname, "..", "games", "outlaw-engine")].find((d) => fs.existsSync(path.join(d, "index.html")));
-    const g = games.init({ dataDir: DATA_DIR, root: gr || null });
-    log("INFO", g.up ? "game mode: the Outlaw Engine" + (g.version ? " v" + g.version : "") + " for signed-in players" : "game mode: no copy of the games on this relay (node tools/sync-games.js, then deploy)");
+    const gd = [path.join(__dirname, "games"), path.join(__dirname, "..", "games")].find((d) =>
+      ["library", "outlaw-engine"].some((n) => fs.existsSync(path.join(d, n, "index.html"))));
+    const g = games.init({ dataDir: DATA_DIR, dir: gd || null });
+    log("INFO", g.up ? "game mode: " + g.name + (g.version ? " v" + g.version : "") + " for signed-in players" : "game mode: no games on this relay (node tools/add-games.js <folder> adds your own; GAME MODE says so meanwhile)");
   } catch (e) { log("ERROR", "game mode: not started: " + e.message); }
 
   const rn = runner.init({ dataDir: DATA_DIR, config: config.runner || {}, log: log,

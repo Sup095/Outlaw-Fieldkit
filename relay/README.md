@@ -29,6 +29,20 @@ Mutating Bastion actions (kill-switch, restarts) live at `POST /actions` and are
 
 ## Setup
 
+**The short way**, on any computer with Node.js 22 or newer, from the
+repository's folder:
+
+```bash
+node tools/setup.js      # six questions; writes your settings and builds
+node relay/start.js      # the relay, on http://localhost:8080
+```
+
+`node tools/setup.js --check` says what is wrong, in plain words. The
+[README](../README.md#running-your-own-server) has the six steps, and what
+follows is the same thing by hand, for a relay in a Pterodactyl container.
+GAME MODE's games, if you want any, come from `games/` beside this folder
+(`node tools/add-games.js`); a relay without any just says so.
+
 1. Run `node tools/make-deploy.js` on your PC and upload what it puts in
    `deploy/relay-upload/` to the container. That is every file the relay needs
    and nothing else, with your `config.json`. (The Docker image carries the
@@ -49,7 +63,7 @@ Mutating Bastion actions (kill-switch, restarts) live at `POST /actions` and are
    ```
    node -e "console.log(require('crypto').randomBytes(24).toString('base64url'))"
    ```
-4. Fill in `aiTargets`. Lowest `priority` wins; the relay fails over automatically
+4. Optional: fill in `aiTargets` (empty by default; `_aiTargets_example` shows the shape). Lowest `priority` wins; the relay fails over automatically
    when the preferred target is unreachable.
 5. Set the Pterodactyl **MAIN_FILE** to `start.js` (or `server.js` if you want
    neither side-car).

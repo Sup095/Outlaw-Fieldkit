@@ -1,16 +1,17 @@
 /* ============================================================
    FieldKit relay :: games — GAME MODE through the relay
 
-   GAME MODE (modules/game-mode.js) runs the Outlaw Engine, the user's own
-   hub of games. On a drive it opens the copy beside FIELDKIT.html. Where
-   there is no copy (a single downloaded file, a friend on OUTPOST) it
-   opens this one: the same files, copied into the relay image by
-   tools/make-deploy.js from games/outlaw-engine/ (tools/sync-games.js).
-   They are served exactly as they are; the engine keeps its own look and
-   its own diagnostics.
+   GAME MODE (modules/game-mode.js) opens a library of games: the relay
+   owner's own (games/library/, made by tools/add-games.js), the Outlaw
+   Engine (games/outlaw-engine/, tools/sync-games.js), or both. On a drive
+   it opens the copy beside FIELDKIT.html. Where there is no copy (a single
+   downloaded file, a friend on OUTPOST) it opens this one: the same
+   files, put beside the relay by tools/make-deploy.js. They are served
+   exactly as they are; each game keeps its own look, and the Outlaw
+   Engine its own diagnostics.
 
-   ONLY FOR PEOPLE WHO ARE SIGNED IN. The games are the user's (All rights
-   reserved), not a public site. Someone signed in to MESSAGES, or with a
+   ONLY FOR PEOPLE WHO ARE SIGNED IN. The games belong to whoever put them
+   here (the Outlaw Engine is All rights reserved), not a public site. Someone signed in to MESSAGES, or with a
    gamertag, asks POST /games/ticket and gets a path with a ticket in it:
 
      /games/t/<ticket>/index.html
@@ -43,18 +44,34 @@ const TYPES = {
   ".webmanifest": "application/manifest+json"
 };
 
-let root = null, key = null, clock = Date.now, info = null;
+let root = null, entry = "", key = null, clock = Date.now, info = null;
 
-/* opts: { dataDir, root (the outlaw-engine folder), now } */
+/* What a games folder holds, and so what is served:
+     library/        the owner's own games (tools/add-games.js). When it is
+                     there the whole games folder is served and the library's
+                     page is the way in, so its link to ../outlaw-engine/
+                     works when that is there too.
+     outlaw-engine/  alone: served by itself, as before. */
+function pick(dir) {
+  if (!dir) return null;
+  const has = (p) => fs.existsSync(path.join(dir, p, "index.html"));
+  if (has("library")) return { root: path.resolve(dir), entry: "library/" };
+  if (has("outlaw-engine")) return { root: path.resolve(dir, "outlaw-engine"), entry: "" };
+  return null;
+}
+
+/* opts: { dataDir, now, dir (a games folder: see pick) or root (one library's own folder) } */
 function init(opts) {
   opts = opts || {};
   clock = opts.now || Date.now;
-  root = opts.root ? path.resolve(opts.root) : null;
-  if (root && !fs.existsSync(path.join(root, "index.html"))) root = null;
+  const p = opts.dir ? pick(opts.dir) : null;
+  root = p ? p.root : opts.root ? path.resolve(opts.root) : null;
+  entry = p ? p.entry : "";
+  if (root && !fs.existsSync(path.join(root, entry, "index.html"))) root = null;
   info = null;
   if (root) {
     try {
-      const t = fs.readFileSync(path.join(root, "fieldkit-games.js"), "utf8");
+      const t = fs.readFileSync(path.join(root, entry, "fieldkit-games.js"), "utf8");
       const i = t.indexOf("window.FK_GAMES =");
       if (i >= 0) info = JSON.parse(t.slice(i + 17).trim().replace(/;\s*$/, ""));
     } catch (e) { info = null; }
@@ -65,8 +82,9 @@ function init(opts) {
     key = crypto.randomBytes(32);
     try { fs.mkdirSync(opts.dataDir, { recursive: true }); fs.writeFileSync(kf, key, { mode: 0o600 }); } catch (e) { /* a key for this run only */ }
   }
-  return { up: !!root, version: info && info.version };
+  return { up: !!root, version: info && info.version, name: name() };
 }
+function name() { return String((info && (info.engine || info.name)) || "Outlaw Engine").slice(0, 40); }
 function up() { return !!root; }
 
 const mac = (exp) => crypto.createHmac("sha256", key).update("games:" + exp).digest("base64url").slice(0, 22);
@@ -105,7 +123,7 @@ async function route(req, res, url, h) {
   if (seg[0] !== "games") return false;
   const what = seg[1] || "", method = req.method;
   if (what === "status" && method === "GET") {
-    h.send(res, 200, { up: up(), version: info ? info.version || null : null, library: info && info.library ? { games: info.library.games, apps: info.library.apps } : null });
+    h.send(res, 200, { up: up(), name: up() ? name() : null, version: info ? info.version || null : null, library: info && info.library ? { games: info.library.games, apps: info.library.apps } : null });
     return true;
   }
   if (what === "ticket" && method === "POST") {
@@ -113,7 +131,7 @@ async function route(req, res, url, h) {
     const who = h.who(req);
     if (!who) { h.send(res, 401, { error: "sign in to MESSAGES, or with your gamertag, to play through the relay", needsSignIn: true }); return true; }
     const t = ticket();
-    h.send(res, 200, { ok: true, path: "/games/t/" + t + "/index.html", expires: parseInt(t.split(".")[0], 36), info: info || null });
+    h.send(res, 200, { ok: true, path: "/games/t/" + t + "/" + entry + "index.html", expires: parseInt(t.split(".")[0], 36), info: info || null });
     return true;
   }
   if (what === "t" && (method === "GET" || method === "HEAD")) {

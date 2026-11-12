@@ -1,22 +1,33 @@
 /* ============================================================
    FieldKit :: game-mode — GAME MODE
-   The Outlaw Engine, the user's own hub of games and apps, opened from
-   FieldKit or OUTPOST: full screen with one thin bar to come back, or in
-   a window like any other app.
+   A library of games and apps, opened from FieldKit or OUTPOST: full
+   screen with one thin bar to come back, or in a window like any other
+   app. A copy of FieldKit can hold either or both of two libraries:
 
-   NOTHING OF THE ENGINE IS CHANGED OR MERGED. It runs in a frame exactly
-   as it is in its own folder: its look, its library, its settings and
-   its own diagnostics (SYSTEM CHECK, DIAG, FULL SCAN) stay its own.
-   FieldKit only finds a copy and opens it.
+     games/library/         your own games: any folder of HTML games, made
+                            into a library by `node tools/add-games.js`
+     games/outlaw-engine/   the Outlaw Engine, the hub of games and apps
+                            this was first made for (tools/sync-games.js,
+                            or its pack unzipped into games/)
+
+   Your own library is opened first when there is one, and its page links
+   to the Outlaw Engine if that is there too. A copy with neither says so
+   and says how to add some. (A build can also leave GAME MODE out
+   altogether: build.js, --no-game-mode.)
+
+   NOTHING IN A LIBRARY IS CHANGED OR MERGED. It runs in a frame exactly
+   as it is in its own folder: its look, its settings and, for the Outlaw
+   Engine, its own diagnostics (SYSTEM CHECK, DIAG, FULL SCAN) stay its
+   own. FieldKit only finds a copy and opens it.
 
    WHERE THE COPY COMES FROM, first that works:
-     1. DRIVE: games/outlaw-engine/ beside FIELDKIT.html or OUTPOST.html,
-        put there by `node build.js --deploy` from tools/sync-games.js.
-        Found by loading its fieldkit-games.js with a <script> tag, which
-        works from file:// where fetch does not.
-     2. RELAY: the same files in the relay image (relay/games.js), for
-        someone signed in to MESSAGES or with a gamertag: the relay hands
-        out a ticket good for twelve hours and the frame opens that.
+     1. DRIVE: the folders above beside FIELDKIT.html or OUTPOST.html,
+        put there by `node build.js --deploy`. Found by loading the
+        folder's fieldkit-games.js with a <script> tag, which works from
+        file:// where fetch does not.
+     2. RELAY: the same files on the relay (relay/games.js), for someone
+        signed in to MESSAGES or with a gamertag: the relay hands out a
+        ticket good for twelve hours and the frame opens that.
 
    The frame is another origin (another file, or the relay), so a game
    cannot reach FieldKit, its vault or its sign-ins.
@@ -24,9 +35,12 @@
 (function (FieldKit) {
   "use strict";
 
-  var LOCAL = "games/outlaw-engine/";
+  var LOCALS = ["games/library/", "games/outlaw-engine/"];   /* your own first */
   var GAMES = "fk.deephold";
-  var ctx, el, host = null, gone = true, local = null, localTried = false, relayInfo = null, note = "", overlay = null;
+  var ctx, el, host = null, gone = true, local = null, localTried = false, relayInfo = null, relayUp = null, note = "", overlay = null;
+
+  /* What the library calls itself: "Outlaw Engine", or the name given to tools/add-games.js. */
+  function libName(info) { return String((info && (info.engine || info.name)) || "GAME MODE").slice(0, 40); }
 
   function ui() { return FieldKit.service("ui"); }
   function relayBase() {
@@ -43,19 +57,18 @@
   }
 
   /* 1. a copy beside this page? */
-  function findLocal() {
+  function findIn(folder) {
     return new Promise(function (resolve) {
-      if (localTried) return resolve(local);
       var base;
-      try { base = new URL(LOCAL, document.baseURI || window.location.href).href; } catch (e) { localTried = true; return resolve(null); }
-      if (!/^(file|https?):/.test(base)) { localTried = true; return resolve(null); }
+      try { base = new URL(folder, document.baseURI || window.location.href).href; } catch (e) { return resolve(null); }
+      if (!/^(file|https?):/.test(base)) return resolve(null);
       var s = document.createElement("script"), done = false;
+      try { delete window.FK_GAMES; } catch (e) { window.FK_GAMES = undefined; }
       var finish = function (ok) {
         if (done) return; done = true;
-        localTried = true;
-        local = ok && window.FK_GAMES ? { url: base + "index.html", info: window.FK_GAMES } : null;
+        var hit = ok && window.FK_GAMES ? { url: base + "index.html", info: window.FK_GAMES } : null;
         try { s.parentNode && s.parentNode.removeChild(s); } catch (e) { /* gone */ }
-        resolve(local);
+        resolve(hit);
       };
       s.onload = function () { finish(true); };
       s.onerror = function () { finish(false); };
@@ -63,6 +76,16 @@
       s.src = base + "fieldkit-games.js";
       document.head.appendChild(s);
     });
+  }
+  var finding = null;
+  function findLocal() {
+    if (localTried) return Promise.resolve(local);
+    if (!finding) finding = (async function () {
+      for (var i = 0; i < LOCALS.length && !local; i++) local = await findIn(LOCALS[i]);
+      localTried = true; finding = null;
+      return local;
+    })();
+    return finding;
   }
 
   /* 2. a ticket from the relay */
@@ -92,9 +115,13 @@
     try {
       var res = await window.fetch(base + "/games/status", { cache: "no-store", mode: "cors" });
       if (!res.ok) return null;
-      return JSON.parse((await res.text()) || "{}");
+      var j = JSON.parse((await res.text()) || "{}");
+      relayUp = !!j.up;
+      return j;
     } catch (e) { return null; }
   }
+  /* Known for sure that nothing can open: no copy here, and no relay or a relay with none. */
+  function empty() { return localTried && !local && (!relayBase() || relayUp === false); }
 
   /* where to open, or why not */
   async function source() {
@@ -111,7 +138,7 @@
     el = el || ui().el;
     var frame = document.createElement("iframe");
     frame.className = "gx-frame";
-    frame.setAttribute("title", "Outlaw Engine");
+    frame.setAttribute("title", libName(src.info));
     frame.setAttribute("allow", "fullscreen; autoplay; gamepad; clipboard-write");
     frame.setAttribute("referrerpolicy", "no-referrer");
     frame.src = src.url;
@@ -119,7 +146,7 @@
     var fs = el("button", { class: "gx-btn", type: "button", text: "⛶ FULL SCREEN", onclick: function () { toggleFull(); } });
     var bar = el("div", { class: "gx-bar" }, [
       back,
-      el("span", { class: "gx-title", text: "OUTLAW ENGINE" + (src.info && src.info.version ? " v" + src.info.version : "") + " · GAME MODE" }),
+      el("span", { class: "gx-title", text: libName(src.info).toUpperCase() + (src.info && src.info.version ? " v" + src.info.version : "") + (src.info ? " · GAME MODE" : "") }),
       el("span", { class: "gx-from", text: src.from === "DRIVE" ? "FROM THIS DRIVE" : "THROUGH THE RELAY" }),
       fs
     ]);
@@ -171,13 +198,13 @@
     host.appendChild(root);
     if (inWindow) {
       var fr = document.createElement("iframe");
-      fr.className = "gx-frame"; fr.setAttribute("title", "Outlaw Engine");
+      fr.className = "gx-frame"; fr.setAttribute("title", libName(inWindow.info));
       fr.setAttribute("allow", "fullscreen; autoplay; gamepad; clipboard-write");
       fr.setAttribute("referrerpolicy", "no-referrer");
       fr.src = inWindow.url;
       root.appendChild(el("div", { class: "gx-bar" }, [
         el("button", { class: "gx-btn", type: "button", text: "◂ BACK", onclick: function () { paint(); } }),
-        el("span", { class: "gx-title", text: "OUTLAW ENGINE · GAME MODE" }),
+        el("span", { class: "gx-title", text: libName(inWindow.info).toUpperCase() + (inWindow.info ? " · GAME MODE" : "") }),
         el("button", { class: "gx-btn", type: "button", text: "⛶ GO FULL SCREEN", onclick: function () { enter(inWindow); paint(); } })
       ]));
       root.appendChild(fr);
@@ -186,13 +213,25 @@
     var info = (local && local.info) || relayInfo;
     var body = el("div", { class: "gx-body" });
     root.appendChild(body);
-    body.appendChild(el("div", { class: "gx-logo", text: "OUTLAW ENGINE" }));
-    body.appendChild(el("div", { class: "gx-sub", text: "GAME MODE · YOUR GAMES AND APPS" + (info && info.version ? " · v" + info.version : "") }));
+    var outlaw = !info || /^outlaw engine$/i.test(libName(info));
+    body.appendChild(el("div", { class: "gx-logo", text: libName(info).toUpperCase() }));
+    body.appendChild(el("div", { class: "gx-sub", text: (info ? "GAME MODE · " : "") + "YOUR GAMES AND APPS" + (info && info.version ? " · v" + info.version : "") }));
+    if (empty()) {
+      /* Nothing to open, and it is known: say so, and say how games get here. */
+      body.appendChild(el("p", { class: "gx-warn", text: "THERE ARE NO GAMES IN THIS COPY YET." }));
+      body.appendChild(el("p", { class: "gx-p", text: "GAME MODE opens a library of games from a games folder beside this file (a FieldKit drive), or from your relay while you are signed in. This copy has neither" + (relayBase() ? ": the relay answered that it has none." : ", and no relay is set up (RELAY LINK).") }));
+      body.appendChild(el("p", { class: "gx-p", text: "To add some, whoever builds your FieldKit runs  node tools/add-games.js <a folder of HTML games>  and then builds the drive or the relay again. The README's GAME MODE part has the steps." }));
+      body.appendChild(el("div", { class: "gx-row" }, [
+        el("button", { class: "gx-btn", type: "button", text: "LOOK AGAIN", onclick: function () { localTried = false; local = null; relayUp = null; note = "LOOKING..."; paint(); findLocal().then(function () { return local ? null : relayStatus(); }).then(function () { note = ""; paint(); }); } })
+      ]));
+      if (note) body.appendChild(el("p", { class: "gx-p", text: note }));
+      return;
+    }
     body.appendChild(el("div", { class: "gx-row" }, [
       el("button", { class: "gx-play", type: "button", text: "▶ ENTER GAME MODE", onclick: function () { go("full"); } }),
       el("button", { class: "gx-btn", type: "button", text: "PLAY IN THIS WINDOW", onclick: function () { go("window"); } })
     ]));
-    var where = local ? "Opens from this drive (games/outlaw-engine)." : localTried ? "No copy on this drive, so it opens through the relay while you are signed in." : "";
+    var where = local ? "Opens from this drive (the games folder beside this file)." : localTried ? "No copy on this drive, so it opens through the relay while you are signed in." : "";
     if (where) body.appendChild(el("p", { class: "gx-p", text: where }));
     if (note) body.appendChild(el("p", { class: note.charAt(0) === "!" ? "gx-warn" : "gx-p", text: note }));
     if (wantSignIn) {
@@ -202,7 +241,8 @@
       ]));
     }
     if (info && info.library && info.library.sections) {
-      body.appendChild(el("div", { class: "gx-count", text: info.library.games + " GAMES · " + info.library.apps + " APPS · " + info.library.workshop + " WORKSHOP · " + info.library.legacy + " LEGACY" }));
+      body.appendChild(el("div", { class: "gx-count", text: [["games", "GAMES"], ["apps", "APPS"], ["workshop", "WORKSHOP"], ["legacy", "LEGACY"]]
+        .filter(function (k) { return info.library[k[0]] > 0; }).map(function (k) { return info.library[k[0]] + " " + k[1]; }).join(" · ") }));
       var list = el("div", { class: "gx-lib" });
       info.library.sections.forEach(function (s) {
         if (s.group === "LEGACY") return;
@@ -213,7 +253,9 @@
       });
       body.appendChild(list);
     }
-    body.appendChild(el("p", { class: "gx-p dim", text: "Everything inside is the Outlaw Engine as it is: its own look, settings and SYSTEM CHECK. In full screen, the bar at the top brings you back. © Outlaw Systems." }));
+    body.appendChild(el("p", { class: "gx-p dim", text: outlaw
+      ? "Everything inside is the Outlaw Engine as it is: its own look, settings and SYSTEM CHECK. In full screen, the bar at the top brings you back. © Outlaw Systems."
+      : "Everything inside is this copy's own library, as it was added (tools/add-games.js). Each game keeps its own look and saves. In full screen, the bar at the top brings you back." }));
   }
 
   function css() {
@@ -243,11 +285,11 @@
   function selfcheck() {
     return [{ name: "GAME MODE CAN FIND THE GAMES", critical: false, run: async function () {
       var l = await findLocal();
-      if (l) return "on this drive: Outlaw Engine" + (l.info.version ? " v" + l.info.version : "") + ", " + (l.info.files || "?") + " files";
+      if (l) return "on this drive: " + libName(l.info) + (l.info.version ? " v" + l.info.version : "") + ", " + (l.info.files || "?") + " files";
       var r = await relayStatus();
-      if (r && r.up) return "not on this drive; the relay has them (v" + (r.version || "?") + ") for signed-in people";
-      if (!relayBase()) return "no copy on this drive and no relay set up, so GAME MODE cannot open";
-      throw new Error("SKIPPED — no copy on this drive, and this relay has none");
+      if (r && r.up) return "not on this drive; the relay has them (" + (r.name || "Outlaw Engine") + (r.version ? " v" + r.version : "") + ") for signed-in people";
+      if (!relayBase()) return "no games on this drive and no relay set up: GAME MODE says so and how to add some (tools/add-games.js)";
+      throw new Error("SKIPPED — no games on this drive, and this relay has none (tools/add-games.js adds some)");
     } }];
   }
 
@@ -257,8 +299,8 @@
     title: "GAME MODE",
     icon: "▶",
     group: "GAMES",
-    about: "The Outlaw Engine: your games and apps, full screen",
-    keywords: "game mode games outlaw engine arcade play library apps steam console fullscreen",
+    about: "Your library of games and apps, full screen",
+    keywords: "game mode games outlaw engine arcade play library apps steam console fullscreen own",
     width: 980,
     height: 700,
     guestSafe: true,
@@ -268,7 +310,7 @@
       css();
       paint();
       await findLocal();
-      if (!local) relayStatus().then(function (r) { if (r && r.up && !relayInfo) relayInfo = { version: r.version, library: null }; paint(); });
+      if (!local) relayStatus().then(function (r) { if (r && r.up && !relayInfo) relayInfo = { engine: r.name || "Outlaw Engine", version: r.version, library: null }; paint(); });
       paint();
     },
     unmount() { gone = true; host = null; }

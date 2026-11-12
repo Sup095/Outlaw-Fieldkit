@@ -196,7 +196,7 @@ var driveChecked = false, relayChecked = false, ranAuto = false;
 var manifestInfo = null;
 /* The FieldKit version this page was written for; a test keeps it
    equal to core/kernel.js, so it is updated with every release. */
-var FOR_VERSION = "0.16.3";
+var FOR_VERSION = "0.17.0";
 /* Next to the drive's files (FIELDKIT.html, core/...), or next to the
    downloaded single-file builds. Decided by whether core/kernel.js loads. */
 var layout = "unknown";
@@ -965,6 +965,13 @@ async function checkServices(G, base) {
     return res.status === 200 ? JSON.parse(await res.text()) : null;
   });
   rec(G, "POOL HALL", ph.v && ph.v.up ? "PASS" : "INFO", ph.v && ph.v.up ? "online matches are open" : "this relay does not run it (older than 0.14.0); the computer and two-player games still work");
+  var gm = await guard(10000, async function () {
+    var res = await fetch(base + "/games/status", { cache: "no-store", mode: "cors" });
+    return res.status === 200 ? JSON.parse(await res.text()) : null;
+  });
+  rec(G, "GAME MODE", gm.v && gm.v.up ? "PASS" : "INFO", gm.v && gm.v.up
+    ? "this relay has games for signed-in people: " + String(gm.v.name || "Outlaw Engine").slice(0, 40) + (gm.v.library ? " (" + gm.v.library.games + " games, " + gm.v.library.apps + " apps)" : "")
+    : "this relay has no games. GAME MODE says so and still opens games from a drive; the files without GAME MODE have no such app");
   var n = await guard(10000, async function () {
     var res = await fetch(base + "/notices", { cache: "no-store", mode: "cors" });
     return res.status === 200 ? JSON.parse(await res.text()) : null;
@@ -1109,7 +1116,7 @@ async function checkCapability() {
   rec(G, "loading core/kernel.js", r.v ? "PASS" : "INFO",
     r.v ? "separate script files load from this location — FIELDKIT.html will boot"
         : "not next to this file, so this is the downloaded single-file builds: OPEN FIELDKIT and OPEN OUTPOST " +
-          "open FIELDKIT-STANDALONE.html and OUTPOST-STANDALONE.html, which must be in the same folder as this page. " +
+          "open FIELDKIT-STANDALONE.html and OUTPOST-STANDALONE.html (or the -NO-GAME-MODE files, if those are the ones you downloaded), which must be in the same folder as this page. " +
           "(On a FieldKit drive this would mean the drive is incomplete: " + (r.to ? "timed out" : errStr(r.e)) + ".)");
   if (!r.v && !driveChecked) {
     rec("THE DRIVE", "drive", "SKIP", "downloaded files, not a FieldKit drive: there is no manifest to verify. " +
@@ -1335,12 +1342,28 @@ document.getElementById("btnRelay").addEventListener("click", async function () 
 
 document.getElementById("ackChk").addEventListener("change", setVerdict);
 
-/* The drive's own files, or the downloaded single files beside this page. */
+/* The drive's own files, or the downloaded single files beside this page.
+   A release also has each build without GAME MODE, under its own name
+   (FIELDKIT-NO-GAME-MODE.html, OUTPOST-NO-GAME-MODE.html). Someone who
+   downloaded that one has no -STANDALONE file here, so look before
+   going: a missing local file fails a script-tag load at once, and a page
+   that is there loads (it is not a script, so nothing in it runs). */
+function openBuild(onDrive, usual, other) {
+  if (layout !== "standalone") { location.href = onDrive; return; }
+  var gone = false;
+  var go = function (to) { if (!gone) { gone = true; location.href = to; } };
+  var s = document.createElement("script");
+  s.onload = function () { go(usual); };
+  s.onerror = function () { go(other); };
+  setTimeout(function () { go(usual); }, 2500);
+  s.src = usual;
+  document.head.appendChild(s);
+}
 document.getElementById("btnLaunch").addEventListener("click", function () {
-  location.href = layout === "standalone" ? "FIELDKIT-STANDALONE.html" : "FIELDKIT.html";
+  openBuild("FIELDKIT.html", "FIELDKIT-STANDALONE.html", "FIELDKIT-NO-GAME-MODE.html");
 });
 document.getElementById("btnOutpost").addEventListener("click", function () {
-  location.href = layout === "standalone" ? "OUTPOST-STANDALONE.html" : "OUTPOST.html";
+  openBuild("OUTPOST.html", "OUTPOST-STANDALONE.html", "OUTPOST-NO-GAME-MODE.html");
 });
 
 document.getElementById("btnCopy").addEventListener("click", async function () {

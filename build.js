@@ -12,6 +12,7 @@
      node build.js --deploy E:\                  copy the drive payload
      node build.js --only OUTPOST --deploy E:\   a drive with no FieldKit on it
      node build.js --release "notes"             sign a release (§14.4)
+     node build.js --no-game-mode                every build without GAME MODE
    ============================================================ */
 "use strict";
 
@@ -59,6 +60,37 @@ function selectedBuilds() {
 }
 
 const BUILDS = ALL_BUILDS;
+
+/* GAME MODE is the one app a copy can be made without. Like OUTPOST's
+   missing vault, it is left out by ABSENCE: its file is not in the
+   bundle, so there is no switch to turn back on.
+
+     - `node build.js` writes the two usual files AND a second pair,
+       FIELDKIT-NO-GAME-MODE.html and OUTPOST-NO-GAME-MODE.html, every
+       time, and a release carries all of them.
+     - `--no-game-mode`, or "gameMode": "off" in games.local.json (what
+       `node tools/setup.js` writes when you answer "none"), makes the
+       usual files without it too, and keeps games/ off drives.
+
+   The games themselves were never in a build: they sit in games/ on a
+   drive, or on the relay (tools/add-games.js, tools/sync-games.js). */
+const GAME_MODE_FILES = ["modules/game-mode.js"];
+const NO_GAME_MODE = "NO-GAME-MODE";
+function localChoice() {
+  try { return JSON.parse(fs.readFileSync(path.join(ROOT, "games.local.json"), "utf8")) || {}; } catch (e) { return {}; }
+}
+function gameModeOff(argv, choice) {
+  return (argv || process.argv).indexOf("--no-game-mode") >= 0 || (choice || localChoice()).gameMode === "off";
+}
+const GAME_MODE_OFF = gameModeOff();
+function variantOut(spec) { return spec.out.replace("-STANDALONE", "-" + NO_GAME_MODE); }
+/* The entry page with GAME MODE's line taken out of its list. */
+function withoutGameMode(html) {
+  return html.split("\n").filter((line) => !GAME_MODE_FILES.some((g) => {
+    const t = line.trim().replace(/,$/, "");
+    return t === '"' + g + '"' || t === "'" + g + "'";
+  })).join("\n");
+}
 const DEPLOY_BUILDS = selectedBuilds();
 const OUTPOST_ONLY = DEPLOY_BUILDS.length === 1 && DEPLOY_BUILDS[0].label === "OUTPOST";
 
@@ -81,7 +113,7 @@ function payloadFor(builds) {
   return builds.map((b) => b.entry).concat(PAYLOAD_BASE);
 }
 
-const PAYLOAD = payloadFor(DEPLOY_BUILDS);
+const PAYLOAD = payloadFor(DEPLOY_BUILDS).filter((p) => !(GAME_MODE_OFF && p === "games"));
 
 /* Weights are gigabytes, and hashing them on every build would make
    the build unusable — a four-minute wait to learn that a file
@@ -137,11 +169,15 @@ function safeInline(src) {
   return src.replace(/<\/script/gi, "<\\/script");
 }
 
-function build(spec) {
+function build(spec, noGameMode) {
   const entry = path.join(ROOT, spec.entry);
-  const outFile = path.join(ROOT, spec.out);
-  const html = fs.readFileSync(entry, "utf8");
+  const variant = !!noGameMode && !GAME_MODE_OFF;     /* the second pair, under its own name */
+  const outFile = path.join(ROOT, variant ? variantOut(spec) : spec.out);
+  const html = noGameMode ? withoutGameMode(fs.readFileSync(entry, "utf8")) : fs.readFileSync(entry, "utf8");
   const manifest = readManifest(html);
+  if (noGameMode && manifest.some((f) => GAME_MODE_FILES.indexOf(f) >= 0)) {
+    throw new Error("GAME MODE is still in " + spec.entry + "'s list");
+  }
 
   const missing = manifest.filter((f) => !fs.existsSync(path.join(ROOT, f)));
   if (missing.length) throw new Error(spec.entry + " references missing files: " + missing.join(", "));
@@ -154,7 +190,8 @@ function build(spec) {
   });
 
   const bundle =
-    `<script>window.FK_INLINED = true;</script>\n` + blocks.join("\n");
+    `<script>window.FK_INLINED = true;` + (noGameMode ? ` window.FK_VARIANT = "${NO_GAME_MODE}";` : "") +
+    `</script>\n` + blocks.join("\n");
 
   /* Insert before the launcher script so FK_INLINED is set by the
      time the gate handler checks for it.
@@ -173,7 +210,7 @@ function build(spec) {
   fs.writeFileSync(outFile, outHtml, "utf8");
 
   const total = Buffer.byteLength(outHtml);
-  console.log(`${spec.label}: bundled ${manifest.length} module(s), ${(bytes / 1024).toFixed(1)} KB of source`);
+  console.log(`${spec.label}${noGameMode ? " without GAME MODE" : ""}: bundled ${manifest.length} module(s), ${(bytes / 1024).toFixed(1)} KB of source`);
   console.log(`  wrote ${path.relative(ROOT, outFile)}  (${(total / 1024).toFixed(1)} KB)`);
 
   /* Optional bundles are NOT inlined, and that is a deliberate
@@ -184,7 +221,7 @@ function build(spec) {
      two-gigabyte model on. The normal FIELDKIT.html path loads it
      from vendor/ as usual. */
   const optional = readOptional(html).filter((f) => fs.existsSync(path.join(ROOT, f)));
-  if (optional.length) {
+  if (optional.length && !variant) {
     console.log("");
     optional.forEach((f) => {
       const mb = (fs.statSync(path.join(ROOT, f)).size / 1048576).toFixed(1);
@@ -309,7 +346,14 @@ function writeRelayConfig() {
 }
 
 function buildAll() {
-  BUILDS.forEach((spec, i) => { if (i) console.log(""); build(spec); });
+  BUILDS.forEach((spec, i) => { if (i) console.log(""); build(spec, GAME_MODE_OFF); });
+  /* The pair without GAME MODE, every time (a build only made sometimes
+     is a build that is broken most of the time). With GAME MODE off the
+     usual files already are that pair, so a stale second pair is removed. */
+  BUILDS.forEach((spec) => {
+    if (GAME_MODE_OFF) fs.rmSync(path.join(ROOT, variantOut(spec)), { force: true });
+    else build(spec, true);
+  });
 
   /* Written on the SSD too, so PREFLIGHT can be exercised here
      without a stick in hand. deploy() recomputes it against what
@@ -436,6 +480,17 @@ function deploy(target) {
     if (!fs.existsSync(from)) { absent.push(item); continue; }
     copyRecursive(from, path.join(dest, item));
     copied.push(item);
+  }
+
+  /* Without GAME MODE: the drive's own entry pages lose its line, and
+     its file and games/ are not left behind from an earlier copy. */
+  if (GAME_MODE_OFF) {
+    for (const e of entries) {
+      e.html = withoutGameMode(e.html);
+      fs.writeFileSync(path.join(dest, e.spec.entry), e.html, "utf8");
+    }
+    for (const g of GAME_MODE_FILES) fs.rmSync(path.join(dest, g), { force: true });
+    fs.rmSync(path.join(dest, "games"), { recursive: true, force: true });
   }
 
   /* ---- verification ----
@@ -574,7 +629,12 @@ function release(notes) {
   /* PREFLIGHT goes with them: it is the third file in every release
      (README, "Three files"), and signing it means the updater can
      check it like the other two. */
-  const files = BUILDS.concat([{ out: "PREFLIGHT.html", label: "PREFLIGHT" }]).map((b) => {
+  if (GAME_MODE_OFF) {
+    throw new Error("this copy is set to build without GAME MODE (--no-game-mode, or games.local.json).\n" +
+      "  A release carries both kinds, so make it from a copy with GAME MODE on.");
+  }
+  const files = BUILDS.concat([{ out: "PREFLIGHT.html", label: "PREFLIGHT" }],
+    BUILDS.map((b) => ({ out: variantOut(b), label: b.label + "-" + NO_GAME_MODE }))).map((b) => {
     const buf = fs.readFileSync(path.join(ROOT, b.out));
     fs.writeFileSync(path.join(RELEASE_DIR, b.out), buf);
     return {
@@ -659,6 +719,9 @@ function releaseBody(rel) {
       "**FIELDKIT-STANDALONE.html** (the full console) and **OUTPOST-STANDALONE.html** (no vault). " +
       "See the README.",
     "",
+    "**FIELDKIT-NO-GAME-MODE.html** and **OUTPOST-NO-GAME-MODE.html** are the same two without GAME MODE. " +
+      "No file here has games inside it: GAME MODE opens games from a drive's games folder or from your relay.",
+    "",
     "Signed with key `" + rel.keyFingerprint + "`. UPDATE inside FieldKit checks the signature and each file's hash.",
     "",
     "<!-- FIELDKIT-RELEASE",
@@ -688,4 +751,5 @@ if (require.main === module) {
   }
 }
 
-module.exports = { signingPayload, releaseBody, appVersion, mergeConfig, PAYLOAD, payloadList };
+module.exports = { signingPayload, releaseBody, appVersion, mergeConfig, PAYLOAD, payloadList,
+  withoutGameMode, gameModeOff, variantOut, GAME_MODE_FILES, NO_GAME_MODE };

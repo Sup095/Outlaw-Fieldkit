@@ -429,6 +429,8 @@
 
       var list = el("div", { class: "up-files" });
       var mine = FieldKit.service("boot") && FieldKit.service("boot").OUTPOST ? "OUTPOST" : "FIELDKIT";
+      /* A copy built without GAME MODE (build.js) is offered its own file, when the release has one. */
+      if (window.FK_VARIANT && rel.files.some(function (f) { return f.build === mine + "-" + window.FK_VARIANT; })) mine += "-" + window.FK_VARIANT;
       rel.files.forEach(function (f) {
         var relayOk = state.relayVersion === rel.version;
         list.appendChild(el("div", { class: "up-file" + (f.build === mine ? " mine" : "") }, [

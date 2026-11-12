@@ -8,21 +8,20 @@
   "dataDir": "./data",
   "maxBodyBytes": 2097152,
 
-  "_aiTargets": "Priority order, lowest number wins. Local PC is the default per FIELDKIT_PROJECT.md §9D; the main PC is reached over Tailscale and acts as failover.",
-  "aiTargets": [
+  "_aiTargets": "Priority order, lowest number wins. Local PC is the default per FIELDKIT_PROJECT.md §9D; the main PC is reached over Tailscale and acts as failover. Empty means no AI relay. _aiTargets_example shows the shape.",
+  "_aiTargets_example": [
     { "name": "local-pc", "url": "http://192.168.1.50:1234", "priority": 1 },
     { "name": "main-pc",  "url": "http://100.64.0.2:1234",   "priority": 2 }
   ],
+  "aiTargets": [],
 
-  "_statusServices": "Read-only health probes surfaced at GET /status (authenticated). The relay only issues a GET and reports the code — it has no route that can start, stop, or restart any of these; mutating actions stay tailnet-only per FIELDKIT_PROJECT.md §9C. Optional per-entry: kind, note, expectStatus, timeoutMs. Leave the array empty to disable the feature entirely.",
-  "statusServices": [
-    { "name": "bastion-1",   "url": "http://100.64.0.3:80/",        "kind": "host",      "note": "primary node" },
-    { "name": "bastion-2",   "url": "http://100.64.0.4:80/",        "kind": "host",      "note": "secondary node" },
-    { "name": "dashboard",   "url": "http://100.64.0.3:5000/",      "kind": "web",       "note": "Flask dashboard" },
-    { "name": "status-page", "url": "http://100.64.0.3:3001/",      "kind": "web",       "note": "public status page" },
-    { "name": "discord-bot", "url": "http://100.64.0.3:8000/health","kind": "service",   "note": "bot health endpoint" },
-    { "name": "panel",       "url": "http://100.64.0.3:8080/",      "kind": "web",       "note": "Pterodactyl panel" }
+  "_statusServices": "Read-only health probes surfaced at GET /status (authenticated). The relay only issues a GET and reports the code — it has no route that can start, stop, or restart any of these; mutating actions stay tailnet-only per FIELDKIT_PROJECT.md §9C. Optional per-entry: kind, note, expectStatus, timeoutMs. Empty (the default) turns the feature off. _statusServices_example shows the shape.",
+  "_statusServices_example": [
+    { "name": "server-1",    "url": "http://100.64.0.3:80/",        "kind": "host",    "note": "primary node" },
+    { "name": "dashboard",   "url": "http://100.64.0.3:5000/",      "kind": "web",     "note": "a dashboard" },
+    { "name": "discord-bot", "url": "http://100.64.0.3:8000/health","kind": "service", "note": "bot health endpoint" }
   ],
+  "statusServices": [],
   "statusTimeoutMs": 4000,
 
   "_trustProxy": "Whose X-Forwarded-For to believe. false (default) = nobody, correct when the relay is directly internet-exposed, because that header is attacker-controlled there and believing it lets anyone reset their own rate limit. Set to 'loopback' ONLY when a tunnel such as cloudflared runs beside the relay and the relay's own host is 127.0.0.1. Can also be an array of proxy IPs. See CONNECTIVITY.md.",
@@ -41,10 +40,10 @@
     "configFile": ""
   },
 
-  "_actions": "Whitelisted quick actions, reachable at POST /actions and TAILNET-ONLY — that is enforced in code and is not configurable. The client sends an id and nothing else: it cannot pass arguments, cannot pass a command, and cannot compose one. cmd and args are spawned WITHOUT a shell, so nothing in an argument can escape into a command line. If you need a variant, add a second entry. Leave the array empty (the default) and this relay has no ability to change anything at all.",
+  "_actions": "Whitelisted quick actions, reachable at POST /actions and TAILNET-ONLY — that is enforced in code and is not configurable. The client sends an id and nothing else: it cannot pass arguments, cannot pass a command, and cannot compose one. cmd and args are spawned WITHOUT a shell, so nothing in an argument can escape into a command line. If you need a variant, add a second entry. Leave the array empty (the default) and this relay has no ability to change anything at all. _actions_example shows the shape.",
   "_actions_fields": "id (required, what the client sends), label, cmd (required, the executable), args (array, exact argv), note (shown in FieldKit before you confirm), cooldownS (refuse repeats inside this window), timeoutMs (kill it after this long).",
   "_actions_warning": "IMPORTANT: any peer listed in trustProxy is treated as PUBLIC INGRESS and is refused actions, whatever its address — including loopback (a tunnel connects from 127.0.0.1) and including a reverse proxy that happens to sit inside the Tailscale range. Test from a direct tailnet peer, not through the proxy and not from the box. Putting the same address in both trustProxy and extraTailnetIps logs an ERROR at startup; public ingress wins.",
-  "actions": [
+  "_actions_example": [
     {
       "id": "restart-minecraft",
       "label": "Restart the Minecraft server",
@@ -63,6 +62,7 @@
       "cooldownS": 10
     }
   ],
+  "actions": [],
   "actionTimeoutMs": 20000,
 
   "_extraTailnetIps": "Peers that count as tailnet beyond 100.64.0.0/10, fd7a:115c:a1e0::/48 and (when no proxy is configured) loopback. Only needed if a machine reaches this relay over a private LAN leg rather than Tailscale.",

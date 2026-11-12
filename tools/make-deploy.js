@@ -108,14 +108,22 @@ for (const f of RELAY_CODE) {
    the relay needs the same file next to relay/pool.js. */
 put(path.join(ROOT, "core", "pool-engine.js"), path.join(b1, "relay", "pool-engine.js"), true);
 now["pool-engine.js"] = sha(path.join(b1, "relay", "pool-engine.js"));
-/* GAME MODE: the Outlaw Engine copy (tools/sync-games.js), served by
-   relay/games.js to people who are signed in. Copied as it is. */
+/* GAME MODE: your own library (tools/add-games.js) and/or the Outlaw Engine
+   copy (tools/sync-games.js), served by relay/games.js to people who are
+   signed in. Copied as they are. None is fine: GAME MODE then says so. With
+   GAME MODE off (games.local.json, build.js) nothing is copied. */
 {
-  const gsrc = path.join(ROOT, "games", "outlaw-engine");
-  if (fs.existsSync(path.join(gsrc, "index.html"))) {
-    fs.cpSync(gsrc, path.join(b1, "relay", "games", "outlaw-engine"), { recursive: true });
-    try { now["games"] = sha(path.join(gsrc, "fieldkit-games.js")); } catch (e) { /* no marker */ }
-  } else missing.push("games/outlaw-engine (run node tools/sync-games.js)");
+  const gameModeOff = require("../build.js").gameModeOff();
+  let any = false;
+  for (const lib of gameModeOff ? [] : ["library", "outlaw-engine"]) {
+    const gsrc = path.join(ROOT, "games", lib);
+    if (!fs.existsSync(path.join(gsrc, "index.html"))) continue;
+    any = true;
+    fs.cpSync(gsrc, path.join(b1, "relay", "games", lib), { recursive: true });
+    try { now["games/" + lib] = sha(path.join(gsrc, "fieldkit-games.js")); } catch (e) { /* no marker */ }
+  }
+  if (!any) console.log(gameModeOff ? "GAME MODE is off for this copy: no games go to the relay"
+    : "no games/ library here: the relay will have no games (node tools/add-games.js <folder> adds your own)");
 }
 /* The in-browser engine, served to installers (relay/tiny-ai.js). */
 put(path.join(ROOT, "vendor", "web-llm.js"), path.join(b1, "relay", "web-llm.js"), true);

@@ -35,12 +35,13 @@ says plainly that it is not.
 
 ## Contents
 
-- [Three files](#three-files)
+- [Three files](#three-files) (and the same without GAME MODE)
 - [What is in it](#what-is-in-it)
 - [Using it](#using-it)
+- [GAME MODE: your choice of games, or none](#game-mode-your-choice-of-games-or-none)
 - [How it fits together](#how-it-fits-together)
 - [Security model](#security-model)
-- [Running your own server](#running-your-own-server)
+- [Running your own server](#running-your-own-server) (six steps)
 - [Building from source](#building-from-source)
 - [Repository layout](#repository-layout)
 - [Roadmap](#roadmap)
@@ -59,6 +60,13 @@ Each release has three files. Put them in the same folder.
 | `OUTPOST-STANDALONE.html` | **The one most people want.** Messages, the streamed browser, RUNNER, ASK and the small tools. No vault. |
 | `FIELDKIT-STANDALONE.html` | The full build, for the people who run the relay: everything in OUTPOST plus the encrypted vault and the tools for running a relay. |
 | `PREFLIGHT.html` | **A check to run first** on a computer you do not know. It opens nothing and stores nothing. It says what it finds, then opens either build. |
+
+**Without GAME MODE.** The release also has `OUTPOST-NO-GAME-MODE.html` and
+`FIELDKIT-NO-GAME-MODE.html`: the same two builds with GAME MODE left out
+(its code is not in them). Take those instead if you want no games app at
+all. PREFLIGHT opens whichever kind is beside it, and UPDATE offers each
+copy its own kind. No file in a release has any games inside it; see
+[GAME MODE](#game-mode-your-choice-of-games-or-none).
 
 **What PREFLIGHT checks.** On this computer and in this browser:
 - whether a browser extension has replaced the crypto functions FieldKit relies on;
@@ -80,6 +88,7 @@ The two builds are made from the same tree, every time.
 | For | Anyone with an account on a relay | The people who run the relay |
 | MESSAGES, BROWSER, RUNNER, ASK | ✓ | ✓ |
 | Small tools (QR CODE, GAME MATH) | ✓ | ✓ |
+| POOL HALL, DEEPHOLD, and GAME MODE (unless you take the files without it) | ✓ | ✓ |
 | RELAY LINK (relay addresses) and UPDATE (signed updates) | ✓ | ✓ |
 | ADMIN CENTER, for an admin signed in on a relay | ✓ | ✓ |
 | Encrypted vault: NOTES, FILES, TASK BOARD, backups | ✗ | ✓ |
@@ -103,8 +112,8 @@ screen, and can come back after a reload; right-click a window's taskbar button
 to snap or close it, and Ctrl+Shift+D shows the desktop. A line at the top says when a service
 is down and clears itself when it is back; ◉ in the taskbar keeps what you
 missed. Themes, a CRT mode, a lock screen, and settings for bigger text, higher
-contrast and less motion. FIELDKIT has 18 apps and OUTPOST 12, and the manual
-covers them all.
+contrast and less motion. FIELDKIT has about two dozen apps and OUTPOST about seventeen, and the
+manual covers them all.
 
 **MESSAGES.** End-to-end encrypted chat with the people on your relay. New
 accounts wait for a moderator's approval. Tiers: guest, member, admin.
@@ -151,6 +160,12 @@ with your keyboard and mouse sent back.
   it, and a PLAY button), punishments, a bin, power readings and a
   fair-access line.
 
+**Games.** POOL HALL (eight-ball and nine-ball with real spin, against the
+computer, a friend on the same screen, or online with a ladder), DEEPHOLD (a
+shared underground colony everyone on the relay builds toward) and GAME MODE,
+which opens [a library of games](#game-mode-your-choice-of-games-or-none): your
+own, the Outlaw Engine, or none at all.
+
 **ADMIN CENTER.** One page for admins: what is up, who is waiting for approval,
 who is in the browser, what was blocked and any report that a block was wrong, a
 line to tell everyone something, and recent warnings and errors. Nothing typed by
@@ -192,6 +207,44 @@ once per computer. Clearing site data forgets them.
 On a computer you do not know, open `PREFLIGHT.html` first (it is in the
 release and on a built drive; see [Three files](#three-files)), press RUN
 CHECKS, then open a build from its buttons.
+
+---
+
+## GAME MODE: your choice of games, or none
+
+GAME MODE opens a library of games and apps full screen, with one bar to
+come back. **No download here has any games inside it.** The games sit in a
+`games/` folder on a drive, or on a relay for the people signed in to it.
+So there are three ways to have it, and each is one step:
+
+| You want | Do this |
+|---|---|
+| **No GAME MODE at all** | Download the `-NO-GAME-MODE` files from the release. If you build your own copy, answer **n** to setup's GAME MODE question (or `node build.js --no-game-mode`). Its code is left out of those files, and no games go on your drives or relay. |
+| **Your own games and apps** | `node tools/add-games.js "a folder of your games"`. A game is a `.html` file, or a folder with an `index.html` in it. They get a library page with search and groups, go on drives, and open through your relay for signed-in people. |
+| **The Outlaw Engine** | The library GAME MODE was first made for. Its games are All rights reserved (Outlaw Systems) and are not in this repository or its releases. On the owner's relay they open for signed-in people. If you are given a pack of them (a zip), unzip it into `games/` so that `games/outlaw-engine/index.html` exists. |
+| GAME MODE, nothing in it yet | Use the ordinary files. GAME MODE says there are no games and how to add some. |
+
+Your own library and the Outlaw Engine can sit side by side: your library's
+page gets a card that opens the engine.
+
+**Adding your own, step by step**
+
+1. Put your games in one folder. `slope.html` is a game; so is
+   `tetris/index.html` with its files beside it. Anything else in the
+   folder is copied too, so games can share files.
+2. Run `node tools/add-games.js "path/to/that/folder" --name "Kay's Arcade"`.
+3. Then, whichever you use: restart the relay (if it runs from this
+   folder), or `node tools/make-deploy.js` (a relay in Docker), or
+   `node build.js --deploy E:\` (a drive).
+
+Run step 2 again whenever the folder changes; it remembers the folder.
+`node tools/add-games.js --remove` takes the library out. An optional
+`games.json` in the folder sets names and groups; the top of
+[`tools/add-games.js`](tools/add-games.js) shows it.
+
+Games run in a frame of their own, on another origin from FieldKit, so a
+game cannot reach FieldKit, its vault or its sign-ins. On a phone or with a
+gamepad, the Outlaw Engine's games show sticks and buttons by themselves.
 
 ---
 
@@ -284,39 +337,102 @@ relay data, recovery keys and the release key are all in `.gitignore`.
 
 ## Running your own server
 
-This is everything, in the order to do it. You need one machine for the relay.
-Everything after the relay is optional, and each step works without the next.
+A relay is one small program. You need a computer that stays on and
+[Node.js](https://nodejs.org) 22 or newer. There is nothing else to
+install: no packages, no database. Linux is best for a relay people will
+rely on; Windows and macOS are fine for trying it.
 
-| Step | What you get | How |
+### Six steps to a working relay
+
+1. **Get the code.** On this page press the green **Code** button, then
+   **Download ZIP**, and unzip it. (Or `git clone` it.)
+2. **Answer six questions.** In that folder:
+
+   ```bash
+   node tools/setup.js
+   ```
+
+   It asks for a name for your own (admin) account, a port, a tunnel token
+   if you have one, whether new accounts wait for your approval, whether
+   you want the streamed browser, and whether you want GAME MODE. Enter
+   keeps the suggestion every time. It writes your settings, makes the
+   secret the relay needs, and builds your copy.
+3. **Start the relay.**
+
+   ```bash
+   node relay/start.js
+   ```
+
+4. **See that it answers.** Open `http://localhost:8080/health` in a
+   browser. It should say `"up": true`.
+5. **Open FieldKit.** Open `OUTPOST-STANDALONE.html` (step 2 made it, in
+   the same folder) in Chrome. While it starts, press **C** and type
+   `http://localhost:8080`.
+6. **Make your account.** MESSAGES, CREATE ACCOUNT, with the name you gave
+   in step 2. That account is the admin: it approves everyone else
+   (MESSAGES, PEOPLE) and has ADMIN CENTER.
+
+That is a working relay on your own network: accounts, encrypted messages,
+POOL HALL, DEEPHOLD, signed updates and, in FIELDKIT, the encrypted vault.
+Setup prints these same steps, with your own port and name in them.
+
+### Letting people in from outside your network
+
+Use a Cloudflare Tunnel. It is free, opens no port on your router, and
+gives the relay a real `https` address, which is what gets through school
+and office filters. You need a domain on Cloudflare.
+
+1. Make a tunnel in Cloudflare's dashboard, point a hostname such as
+   `relay.yourdomain.com` at `http://127.0.0.1:8080`, and copy the tunnel's
+   token. [`SETUP.md` part 3](SETUP.md#part-3--the-subdomain-and-the-tunnel)
+   has every click.
+2. Run `node tools/setup.js` again and paste the token at question 3.
+   Setup then also closes the relay to everything except the tunnel.
+3. On the machine that runs the relay (Linux): `node relay/fetch-cloudflared.js`
+   once, then `node relay/start.js`.
+4. Give people the address and a file from your build or from the
+   [latest release](../../releases/latest). They press **C** and type it.
+
+### Checking and changing it
+
+| To | Do |
+|---|---|
+| See what is wrong, in plain words | `node tools/setup.js --check` |
+| Change an answer | `node tools/setup.js` (Enter keeps what you chose before) |
+| Show your settings with the secrets hidden, for a bug report | `node tools/setup.js --show` |
+| Change a setting setup does not ask about | edit `relay/config.local.json`, then `node build.js` |
+| Add your own games, or leave GAME MODE out | [GAME MODE](#game-mode-your-choice-of-games-or-none) |
+| Move to a new version | put the new code over the old, `node build.js`, restart the relay |
+
+Your settings are in `relay/config.local.json`. It holds only what is yours,
+git ignores it, and it never leaves your machine. `node build.js` lays it
+over [`relay/config.example.json`](relay/config.example.json), where every
+setting is explained, and writes `relay/config.json`, the file the relay
+reads. So a new version can add settings without touching yours. From
+inside FieldKit, `PREFLIGHT.html`, DIAGNOSTICS and LINK DOCTOR (in RELAY
+LINK) say what is wrong on the other side.
+
+### The bigger parts, when you want them
+
+Everything here is optional, and each works without the others.
+
+| Part | What you get | How |
 |---|---|---|
-| 1. Build | your own copy, with your relay's address in it | `node build.js` ([building](#building-from-source)) |
-| 2. Relay | MESSAGES, sync, FILES, UPDATE, the engine for browser models | [`SETUP.md`](SETUP.md) parts 1 and 2 |
-| 3. Tunnel | an https address with no port opened | [`SETUP.md`](SETUP.md) part 3 |
-| 4. Streamed browser | BROWSER | the Docker image, [`relay/BROWSER.md`](relay/BROWSER.md) |
-| 5. Run server | RUNNER, on a second Linux machine | `runnerd/setup.sh`, [below](#running-your-own-run-server-runner) |
-| 6. Small AI models | ASK for your members | `sh runnerd/tiny-ai.sh`, [below](#small-ai-models) |
-| Optional: a lens server | BROWSER's lighter mode and YouTube, off your home connection | a small rented Linux server, `lens/setup.sh`, [`lens/README.md`](lens/README.md) |
-| Optional: a graphics card | smooth games in BROWSER | `sh runnerd/browser-card.sh`, [`relay/BROWSER.md`](relay/BROWSER.md#a-graphics-card) |
-| 7. A big AI model | ASK with your own PC | LM Studio and `aiTargets`, [`MODELS.md`](MODELS.md) |
-| 8. Accounts | who may use what | `messaging` in the config: `moderators`, `requireApproval` |
-| 9. Your own updates | signed releases to your users | [`SETUP.md`](SETUP.md) part 6 |
-
-Your settings go in `relay/config.local.json`, which never leaves your machine.
-`node build.js` merges it over `relay/config.example.json`, which explains every
-setting, and writes `relay/config.json` to upload. Check it all afterwards with
-`PREFLIGHT.html`, then DIAGNOSTICS.
+| Streamed browser | BROWSER's full mode | the Docker image, [`relay/BROWSER.md`](relay/BROWSER.md) |
+| Run server | RUNNER, on a second Linux machine | `runnerd/setup.sh`, [below](#running-your-own-run-server-runner) |
+| Small AI models | ASK for your members | `sh runnerd/tiny-ai.sh`, [below](#small-ai-models) |
+| A lens server | BROWSER's lighter mode and YouTube, off your home connection | a small rented Linux server, `lens/setup.sh`, [`lens/README.md`](lens/README.md) |
+| A graphics card | smooth games in BROWSER | `sh runnerd/browser-card.sh`, [`relay/BROWSER.md`](relay/BROWSER.md#a-graphics-card) |
+| A big AI model | ASK with your own PC | LM Studio and `aiTargets`, [`MODELS.md`](MODELS.md) |
+| A drive | FieldKit on a USB stick, with a check that the stick is intact | `node build.js --deploy E:\`, [`SETUP.md`](SETUP.md) part 1 |
+| Docker or Pterodactyl | the relay as a container | `node tools/make-deploy.js`, [`relay/BROWSER.md`](relay/BROWSER.md) |
+| Your own updates | signed releases to your users | [`SETUP.md`](SETUP.md) part 6 |
 
 ### The relay
 
 The relay is plain Node.js (22 or newer) with **no npm dependencies**. For the
 streamed browser it needs Chromium and ffmpeg, which the Docker image in
 `relay/docker/` includes.
-
-```bash
-cp relay/config.example.json relay/config.local.json   # then edit it
-node build.js                                          # writes relay/config.json
-node relay/server.js
-```
 
 - `relay/config.example.json` explains every setting.
 - [`SETUP.md`](SETUP.md): setting everything up from nothing, including a
@@ -370,7 +486,8 @@ See [`runnerd/README.md`](runnerd/README.md).
 Needs Node.js 22 or newer. There is nothing to install.
 
 ```bash
-node build.js            # builds FIELDKIT-STANDALONE.html and OUTPOST-STANDALONE.html
+node build.js            # both builds, the same two without GAME MODE, and relay/config.json
+node build.js --no-game-mode                # this copy's builds and drives without GAME MODE
 node build.js --only OUTPOST --deploy E:\   # a drive with only OUTPOST on it
 node tests/run.js        # the whole test suite
 ```
@@ -384,8 +501,10 @@ cover:
 
 They run on Windows and Linux; CI runs them on every push.
 
-`tools/` has the release signer, the deploy-bundle maker, a blocklist
-fetcher, the GitHub snapshot tool and the WebLLM bundler.
+`tools/` has `setup.js` (your relay's settings, and `--check`),
+`add-games.js` (your own games in GAME MODE), the release signer, the
+deploy-bundle maker, a blocklist fetcher, the GitHub snapshot tool and the
+WebLLM bundler.
 
 ## Repository layout
 
@@ -398,7 +517,8 @@ fetcher, the GitHub snapshot tool and the WebLLM bundler.
 | `relay/` | The relay server, the streamed browser, its Docker image |
 | `lens/` | BROWSER's lighter mode: the Wisp server for a rented machine, its page, its image |
 | `runnerd/` | The run server, its sandbox images, `setup.sh` |
-| `tools/` | Build and release helpers |
+| `tools/` | Setup (`setup.js`), your own games (`add-games.js`), build and release helpers |
+| `games/` | Not in the repository: where GAME MODE's games go on your copy (`tools/add-games.js`) |
 | `tests/` | The test suite (`node tests/run.js`) |
 | `vendor/web-llm.js` | [WebLLM](https://github.com/mlc-ai/web-llm) (Apache-2.0), bundled by `tools/build-webllm.js` |
 
@@ -437,6 +557,28 @@ stays, as the fallback and for what lens cannot do.
   is there.
 - *Next:* a cache for pages you open twice, which the test showed would
   roughly halve what a second visit costs.
+
+**Done in 0.17.0: a relay of your own in six steps, GAME MODE your way, and
+every game playable by touch.**
+- *Setup.* `tools/setup.js` asks six questions, writes `relay/config.local.json`
+  (only what is yours), makes the provision token and builds. It sets the
+  two safe pairs only: a tunnel means host 127.0.0.1 with trustProxy
+  loopback, none means 0.0.0.0 with false. `--check` says what is wrong in
+  plain words; `--show` prints settings with secrets hidden. The example
+  config's pretend AI targets, status services and actions are now notes
+  (`_…_example`), so a new relay starts with none.
+- *GAME MODE your way.* Every build is also made without it
+  (`FIELDKIT-NO-GAME-MODE.html`, `OUTPOST-NO-GAME-MODE.html`, in the signed
+  release; `--no-game-mode` or setup's answer makes a whole copy that way).
+  `tools/add-games.js` turns any folder of HTML games into a library
+  (`games/library/`) with its own page; the relay serves it, alone or beside
+  the Outlaw Engine (relay/games.js, `pick`). A copy with no games says so.
+  `tools/make-games-pack.js` zips a library to hand to someone; it uploads
+  nothing.
+- *The games.* A shared touch and gamepad layer in the Outlaw Engine
+  (sticks, buttons, drag to look), phone layouts for the games that lacked
+  one, and PANTHEON overhauled: a pixel-art map, a simpler miracle panel,
+  fewer interruptions, 18 new events and 12 great turnings, smarter rivals.
 
 **Done in 0.16.3: a space of its own for every site in the lighter browser;
 nine-ball and a ladder in POOL HALL; incidents and sound in DEEPHOLD.**

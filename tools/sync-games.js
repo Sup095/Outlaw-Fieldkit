@@ -121,7 +121,10 @@ if (require.main === module) {
   try {
     const src = sourceDir(process.argv);
     const info = sync(src, DEST);
-    fs.writeFileSync(REMEMBER, JSON.stringify({ source: src }, null, 2) + "\n");
+    /* the same file also remembers your own library and the GAME MODE choice (add-games.js, setup.js) */
+    let mem = {};
+    try { mem = JSON.parse(fs.readFileSync(REMEMBER, "utf8")) || {}; } catch (e) { /* first time */ }
+    fs.writeFileSync(REMEMBER, JSON.stringify(Object.assign(mem, { source: src }), null, 2) + "\n");
     console.log("GAME MODE: copied the Outlaw Engine " + (info.version ? "v" + info.version + " " : "") + "(" + info.files + " files, " + (info.bytes / 1048576).toFixed(1) + " MB)");
     console.log("  from " + src);
     console.log("  to   games/outlaw-engine/  (gitignored; goes on drives and into the relay image)");
