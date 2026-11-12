@@ -107,6 +107,40 @@ const { ok, section, state } = makeRunner("setup");
     ok("your settings and the GAME MODE choice are never committed", /^relay\/config\.local\.json$/m.test(fs.readFileSync(path.join(ROOT, ".gitignore"), "utf8")) && /^games\.local\.json$/m.test(fs.readFileSync(path.join(ROOT, ".gitignore"), "utf8")));
   }
 
+  section("the questions, answered at a keyboard or piped in");
+  {
+    const os = require("os");
+    const { spawnSync } = require("child_process");
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "fk-setup-"));
+    fs.mkdirSync(path.join(tmp, "relay"), { recursive: true });
+    const run = (input, args) => spawnSync(process.execPath, [path.join(ROOT, "tools", "setup.js"), "--no-build"].concat(args || []),
+      { input: input, encoding: "utf8", env: Object.assign({}, process.env, { FK_SETUP_ROOT: tmp }) });
+    const local = () => JSON.parse(fs.readFileSync(path.join(tmp, "relay", "config.local.json"), "utf8"));
+    const gl = () => JSON.parse(fs.readFileSync(path.join(tmp, "games.local.json"), "utf8"));
+    const before = fs.existsSync(path.join(ROOT, "relay", "config.local.json")) ? fs.readFileSync(path.join(ROOT, "relay", "config.local.json"), "utf8") : null;
+
+    let r = run("Kay\n8111\n\nn\nn\nn\n");
+    ok("six answers, all at once, are each read", r.status === 0 && local().port === 8111 && local().messaging.moderators.join() === "kay" &&
+      local().messaging.requireApproval === false && local().browser.enabled === false && gl().gameMode === "off", (r.stderr || "").slice(0, 200));
+    ok("it prints the next steps with the answers in them", /DONE/.test(r.stdout) && /localhost:8111\/health/.test(r.stdout) && /name:\s+kay/.test(r.stdout));
+    const token = local().provisionToken;
+    r = run("");
+    ok("run again with nothing typed: every answer is kept, and so is the token", r.status === 0 && local().port === 8111 && local().messaging.requireApproval === false && gl().gameMode === "off" && local().provisionToken === token);
+    r = run("\n\neyTESTTOKEN0000000000000000000000\nrelay.example.com\n");
+    ok("a tunnel token typed at question 3 closes the relay to all but the tunnel", local().host === "127.0.0.1" && local().trustProxy === "loopback" && /relay\.example\.com\/health/.test(r.stdout) && r.stdout.indexOf("eyTESTTOKEN") < 0);
+    r = run("", ["--game-mode", "on", "--tunnel-token", "none"]);
+    ok("flags change one thing and leave the rest", gl().gameMode === "on" && local().host === "0.0.0.0" && local().trustProxy === false && local().port === 8111 && local().messaging.moderators[0] === "kay");
+    r = run("bad name!\n\n");
+    ok("a name that cannot be an account is asked for again, and nothing is written when it never comes", r.status !== 0 || local().messaging.moderators[0] === "kay");
+    r = spawnSync(process.execPath, [path.join(ROOT, "tools", "setup.js"), "--check"], { encoding: "utf8", env: Object.assign({}, process.env, { FK_SETUP_ROOT: tmp }) });
+    ok("--check on it names the build as the next thing", r.status === 1 && /node build\.js/.test(r.stdout));
+    r = spawnSync(process.execPath, [path.join(ROOT, "tools", "setup.js"), "--show"], { encoding: "utf8", env: Object.assign({}, process.env, { FK_SETUP_ROOT: tmp }) });
+    ok("--show prints the settings without the token", r.status === 0 && r.stdout.indexOf(token) < 0 && /"kay"/.test(r.stdout));
+    const after = fs.existsSync(path.join(ROOT, "relay", "config.local.json")) ? fs.readFileSync(path.join(ROOT, "relay", "config.local.json"), "utf8") : null;
+    ok("none of this touched the real settings", before === after);
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+
   console.log("\nRESULT  pass " + state.pass + "  fail " + state.fail);
   if (state.failures.length) { console.log("\nFAILURES:"); state.failures.forEach((f) => console.log("  - " + f)); }
   process.exit(state.fail ? 1 : 0);

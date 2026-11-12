@@ -39,7 +39,9 @@ const crypto = require("crypto");
 const readline = require("readline");
 const { spawnSync } = require("child_process");
 
-const ROOT = path.join(__dirname, "..");
+/* FK_SETUP_ROOT points it at another copy of the tree: the test suite uses a
+   throwaway folder, so a test can never rewrite the real settings. */
+const ROOT = process.env.FK_SETUP_ROOT ? path.resolve(process.env.FK_SETUP_ROOT) : path.join(__dirname, "..");
 const LOCAL = path.join(ROOT, "relay", "config.local.json");
 const EXAMPLE = path.join(ROOT, "relay", "config.example.json");
 const OUT = path.join(ROOT, "relay", "config.json");
@@ -199,17 +201,20 @@ function flags(argv) {
 
 async function ask(cur) {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  /* piped answers end before every question is asked: an ended input means "keep the rest" */
+  /* Lines are queued as they arrive, so answers typed one at a time and
+     answers piped in all at once are read the same way. When the input
+     ends early, every question left keeps its suggestion. */
   let ended = false;
-  rl.on("close", () => { ended = true; });
-  const q = (text, def) => new Promise((resolve) => {
-    if (ended) return resolve(def === undefined ? "" : String(def));
-    const show = def === undefined || def === "" ? "" : " [" + def + "]";
-    let done = false;
-    const fin = (v) => { if (!done) { done = true; resolve(v); } };
-    rl.once("close", () => fin(def === undefined ? "" : String(def)));
-    rl.question(text + show + ": ", (s) => fin(String(s).trim() || (def === undefined ? "" : String(def))));
-  });
+  const lines = [], waiting = [];
+  rl.on("line", (l) => { const w = waiting.shift(); if (w) w(l); else lines.push(l); });
+  rl.on("close", () => { ended = true; while (waiting.length) waiting.shift()(null); });
+  const nextLine = () => (lines.length ? Promise.resolve(lines.shift()) : ended ? Promise.resolve(null) : new Promise((r) => waiting.push(r)));
+  const q = async (text, def) => {
+    process.stdout.write(text + (def === undefined || def === "" ? "" : " [" + def + "]") + ": ");
+    const s = await nextLine();
+    if (s === null) process.stdout.write("\n");
+    return (s === null ? "" : String(s).trim()) || (def === undefined ? "" : String(def));
+  };
   const yn = async (text, def) => /^(y|yes)$/i.test(await q(text + " (y/n)", def ? "y" : "n"));
   console.log("");
   console.log("FIELDKIT RELAY SETUP. Enter keeps what is in [brackets]. Nothing is sent anywhere.");
