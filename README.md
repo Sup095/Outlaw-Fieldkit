@@ -558,6 +558,15 @@ stays, as the fallback and for what lens cannot do.
 - *Next:* a cache for pages you open twice, which the test showed would
   roughly halve what a second visit costs.
 
+**Done in 0.18.0: every Outlaw Engine game, a graphics pass and something new.**
+- All 29 games in the Outlaw Engine library were gone through one by one:
+  a graphics update in each game's own style, and one or two additions
+  (pause, keyboard keys, charts, best times, tap buttons in the terminal
+  games, a few new tools). BASTION, which is a self-help tool and not a
+  game, got two reading aids and no other change.
+- FieldKit itself is unchanged apart from the version; the games pack on
+  the release is the new one.
+
 **Done in 0.17.0: a relay of your own in six steps, GAME MODE your way, and
 every game playable by touch.**
 - *Setup.* `tools/setup.js` asks six questions, writes `relay/config.local.json`

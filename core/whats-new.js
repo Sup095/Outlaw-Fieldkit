@@ -10,6 +10,16 @@
   "use strict";
 
   var NOTES = [
+    { v: "0.18.0", items: [
+      "GAME MODE: all 29 Outlaw Engine games got a graphics pass: weather, light, glow, dust, skies, shorelines. Each keeps its own look.",
+      "GAME MODE: pause where it was missing (Slope, Space Game, KnightFall, TrenchFall, IRONFALL) and keyboard keys in IRONMARCH, The Ledger and World Conflict.",
+      "GAME MODE: charts of how you are doing in PANTHEON, IRONMARCH, The Ledger, Guild of the Deep, Ant Colony and World Conflict Simulation.",
+      "GAME MODE: new things to use: flasks in KnightFall, a beacon in Crystal Caverns, comets in Space Game, a danger view in Rustgrid, a build ghost in AstroLab.",
+      "GAME MODE: records: best times in Tiny Neon Square and Shard Climb, a best-run gate in Slope, IRONFALL's clock, your record in Metro Fall's journal.",
+      "GAME MODE: the terminal games (EarthNet, Hacker Terminal, Core Vault) have buttons to tap, Tab to complete a command, and no more white input box.",
+      "GAME MODE: BASTION has two reading aids in Settings, text size and brighter text. Nothing it says was changed.",
+      "The Outlaw Engine games pack on the release page is updated to match."
+    ] },
     { v: "0.17.0", items: [
       "GAME MODE: every game works on a phone or tablet. Sticks and buttons appear at the first touch, and a gamepad works in the action games.",
       "GAME MODE: PANTHEON is redrawn (pixel-art land, sprites, a picture on every event) with a calmer panel: three suggested miracles, the rest in tabs.",
