@@ -227,6 +227,27 @@ So there are three ways to have it, and each is one step:
 Your own library and the Outlaw Engine can sit side by side: your library's
 page gets a card that opens the engine.
 
+**Keeping games on this device (no setup at all)**
+
+Anyone can do this from GAME MODE itself, with no folders and no unzipping:
+
+1. Download `OUTLAW-ENGINE-GAMES.zip` from the [latest release](../../releases/latest)
+   (or skip this if your relay has games: use **FROM MY RELAY**).
+2. In GAME MODE, press **FROM A GAMES PACK FILE** and pick that zip.
+3. Tick the games you want (or **SELECT ALL**) and press **DOWNLOAD**.
+
+The games are kept by the browser on this device, one file each, so they
+play with no drive and no relay, keep their saves, and are still there after
+you update FieldKit or OUTPOST. When a newer pack (or your relay) has a
+different copy of a game, it says **UPDATE READY**, and **UPDATE ALL** gets
+them. Tick a game's **remove** box to take it off and free the space; its
+saves stay, so getting it again picks up where you were. You only use the
+space of the games you pick (the whole library is about 13 MB).
+
+Kept games run the same way as the others: in a sandboxed frame that cannot
+reach FieldKit, its vault or its sign-ins. A private window, or a browser
+with site storage turned off, cannot keep games; GAME MODE says so.
+
 **Adding your own, step by step**
 
 1. Put your games in one folder. `slope.html` is a game; so is
@@ -557,6 +578,19 @@ stays, as the fallback and for what lens cannot do.
   is there.
 - *Next:* a cache for pages you open twice, which the test showed would
   roughly halve what a second visit costs.
+
+**Done in 0.20.0: games you can keep; Metro Fall finished.**
+- GAME MODE keeps games on the device: pick the games pack file (or your
+  relay), tick games, download. They survive FieldKit updates, keep their
+  saves, show when an update is ready, and can be removed one by one.
+- Metro Fall's last big round: three new stations (Mayakovskaya,
+  Kropotkinskaya, Taganskaya), a cathedral and Bunker 42 to explore, raids
+  on stations, 18 new side quests, tunnels that change over time, and later
+  chapters that hit harder.
+- Metro Fall 2: contracts at every stop, blizzards, blocked lines, traders
+  on the line and a raider ataman to bring down.
+- PANTHEON no longer stops on a rare drawing error; the startup errors some
+  games showed (missing icons, app files, a BASTION line) are gone.
 
 **Done in 0.19.0: Metro Fall gets a story; Metro Fall 2 is new.**
 - Metro Fall: a story that opens the metro a chapter at a time and ends at

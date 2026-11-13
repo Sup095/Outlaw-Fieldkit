@@ -196,7 +196,7 @@ var driveChecked = false, relayChecked = false, ranAuto = false;
 var manifestInfo = null;
 /* The FieldKit version this page was written for; a test keeps it
    equal to core/kernel.js, so it is updated with every release. */
-var FOR_VERSION = "0.19.0";
+var FOR_VERSION = "0.20.0";
 /* Next to the drive's files (FIELDKIT.html, core/...), or next to the
    downloaded single-file builds. Decided by whether core/kernel.js loads. */
 var layout = "unknown";
@@ -507,6 +507,11 @@ async function checkResidue() {
     rec(G, "FieldKit databases in this browser", fk.length ? "WARN" : "PASS",
       fk.length ? fk.join(", ") + " — held file handles and cached blobs from an earlier session"
                 : "none");
+    /* 0.20.0: games kept on this device by GAME MODE live in their own database. They are
+       the person's games, not a trace of a session, so WIPE TRACES leaves them alone. */
+    if (dbs.v.indexOf("fk-shelf") >= 0)
+      rec(G, "games kept on this device", "INFO",
+        "GAME MODE keeps games here (fk-shelf), with their saves. WIPE TRACES leaves them; tick a game's remove box in GAME MODE to take it off");
   } else {
     rec(G, "FieldKit databases in this browser", "SKIP",
       "this browser will not list databases (" + (dbs.to ? "timed out" : errStr(dbs.e)) +
@@ -971,7 +976,7 @@ async function checkServices(G, base) {
   });
   rec(G, "GAME MODE", gm.v && gm.v.up ? "PASS" : "INFO", gm.v && gm.v.up
     ? "this relay has games for signed-in people: " + String(gm.v.name || "Outlaw Engine").slice(0, 40) + (gm.v.library ? " (" + gm.v.library.games + " games, " + gm.v.library.apps + " apps)" : "")
-    : "this relay has no games. GAME MODE says so and still opens games from a drive; the files without GAME MODE have no such app");
+    : "this relay has no games. GAME MODE says so and still opens games from a drive or kept on the device; the files without GAME MODE have no such app");
   var n = await guard(10000, async function () {
     var res = await fetch(base + "/notices", { cache: "no-store", mode: "cors" });
     return res.status === 200 ? JSON.parse(await res.text()) : null;

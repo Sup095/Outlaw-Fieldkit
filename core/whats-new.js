@@ -10,6 +10,14 @@
   "use strict";
 
   var NOTES = [
+    { v: "0.20.0", items: [
+      "GAME MODE keeps games on this device: pick the games pack file (or your relay), tick the games you want, download. No unzipping, no folders.",
+      "Kept games play with no drive and no relay, keep their saves, stay through FieldKit updates, show UPDATE when a newer copy exists, and can be removed.",
+      "GAME MODE: Metro Fall's last big round: three new stations, a cathedral and Bunker 42 to explore, raids on stations, 18 new side quests, harder late chapters.",
+      "GAME MODE: Metro Fall's tunnels change over time: anomalies, strongboxes, wounded travellers, ambushes, and elite crawlers that grow more common as the story goes on.",
+      "GAME MODE: Metro Fall 2 has a contract at every stop (escort, rescue, clear-out, salvage), blizzards, blocked lines, traders on the line and a raider ataman.",
+      "GAME MODE: PANTHEON no longer stops on a rare drawing error, and the startup errors some games showed (missing icons and app files) are gone."
+    ] },
     { v: "0.19.0", items: [
       "GAME MODE: Metro Fall has a story, The Signal: the metro opens a chapter at a time and ends at a rail yard with an armoured train. The metro stays open.",
       "GAME MODE: Metro Fall has four new stations, one of them flooded (people live on stilts and walkways; only a boat gets you in), and a street above every hub.",

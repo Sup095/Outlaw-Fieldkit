@@ -146,10 +146,15 @@ async function route(req, res, url, h) {
     const f = url.pathname.indexOf(prefix) === 0 ? fileFor(url.pathname.slice(prefix.length)) : null;
     if (!f) { res.writeHead(404, Object.assign({ "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" }, HEAD)); res.end(method === "HEAD" ? undefined : "not found"); return true; }
     const type = TYPES[path.extname(f.abs).toLowerCase()] || "application/octet-stream";
+    /* the shelf (tools/shelf.js) is fetched by FieldKit itself to keep games on a device; a FieldKit opened
+       from a file has no origin of its own, so these files may be read from anywhere. The ticket in the path
+       is still what lets anyone have them, and no cookie or sign-in rides along. */
+    const shelfFile = /(^|[\\/])shelf[\\/][a-z0-9-]+\.(html|json)$/.test(path.relative(root, f.abs));
     const etag = "\"" + f.size.toString(36) + "-" + Math.floor(f.mtime).toString(36) + "\"";
     const headers = Object.assign({ "Content-Type": type, "Content-Length": f.size, "ETag": etag,
       /* private: the path holds a ticket, so no shared cache keeps it */
-      "Cache-Control": /\.html?$/.test(f.abs) ? "private, no-cache" : "private, max-age=3600" }, HEAD);
+      "Cache-Control": /\.html?$/.test(f.abs) ? "private, no-cache" : "private, max-age=3600" }, HEAD,
+      shelfFile ? { "Access-Control-Allow-Origin": "*", "Access-Control-Expose-Headers": "Content-Length" } : null);
     if (req.headers["if-none-match"] === etag) { delete headers["Content-Length"]; res.writeHead(304, headers); res.end(); return true; }
     res.writeHead(200, headers);
     if (method === "HEAD") { res.end(); return true; }

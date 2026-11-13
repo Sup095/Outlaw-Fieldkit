@@ -228,10 +228,20 @@ function add(src, dest, opts) {
   fs.writeFileSync(path.join(stage, "fieldkit-games.js"),
     "/* Written by FieldKit's tools/add-games.js. Tells GAME MODE this library is here. */\n" +
     "window.FK_GAMES = " + JSON.stringify(info).replace(/</g, "\\u003c") + ";\n");
+  /* each game as one file too, so GAME MODE can keep it on a device (0.20.0); a folder that
+     already has a shelf/ of its own keeps it as it is */
+  let shelfInfo = null;
+  if (!fs.existsSync(path.join(stage, "shelf"))) {
+    try {
+      const r = require("./shelf").build(stage, null, { name: cat.name, catalog: cat });
+      shelfInfo = { games: r.shelf.games.length, bytes: r.bytes, warn: r.warn };
+    } catch (e) { shelfInfo = { games: 0, bytes: 0, warn: ["shelf not made: " + e.message] }; }
+  }
   fs.rmSync(dest, { recursive: true, force: true });
   fs.mkdirSync(path.dirname(dest), { recursive: true });
   fs.renameSync(stage, dest);
-  return Object.assign({ ownIndex: ownIndex }, info);
+  require("./sync-games").writeIndex(path.dirname(dest));
+  return Object.assign({ ownIndex: ownIndex, shelf: shelfInfo }, info);
 }
 
 if (require.main === module) {
@@ -239,6 +249,7 @@ if (require.main === module) {
     const argv = process.argv.slice(2);
     if (argv.indexOf("--remove") >= 0) {
       fs.rmSync(DEST, { recursive: true, force: true });
+      require("./sync-games").writeIndex(path.dirname(DEST));
       remember({ library: undefined, libraryName: undefined });
       console.log("GAME MODE: your library was taken out (games/library/ removed). Build the drive or the relay again.");
       process.exit(0);
@@ -255,6 +266,10 @@ if (require.main === module) {
     console.log("  from " + src);
     console.log("  to   games/library/  (gitignored: never published)");
     console.log(info.ownIndex ? "  that folder has its own index.html, so that is the library's page" : "  a page listing them was written (games/library/index.html)");
+    if (info.shelf) {
+      console.log("  shelf: " + info.shelf.games + " as one file each (" + (info.shelf.bytes / 1048576).toFixed(1) + " MB), so GAME MODE can keep them on a device");
+      info.shelf.warn.forEach((w) => console.log("    ! " + w));
+    }
     if (mem.gameMode === "off") console.log("  NOTE: this copy is set to build WITHOUT GAME MODE. Turn it on: node tools/setup.js --game-mode on");
     console.log("");
     console.log("Next:  node build.js --deploy <drive>   for a drive");

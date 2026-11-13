@@ -150,6 +150,14 @@ function fakeEngine() {
     const hub = fs.readFileSync(path.join(lib, "index.html"), "utf8");
     ok("a page listing them is written, which never builds markup from a name", /var LIBRARY = /.test(hub) && !/innerHTML/.test(hub) && hub.indexOf("</script><b>") < 0 && /textContent/.test(hub));
     ok("and it never says where it came from on this computer", !fs.readFileSync(path.join(lib, "fieldkit-games.js"), "utf8").includes(path.basename(mine)) && !hub.includes(path.basename(mine)));
+    {
+      const sj = JSON.parse(fs.readFileSync(path.join(lib, "shelf", "shelf.json"), "utf8"));
+      const ids = sj.games.map((g) => g.id).sort().join();
+      ok("your games get a shelf too, one file each, so GAME MODE can keep them on a device",
+        li.shelf && li.shelf.games === 3 && ids === "my-notes,slope,tetris" && sj.name === "Kay's Arcade" &&
+        sj.games.every((g) => /^[0-9a-f]{16}$/.test(g.sha) && fs.existsSync(path.join(lib, "shelf", g.file))) &&
+        sj.games.filter((g) => g.id === "slope")[0].desc === "Roll." && !JSON.stringify(sj).includes(path.basename(mine)));
+    }
     put("index.html", "<!doctype html><p>my own front page</p>");
     addGames.add(mine, lib, {});
     ok("a folder with its own index.html keeps it", /my own front page/.test(fs.readFileSync(path.join(lib, "index.html"), "utf8")));
@@ -247,6 +255,84 @@ function fakeEngine() {
     await mounted;
     ok("with no games and no relay it says so, and how to add some", /NO GAMES IN THIS COPY YET/.test(text()) && /add-games\.js/.test(text()) && /LOOK AGAIN/.test(text()) && !/ENTER GAME MODE/.test(text()));
     def.unmount();
+  }
+
+  section("the shelf: games kept on a device");
+  {
+    const shelfTool = require("../tools/shelf");
+    const packer2 = require("../tools/make-games-pack");
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), "fk-shelf-"));
+    const put = (rel, text) => { fs.mkdirSync(path.dirname(path.join(d, rel)), { recursive: true }); fs.writeFileSync(path.join(d, rel), text); };
+    put("index.html", "<!doctype html><title>hub</title>");
+    put("engine/outlaw-core.js", "var Outlaw={version:\"3.2.0\"};");
+    put("engine/outlaw-assist.js", "window.ASSIST=1; var s='</script>';");
+    put("engine/runtime.html", "<!doctype html><html><head><meta charset=\"utf-8\"><script src=\"outlaw-core.js\"></script></head><body><script>var RT=window.OUTLAW_RUNTIME</script></body></html>");
+    put("modules/platformer.js", "window.PLAT=1;");
+    put("games/native/hop.js", "window.HOP=1;");
+    put("vendor/fonts/f.css", "@font-face{font-family:x;src:url(f.woff2) format('woff2')}");
+    put("vendor/fonts/f.woff2", "FONTDATA");
+    put("games/one.html", "<!doctype html><html><head><meta charset=\"utf-8\"><link rel=\"manifest\" href=\"manifest.webmanifest\"><link rel=\"stylesheet\" href=\"../vendor/fonts/f.css\"><script src=\"../engine/outlaw-assist.js\"></script><script src=\"https://example.com/x.js\"></script></head><body><img src=\"../vendor/fonts/f.woff2\"></body></html>");
+    put("engine/outlaw-catalog.js", "window.OUTLAW_CATALOG = " + JSON.stringify({
+      sections: [{ group: "GAMES", label: "ARCADE", ids: ["one", "hop", "../evil"] }, { group: "LEGACY", label: "OLD", ids: ["old"] }],
+      entries: [{ id: "one", title: "One", launch: "games/one.html" }, { id: "hop", title: "Hop", launch: "engine/runtime.html?game=hop&modules=platformer" },
+        { id: "../evil", title: "x", launch: "games/one.html" }, { id: "old", title: "Old", launch: "games/one.html" }]
+    }) + ";");
+    const r = shelfTool.build(d);
+    const one = fs.readFileSync(path.join(d, "shelf/one.html"), "utf8"), hop = fs.readFileSync(path.join(d, "shelf/hop.html"), "utf8");
+    const list = JSON.parse(fs.readFileSync(path.join(d, "shelf/shelf.json"), "utf8"));
+    ok("every game becomes one file: its scripts, sheets, fonts and pictures inside it", /window\.ASSIST=1/.test(one) && /data:font\/woff2;base64,/.test(one) && !/f\.css/.test(one) && /<img src="data:/.test(one));
+    ok("a script's text can never end its tag early", /'<\\\/script>'/.test(one));
+    ok("what is on another site, and a phone-install manifest, are not carried", /https:\/\/example\.com\/x\.js/.test(one) && !/manifest/.test(one));
+    ok("a native game carries its runtime, module and game", /window\.OUTLAW_RUNTIME = /.test(hop) && /PLAT=1/.test(hop) && /HOP=1/.test(hop) && /game=hop&modules=platformer/.test(hop) && /Outlaw=\{version/.test(hop));
+    ok("only games and apps, only plain ids", list.v === 1 && list.games.map((g) => g.id).join() === "one,hop" && r.shelf.games.length === 2);
+    const crypto = require("crypto");
+    ok("each says its size and a short sha256", list.games.every((g) => { const b = fs.readFileSync(path.join(d, "shelf", g.file)); return g.size === b.length && g.sha === crypto.createHash("sha256").update(b).digest("hex").slice(0, 16); }));
+
+    const gm = FieldKit.need("gameMode");
+    const z = packer2.zip([{ name: "outlaw-engine/shelf/shelf.json", data: fs.readFileSync(path.join(d, "shelf/shelf.json")) },
+      { name: "outlaw-engine/shelf/one.html", data: fs.readFileSync(path.join(d, "shelf/one.html")) }, { name: "outlaw-engine/x.bin", data: Buffer.from([1, 2, 3]) }]);
+    const zr = gm._readZip(z.buffer.slice(z.byteOffset, z.byteOffset + z.length));
+    const back = Buffer.from(await zr.get("outlaw-engine/shelf/one.html")).toString("utf8");
+    ok("a games pack is read in the page, without unzipping it by hand", zr.names.length === 3 && back === one && Buffer.from(await zr.get("outlaw-engine/x.bin")).equals(Buffer.from([1, 2, 3])));
+    let notZip = null; try { gm._readZip(new Uint8Array(64).buffer); } catch (e) { notZip = e; }
+    ok("and a file that is not a zip is refused", notZip && /not a zip/.test(notZip.message));
+    const clean = gm._cleanList({ v: 1, games: [list.games[0], { id: "../x", sha: "0123456789abcdef", file: "../x.html" }, { id: "y", sha: "zz", file: "y.html" }, { id: "w", sha: "0123456789abcdef", file: "other.html" }] });
+    ok("a list from a relay or a pack is checked: plain ids, a real sha, its own file", clean.length === 1 && clean[0].id === "one");
+
+    /* the stand-in storage, run the way a sandboxed game runs it */
+    const vm = require("vm"), posted = [];
+    const win = { parent: { postMessage: (m) => posted.push(m) } };
+    const docL = {};
+    const sbx = { window: win, navigator: {}, document: { addEventListener: (t, f) => { docL[t] = f; } }, DOMException: class extends Error { constructor(m, n) { super(m); this.name = n; } }, Proxy, Object, String, JSON, Promise };
+    vm.createContext(sbx);
+    vm.runInContext("(" + gm._shelfShim.toString() + ")(" + JSON.stringify({ "metro_fall_save": "{\"day\":3}", other: "1" }) + ")", sbx);
+    const ls = win.localStorage;
+    ok("a shelf game finds its saves where it left them", ls.getItem("metro_fall_save") === "{\"day\":3}" && ls.length === 2 && ls.other === "1");
+    ls.setItem("k", 5); ls.z = "2"; delete ls.other;
+    ok("and every change goes back to FieldKit to be kept", posted.map((m) => m.op + ":" + m.k).join() === "set:k,set:z,del:other" && posted.every((m) => m.fkShelf === 1) && ls.getItem("k") === "5" && ls.key(0) === "metro_fall_save");
+    let quota = null; try { ls.setItem("big", "x".repeat(33 * 1048576)); } catch (e) { quota = e; }
+    ok("a full store says so the way a browser does", quota && quota.name === "QuotaExceededError");
+    win.sessionStorage.setItem("s", "1");
+    ok("sessionStorage works and is not kept", win.sessionStorage.getItem("s") === "1" && !posted.some((m) => m.k === "s"));
+    win.FK_SHELF.open("metro-fall-2.html");
+    ok("a game can ask for another one by name", posted[posted.length - 1].op === "open" && posted[posted.length - 1].id === "metro-fall-2");
+    ok("a service worker is politely absent", sbx.navigator.serviceWorker && sbx.navigator.serviceWorker.controller === null);
+    const page = gm._shelfPage("<!doctype html><html><head><meta charset=\"utf-8\"><title>t</title></head><body></body></html>", { a: "</script><b>" });
+    ok("the stand-in goes first in the page, and saves cannot break out of it", /<head><script>\(function shelfShim/.test(page) && !/<\/script><b>/.test(page) && page.indexOf("<meta charset") > page.indexOf("shelfShim"));
+    ok("a shelf game runs sandboxed: scripts yes, FieldKit's origin no", /allow-scripts/.test(gm.SANDBOX) && !/allow-same-origin/.test(gm.SANDBOX) && !/allow-top-navigation/.test(gm.SANDBOX));
+
+    /* the relay lets FieldKit read the shelf, and only the shelf */
+    const gd = fs.mkdtempSync(path.join(os.tmpdir(), "fk-shg-"));
+    sync.sync(src, path.join(gd, "outlaw-engine"));
+    ok("a copy carries its shelf, and the games folder says what is in it", fs.existsSync(path.join(gd, "outlaw-engine/shelf/shelf.json")) && /FK_GAMES_INDEX = \["outlaw-engine"\]/.test(fs.readFileSync(path.join(gd, "fieldkit-index.js"), "utf8")));
+    fs.mkdirSync(path.join(gd, "outlaw-engine/shelf"), { recursive: true });
+    fs.copyFileSync(path.join(d, "shelf/one.html"), path.join(gd, "outlaw-engine/shelf/one.html"));
+    games.init({ dataDir: data, dir: gd, now: () => Date.now() });
+    const t2 = await call("POST", "/games/ticket", { name: "ava" });
+    const b2 = t2.b.path.replace("index.html", "");
+    const sf = await get(b2 + "shelf/one.html"), idx = await get(t2.b.path);
+    ok("shelf files may be read by FieldKit from a file (CORS), with the ticket", sf.status === 200 && sf.headers["Access-Control-Allow-Origin"] === "*" && sf.body === one);
+    ok("the rest of the library is not", idx.status === 200 && !idx.headers["Access-Control-Allow-Origin"]);
   }
 
   section("wired into FieldKit, kept apart");

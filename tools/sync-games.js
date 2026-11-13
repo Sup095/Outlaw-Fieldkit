@@ -107,6 +107,12 @@ function sync(src, dest, opts) {
     engine: "Outlaw Engine", version: engineVersion(src), at: new Date(opts.now || Date.now()).toISOString(),
     files: files.length, bytes: bytes, fingerprint: h.digest("hex").slice(0, 16), library: catalogSummary(src)
   };
+  /* every game also as one file, for GAME MODE's shelf (tools/shelf.js): it rides along to drives, the relay and the pack */
+  try {
+    const sh = require("./shelf").build(stage, null, { version: info.version });
+    info.shelf = { games: sh.shelf.games.length, bytes: sh.bytes };
+    if (sh.warn.length && !opts.quiet) sh.warn.forEach((w) => console.log("  shelf ! " + w));
+  } catch (e) { info.shelf = null; if (!opts.quiet) console.log("  shelf: not made (" + e.message + ")"); }
   /* JSON inside a script tag: < is escaped so nothing in a path can close it */
   fs.writeFileSync(path.join(stage, "fieldkit-games.js"),
     "/* Written by FieldKit's tools/sync-games.js. Tells GAME MODE this copy is here. */\n" +
@@ -114,7 +120,20 @@ function sync(src, dest, opts) {
   fs.rmSync(dest, { recursive: true, force: true });
   fs.mkdirSync(path.dirname(dest), { recursive: true });
   fs.renameSync(stage, dest);
+  writeIndex(path.dirname(dest));
   return info;
+}
+
+/* games/fieldkit-index.js: which libraries this games folder holds. GAME MODE reads this one file
+   first, so it never asks for a folder that is not there (each miss was a red error in the console). */
+function writeIndex(gamesDir) {
+  const libs = ["library", "outlaw-engine"].filter((l) => fs.existsSync(path.join(gamesDir, l, "fieldkit-games.js")));
+  try {
+    fs.writeFileSync(path.join(gamesDir, "fieldkit-index.js"),
+      "/* Written by FieldKit's tools (sync-games.js, add-games.js). Which libraries are in this games folder. */\n" +
+      "window.FK_GAMES_INDEX = " + JSON.stringify(libs) + ";\n");
+  } catch (e) { /* GAME MODE then looks for the engine by itself */ }
+  return libs;
 }
 
 if (require.main === module) {
@@ -129,10 +148,11 @@ if (require.main === module) {
     console.log("  from " + src);
     console.log("  to   games/outlaw-engine/  (gitignored; goes on drives and into the relay image)");
     if (info.library) console.log("  library: " + info.library.games + " games, " + info.library.apps + " apps, " + info.library.workshop + " workshop, " + info.library.legacy + " legacy");
+    if (info.shelf) console.log("  shelf:   " + info.shelf.games + " games and apps as one file each (" + (info.shelf.bytes / 1048576).toFixed(1) + " MB), for GAME MODE to keep on a device");
   } catch (e) {
     console.error("GAME MODE: " + e.message);
     process.exit(1);
   }
 }
 
-module.exports = { sync, TAKE, DEST };
+module.exports = { sync, writeIndex, TAKE, DEST };
