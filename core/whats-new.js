@@ -10,6 +10,11 @@
   "use strict";
 
   var NOTES = [
+    { v: "0.20.1", items: [
+      "GAME MODE: Metro Fall has four dead stations. Each is quiet, overrun, camped in by travellers, or an ambush, and it changes while you are away.",
+      "GAME MODE: Metro Fall 2 has dead halts on its side lines and in endless runs, which change the same way. Five new Metro Fall quests go with them.",
+      "Games kept on this device: pick the new games pack in GAME MODE and press UPDATE ALL to get them."
+    ] },
     { v: "0.20.0", items: [
       "GAME MODE keeps games on this device: pick the games pack file (or your relay), tick the games you want, download. No unzipping, no folders.",
       "Kept games play with no drive and no relay, keep their saves, stay through FieldKit updates, show UPDATE when a newer copy exists, and can be removed.",

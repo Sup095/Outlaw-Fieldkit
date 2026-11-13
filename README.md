@@ -579,6 +579,13 @@ stays, as the fallback and for what lens cannot do.
 - *Next:* a cache for pages you open twice, which the test showed would
   roughly halve what a second visit costs.
 
+**Done in 0.20.1: dead stations.**
+- Metro Fall: four dead stations (Sovetskaya, Smolenskaya, Paveletskaya,
+  Kurskaya). Each is quiet, overrun, camped in by travellers, or an ambush,
+  and changes over time; clearing a nest turns up a cache. Five new quests.
+- Metro Fall 2: dead halts on five side lines and in endless runs, which
+  change the same way. FieldKit itself only changed its version.
+
 **Done in 0.20.0: games you can keep; Metro Fall finished.**
 - GAME MODE keeps games on the device: pick the games pack file (or your
   relay), tick games, download. They survive FieldKit updates, keep their
