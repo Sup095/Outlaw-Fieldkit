@@ -10,6 +10,14 @@
   "use strict";
 
   var NOTES = [
+    { v: "0.19.0", items: [
+      "GAME MODE: Metro Fall has a story, The Signal: the metro opens a chapter at a time and ends at a rail yard with an armoured train. The metro stays open.",
+      "GAME MODE: Metro Fall has four new stations, one of them flooded (people live on stilts and walkways; only a boat gets you in), and a street above every hub.",
+      "GAME MODE: new game, Metro Fall 2: The Line North. Ride the Burevestnik from Moscow to the White Sea, walk the train while it moves, step off at real towns.",
+      "GAME MODE: Metro Fall 2 has 11 kinds of car to collect, crafting from scrap and chemicals, attacks on the move, and a crew to hire.",
+      "GAME MODE: Metro Fall 2 also has an endless run: waystations, cars for sale, staff to hire and fire, and a best distance to beat.",
+      "GAME MODE: Metro Fall's prices and guns are rebalanced. The Outlaw Engine games pack on the release page is updated (30 games now)."
+    ] },
     { v: "0.18.0", items: [
       "GAME MODE: all 29 Outlaw Engine games got a graphics pass: weather, light, glow, dust, skies, shorelines. Each keeps its own look.",
       "GAME MODE: pause where it was missing (Slope, Space Game, KnightFall, TrenchFall, IRONFALL) and keyboard keys in IRONMARCH, The Ledger and World Conflict.",

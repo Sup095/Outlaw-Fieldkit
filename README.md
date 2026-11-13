@@ -221,7 +221,7 @@ So there are three ways to have it, and each is one step:
 |---|---|
 | **No GAME MODE at all** | Download the `-NO-GAME-MODE` files from the release. If you build your own copy, answer **n** to setup's GAME MODE question (or `node build.js --no-game-mode`). Its code is left out of those files, and no games go on your drives or relay. |
 | **Your own games and apps** | `node tools/add-games.js "a folder of your games"`. A game is a `.html` file, or a folder with an `index.html` in it. They get a library page with search and groups, go on drives, and open through your relay for signed-in people. |
-| **The Outlaw Engine** | The library GAME MODE was first made for: 29 games and 3 apps. Download `OUTLAW-ENGINE-GAMES.zip` from the [latest release](../../releases/latest) and unzip it into your FieldKit folder's `games/`, so that `games/outlaw-engine/index.html` exists. Then restart the relay, or build the drive or the deploy bundle again. The games are © Outlaw Systems, All rights reserved, and are not in this repository: the `LICENSE.md` inside the pack (section 2.7) lets you offer them on your own relay to the people signed in to it, unchanged and never for money, and nothing more. |
+| **The Outlaw Engine** | The library GAME MODE was first made for: 30 games and 3 apps. Download `OUTLAW-ENGINE-GAMES.zip` from the [latest release](../../releases/latest) and unzip it into your FieldKit folder's `games/`, so that `games/outlaw-engine/index.html` exists. Then restart the relay, or build the drive or the deploy bundle again. The games are © Outlaw Systems, All rights reserved, and are not in this repository: the `LICENSE.md` inside the pack (section 2.7) lets you offer them on your own relay to the people signed in to it, unchanged and never for money, and nothing more. |
 | GAME MODE, nothing in it yet | Use the ordinary files. GAME MODE says there are no games and how to add some. |
 
 Your own library and the Outlaw Engine can sit side by side: your library's
@@ -557,6 +557,16 @@ stays, as the fallback and for what lens cannot do.
   is there.
 - *Next:* a cache for pages you open twice, which the test showed would
   roughly halve what a second visit costs.
+
+**Done in 0.19.0: Metro Fall gets a story; Metro Fall 2 is new.**
+- Metro Fall: a story that opens the metro a chapter at a time and ends at
+  an armoured train in a rail yard, four new stations (one flooded, reached
+  by boat), a street above every hub, and a balance pass. Still open world.
+- Metro Fall 2: The Line North, a new game in the library: the train north
+  to the White Sea (story) or an endless run, with cars to collect,
+  crafting, attacks on the move and a crew. The library has 30 games now.
+- FieldKit itself is unchanged apart from the version; the games pack on
+  the release is the new one.
 
 **Done in 0.18.0: every Outlaw Engine game, a graphics pass and something new.**
 - All 29 games in the Outlaw Engine library were gone through one by one:
