@@ -180,7 +180,12 @@
 
   /* Open an address: in the slot of its site, the current one when it is
      the same site. how: "new" (a fresh step), "replace", or "history". */
-  function open(u, how) {
+  /* A form post carried from one site's slot to another's (a sign-in
+     coming back): only the plain kind, and not too big. */
+  function cleanPost(p) {
+    return p && typeof p.body === "string" && p.body.length <= 65536 && p.ctype === "application/x-www-form-urlencoded" ? { body: p.body, ctype: p.ctype } : null;
+  }
+  function open(u, how, form) {
     if (handOff(u)) return;
     var site = siteOf(u);
     if (how === "new") { trail = trail.slice(0, at + 1); trail.push({ url: u }); at = trail.length - 1; }
@@ -190,7 +195,7 @@
     start.hidden = true;
     addr.value = u;
     if (!cur || (rooms && cur.site !== site)) openSlot(site);
-    post({ t: "go", url: u });
+    post({ t: "go", url: u, post: form || null });
     setTimeout(function () { why(hostOf(u)); }, 5000);
   }
 
@@ -235,7 +240,23 @@
       if (m.t === "loaded") why(hostOf(u));
     } else if (m.t === "foreign") {
       var to = String(m.url || "");
-      if (/^https?:\/\//i.test(to)) open(to, m.replace ? "replace" : "new");
+      if (!/^https?:\/\//i.test(to)) return;
+      /* A window a page's script opened for another site (0.20.2): most
+         often a "Sign in with Google" window. It cannot open beside the
+         page here (the page could read what is typed in it), and moving
+         the whole view there leaves the page behind for good, since the
+         window's answer goes to a page that is no longer open. So the
+         page stays, and the person chooses. A link they clicked is theirs
+         and opens straight away. */
+      if (m.script) {
+        var fromSite = cur && cur.site ? cur.site : "this site", toHost = hostOf(to);
+        say(fromSite + " tried to open a window for " + toHost + " (often a sign-in window). Windows from one site to another " +
+          "are blocked here so " + fromSite + " cannot read what you type in them. Look on the page for another way to sign in " +
+          "(email, or a button that moves the whole page), or go there yourself.", "warn", true,
+          { label: "GO TO " + toHost.toUpperCase(), run: function () { open(to, "new"); } });
+        return;
+      }
+      open(to, m.replace ? "replace" : "new", cleanPost(m.post));
     } else if (m.t === "moved") {
       moved(m);
     } else if (m.t === "password") {

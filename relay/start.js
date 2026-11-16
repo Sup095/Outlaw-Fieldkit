@@ -81,7 +81,8 @@ function log(msg) { console.log(`${new Date().toISOString()} [start] ${msg}`); }
 
      "cloudflared": {
        "tunnel": "fieldkit-relay",     // name or UUID from `tunnel create`
-       "configFile": "cloudflared.yml" // optional, if you wrote one
+       "configFile": "cloudflared.yml", // optional, if you wrote one
+       "protocol": "http2"              // optional: TCP instead of QUIC
      }
 
    With no `cloudflared` block, or no `tunnel` in it, nothing
@@ -180,24 +181,45 @@ function startCloudflared() {
     describe = `tunnel '${cfg.tunnel}'`;
   }
 
+  /* "protocol": "http2" (0.20.2) keeps the tunnel on TCP. cloudflared's
+     default, QUIC over UDP, is what a network that drops or throttles
+     UDP breaks first: "failed to dial to edge with quic", and the
+     hostname blinks (530/502) for everyone in the meantime. */
+  if (["http2", "quic", "auto"].indexOf(cfg.protocol) >= 0) args.splice(1, 0, "--protocol", cfg.protocol);
+
   /* The token is a credential. It goes to cloudflared and never to
      the log, where Pterodactyl would keep it in the console
      scrollback for anyone with panel access to read. */
-  log(`starting cloudflared: ${describe} -> 127.0.0.1:${port}`);
-  const c = spawn(cf, args, { stdio: "inherit" });
+  log(`starting cloudflared: ${describe}${cfg.protocol ? " (" + cfg.protocol + ")" : ""} -> 127.0.0.1:${port}`);
 
-  /* Same rule as tailscaled: a side-car failing must never stop
-     the relay from serving. Without this handler a spawn failure
-     raises an unhandled 'error' event and takes everything down. */
-  c.on("error", (e) => log(`ERROR: cloudflared failed to start: ${e.message}`));
-  c.on("exit", (code) => {
-    log(`cloudflared exited with code ${code}` +
-      (code ? " — the tunnel hostname is now down, but the relay is still serving" : ""));
-  });
-  for (const sig of ["SIGINT", "SIGTERM"]) {
-    process.on(sig, () => { try { c.kill(sig); } catch (e) {} });
-  }
-  return c;
+  /* KEPT RUNNING (0.20.2). cloudflared used to be started once: when it
+     exited, the hostname stayed down until someone restarted the whole
+     relay. Now it comes back by itself after 5 s, longer each time it
+     fails quickly (up to 5 minutes), and from 5 s again once a run has
+     lasted 10 minutes. Stopping the relay stops it for good. */
+  let child = null, stopping = false, fails = 0;
+  const run = () => {
+    if (stopping) return;
+    const began = Date.now();
+    const c = spawn(cf, args, { stdio: "inherit" });
+    child = c;
+    /* Same rule as tailscaled: a side-car failing must never stop
+       the relay from serving. Without this handler a spawn failure
+       raises an unhandled 'error' event and takes everything down. */
+    c.on("error", (e) => log(`ERROR: cloudflared failed to start: ${e.message}`));
+    c.on("exit", (code, signal) => {
+      if (child === c) child = null;
+      if (stopping) return;
+      fails = Date.now() - began > 600000 ? 1 : fails + 1;
+      const wait = Math.min(300, 5 * Math.pow(2, fails - 1));
+      log(`cloudflared exited (${signal || "code " + code}): the tunnel hostname is down, the relay is still serving; starting it again in ${wait} s`);
+      setTimeout(run, wait * 1000).unref();
+    });
+  };
+  run();
+  const stop = (sig) => { stopping = true; try { if (child) child.kill(sig); } catch (e) {} };
+  for (const sig of ["SIGINT", "SIGTERM"]) process.on(sig, () => stop(sig));
+  return { kill: stop };
 }
 
 function bin(name) {

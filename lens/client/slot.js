@@ -46,6 +46,11 @@
 
   var pass = "", site = "", scramjet = null, connection = null, frame = null, ready = false;
   var stack = [], at = -1, moving = 0;
+  /* When this slot's page last began to leave (a click, a form, the page's
+     own unload): the service worker asks, for a page of another site, so
+     it can tell this page moving from a frame inside it loading (sw.js). */
+  var leaving = 0;
+  function isLeaving() { return leaving > 0 && Date.now() - leaving < 10000; }
 
   function wispUrl() {
     return (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/wisp/" + encodeURIComponent(pass) + "/";
@@ -62,7 +67,7 @@
         files: { wasm: V.scram + "scramjet.wasm.wasm", all: V.scram + "scramjet.all.js", sync: V.scram + "scramjet.sync.js" }
       });
       await scramjet.init();
-      await navigator.serviceWorker.register("/sw.js", { scope: "/" });
+      await navigator.serviceWorker.register("/sw.js" + (site ? "?site=" + encodeURIComponent(site) : ""), { scope: "/" });
       await navigator.serviceWorker.ready;
       connection = new BareMux.BareMuxConnection(V.mux + "worker.js");
       await setTransport();
@@ -93,6 +98,7 @@
       var u = "";
       try { u = String(ev.client.url.href); } catch (x) { return; }
       var isTop = ev.window === frame.frame.contentWindow;
+      if (isTop) leaving = 0;
       if (!site || !isTop || !/^https?:/i.test(u) || siteOf(u) === site) return guard(ev.window, ev.client, isTop);
       try { ev.window.stop(); } catch (x) {}
       try { ev.window.document.documentElement.innerHTML = ""; } catch (x) {}
@@ -165,7 +171,7 @@
       if (typeof realOpen === "function") w.open = function (url) {
         var to = "";
         try { to = url ? new URL(String(url), here()).href : ""; } catch (x) {}
-        if (foreignTo(to)) { tell({ t: "foreign", url: to, replace: false, popup: true }); return null; }
+        if (foreignTo(to)) { tell({ t: "foreign", url: to, replace: false, popup: true, script: true }); return null; }
         return realOpen.apply(this, arguments);
       };
     } catch (x) {}
@@ -191,6 +197,17 @@
     }, true);
 
     if (!isTop) return;
+    try { w.addEventListener("beforeunload", function () { leaving = Date.now(); }, true); } catch (x) {}
+    /* After the page's own handlers (bubbling, not capturing): a click or a
+       submit the page cancelled, as single-page sites do, leaves nothing. */
+    doc.addEventListener("click", function (e) {
+      if (e.defaultPrevented || !e.target || !e.target.closest) return;
+      var a = e.target.closest("a[href]");
+      if (!a || (a.target && a.target !== "_self")) return;
+      var to = realOf(a.href), now = here();
+      if (to && to.split("#")[0] !== now.split("#")[0]) leaving = Date.now();
+    }, false);
+    doc.addEventListener("submit", function (e) { if (!e.defaultPrevented) leaving = Date.now(); }, false);
     doc.addEventListener("submit", function (e) {
       var f = e.target;
       if (!f || String(f.method || "get").toLowerCase() !== "get" || (f.target && f.target !== "_self") || e.defaultPrevented) return;
@@ -209,10 +226,25 @@
     }, true);
   }
 
-  function go(u) {
+  function go(u, post) {
     if (!ready || !u) return;
     if (site && siteOf(u) !== site) return tell({ t: "foreign", url: u, replace: false });
+    if (post && typeof post.body === "string" && post.ctype === "application/x-www-form-urlencoded") return postTo(u, post.body);
     ensureFrame().go(u);
+  }
+  /* A sign-in that comes back as a form post (Microsoft, school sign-ins,
+     SAML): the fields are posted again here, in this site's own slot, as
+     the page would have, through Scramjet like any form of the page. */
+  function postTo(u, body) {
+    var fr = ensureFrame();
+    if (!fr.frame.name) fr.frame.name = "fk-site";
+    var f = document.createElement("form");
+    f.method = "post"; f.enctype = "application/x-www-form-urlencoded"; f.target = fr.frame.name; f.style.display = "none";
+    f.action = location.origin + PREFIX + CODEC.encode(u);
+    new URLSearchParams(body).forEach(function (v, k) { var i = document.createElement("input"); i.type = "hidden"; i.name = k; i.value = v; f.appendChild(i); });
+    document.body.appendChild(f);
+    f.submit();
+    f.remove();
   }
 
   /* Back and forward inside this slot while it has somewhere to go;
@@ -235,10 +267,28 @@
     } else if (m.t === "pass" && typeof m.pass === "string" && m.pass) {
       pass = m.pass;
       if (connection) setTransport().catch(function () {});
-    } else if (m.t === "go") go(String(m.url || ""));
+    } else if (m.t === "go") go(String(m.url || ""), m.post);
     else if (m.t === "back") move(-1);
     else if (m.t === "forward") move(1);
     else if (m.t === "reload" && frame) frame.reload();
+  });
+
+  /* The worker asks whether this slot's page is the one leaving. */
+  if (navigator.serviceWorker) navigator.serviceWorker.onmessage = function (e) {
+    var m = e.data;
+    if (m && m.fk === "sw" && m.t === "leaving?" && e.ports && e.ports[0]) e.ports[0].postMessage({ leaving: isLeaving() });
+  };
+  /* The worker's note, in place of another site's page: hand it to the
+     lens page, and step this slot back to where it was. */
+  window.addEventListener("message", function (e) {
+    if (!frame || e.source !== frame.frame.contentWindow || e.origin !== location.origin) return;
+    var m = e.data;
+    if (!m || m.fk !== "slot-sw" || m.t !== "foreign" || !/^https?:/i.test(String(m.url || ""))) return;
+    leaving = 0;
+    var replace = at < 0;
+    tell({ t: "foreign", url: String(m.url), replace: replace, post: m.post || null });
+    if (replace) frame.frame.src = "about:blank";
+    else { moving++; frame.back(); }
   });
 
   tell({ t: "hello" });

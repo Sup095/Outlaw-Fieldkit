@@ -579,6 +579,22 @@ stays, as the fallback and for what lens cannot do.
 - *Next:* a cache for pages you open twice, which the test showed would
   roughly halve what a second visit costs.
 
+**Done in 0.20.2: sign-ins in lighter mode; steadier servers.**
+- Lens: signing in with another site (Google, Microsoft, Discord...) failed.
+  The jump to the sign-in site was first sent from the wrong site's slot and
+  then sent again from the right one, so the one-time sign-in code was
+  already spent, and a sign-in that comes back as a form arrived as a plain
+  link. The slot's service worker now hands such a jump to the lens page
+  unsent, which opens it once in the right slot, form and all. A sign-in
+  window a site opens from a script shows a button to go there instead.
+- Relay: cloudflared is restarted when it exits (5 s, then longer, up to
+  5 minutes); `"cloudflared": { "protocol": "http2" }` keeps it on TCP.
+- Runner (Bastion 2): its tunnel runs on http2 (QUIC dropped 100+ times a
+  day). `runnerd/keepalive.sh`, installed by tiny-ai.sh and
+  browser-card.sh into the user's crontab, starts the AI models and the
+  browser helper again when Docker gave up on them at boot because the
+  tailnet address was not there yet.
+
 **Done in 0.20.1: dead stations.**
 - Metro Fall: four dead stations (Sovetskaya, Smolenskaya, Paveletskaya,
   Kurskaya). Each is quiet, overrun, camped in by travellers, or an ambush,

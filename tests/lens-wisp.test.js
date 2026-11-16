@@ -677,11 +677,13 @@ async function client(port, who) {
     ok("a slot listens only to the lens page of its own host", /e\.source !== window\.parent \|\| e\.origin !== TOP/.test(slotJs));
     ok("the lens page listens only to the slot it made", /e\.source !== cur\.el\.contentWindow \|\| e\.origin !== cur\.origin/.test(lensJs));
     ok("…and a slot cannot name another site in the address bar", /rooms && cur\.site && siteOf\(u\) !== cur\.site\) return/.test(lensJs));
-    ok("…nor send it anywhere but http(s)", /if \(\/\^https\?:\\\/\\\/\/i\.test\(to\)\) open\(to/.test(lensJs));
+    ok("…nor send it anywhere but http(s)", /if \(!\/\^https\?:\\\/\\\/\/i\.test\(to\)\) return;/.test(lensJs) && /open\(to, m\.replace \? "replace" : "new", cleanPost\(m\.post\)\)/.test(lensJs));
+    ok("…and a site's script opening a sign-in window for another site leaves the page, with a button to go there",
+      /if \(m\.script\) \{/.test(lensJs) && /label: "GO TO "/.test(lensJs));
     ok("another site loading in a slot is stopped before its scripts run, and opened in its own",
       /ev\.window\.stop\(\)/.test(slotJs) && /t: "foreign"/.test(slotJs));
     ok("a popup or new-window link to another site opens in that site's own space, never in this one",
-      /w\.open = function/.test(slotJs) && /foreignTo\(to\)\) \{ tell\(\{ t: "foreign", url: to, replace: false, popup: true \}\); return null; \}/.test(slotJs) &&
+      /w\.open = function/.test(slotJs) && /foreignTo\(to\)\) \{ tell\(\{ t: "foreign", url: to, replace: false, popup: true, script: true \}\); return null; \}/.test(slotJs) &&
       /t !== "_blank"/.test(slotJs));
     ok("a sign-in box framed in from another site gets a STOP of its own",
       /msg\.inside = hostOf/.test(slotJs) && /STOP: this sign-in box is/.test(lensJs) && /ON ITS OWN/.test(lensJs));
@@ -697,6 +699,69 @@ async function client(port, who) {
     ok("…and setup fills in every LENS_HOST", /s\/LENS_HOST\/\$HOST\/g/.test(setup));
     const deploy = fs.readFileSync(path.join(__dirname, "..", "tools", "make-deploy.js"), "utf8");
     ok("the deploy carries the slot's files", ["codec.js", "slot.html", "slot.js"].every((f) => deploy.includes('"lens/client/' + f + '"')));
+  }
+
+  section("sign-ins: a page leaving for another site is handed over, not sent from the wrong slot (0.20.2)");
+  {
+    /* The real sw.js, in a sandbox: Scramjet is a stand-in that says what it
+       fetched, and the slot page is a stand-in that answers "leaving?". */
+    const vm = require("vm");
+    const read = (f) => fs.readFileSync(path.join(__dirname, "..", "lens", f), "utf8");
+    const run = async (site, leaving, req) => {
+      let listener = null, fetched = 0, asked = 0;
+      const self = {
+        location: { href: "https://s3.lens.example/sw.js" + (site ? "?site=" + site : ""), origin: "https://s3.lens.example" },
+        addEventListener: (t, f) => { if (t === "fetch") listener = f; },
+        skipWaiting() {}, clients: {
+          claim() {},
+          matchAll: async () => [{ url: "https://s3.lens.example/slot.html", postMessage(m, ports) {
+            asked++; if (m && m.t === "leaving?" && leaving !== null) ports[0].postMessage({ leaving }); } }]
+        }
+      };
+      const box = { self, TextEncoder, TextDecoder, btoa, atob, URL, Request, Response, MessageChannel, setTimeout, clearTimeout, console,
+        fetch: async () => new Response("own file"),
+        importScripts() {},
+        $scramjetLoadWorker: () => ({ ScramjetServiceWorker: function () {
+          this.loadConfig = async () => {}; this.route = (e) => new URL(e.request.url).pathname.indexOf(self.FK_LENS.PREFIX) === 0;
+          this.fetch = async () => { fetched++; return new Response("SCRAMJET"); }; } }) };
+      vm.runInNewContext(read("client/codec.js"), box);
+      vm.runInNewContext(read("client/sw.js"), box);
+      let out = null;
+      listener({ request: req(self.FK_LENS), clientId: "c", respondWith: (p) => { out = p; } });
+      const res = await out, text = await res.text();
+      return { fetched, asked, text };
+    };
+    const nav = (to, init) => (K) => {
+      const r = new Request("https://s3.lens.example" + K.PREFIX + K.CODEC.encode(to), Object.assign({ method: "GET" }, init || {}));
+      Object.defineProperty(r, "mode", { value: "navigate" });
+      return r;
+    };
+    const msgOf = (t) => { const m = /parent\.postMessage\((.*), location\.origin\)/.exec(t); return m ? JSON.parse(m[1]) : null; };
+
+    let r = await run("site-a.com", true, nav("https://accounts.site-b.com/authorize?state=x&code=once"));
+    let m = msgOf(r.text);
+    ok("the page leaving for another site is not fetched here, it is handed to the lens page",
+      r.fetched === 0 && m && m.fk === "slot-sw" && m.t === "foreign" && m.url === "https://accounts.site-b.com/authorize?state=x&code=once" && m.post === null);
+    r = await run("site-a.com", true, nav("https://site-b.com/callback", {
+      method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: "code=good&state=s1" }));
+    m = msgOf(r.text);
+    ok("…a sign-in that comes back as a form post keeps its fields", r.fetched === 0 && m && m.post && m.post.body === "code=good&state=s1" && m.post.ctype === "application/x-www-form-urlencoded");
+    r = await run("site-a.com", true, nav("https://site-b.com/up", { method: "POST", headers: { "content-type": "multipart/form-data; boundary=x" }, body: "--x--" }));
+    m = msgOf(r.text);
+    ok("…a file upload is not carried over (only plain forms are)", m && m.post === null);
+    r = await run("site-a.com", true, nav("https://evil.site-b.com/</script><script>alert(1)</script>"));
+    ok("…an address cannot break out of the hand-over page", !/<\/script><script>alert/.test(r.text) && msgOf(r.text) && /alert\(1\)/.test(msgOf(r.text).url));
+    r = await run("site-a.com", false, nav("https://site-b.com/frame"));
+    ok("a frame inside the page (the page is not leaving) loads as before", r.fetched === 1 && r.text === "SCRAMJET" && r.asked === 1);
+    r = await run("site-a.com", null, nav("https://site-b.com/frame"));
+    ok("…and so does one when the slot does not answer", r.fetched === 1 && r.text === "SCRAMJET");
+    r = await run("site-a.com", true, nav("https://www.site-a.com/next"));
+    ok("the same site moving page loads in place, without asking", r.fetched === 1 && r.asked === 0);
+    r = await run("", true, nav("https://site-b.com/x"));
+    ok("a shared slot (no site of its own) loads as before", r.fetched === 1 && r.asked === 0);
+    const slotJs = read("client/slot.js");
+    ok("the slot registers its worker with its site and answers whether its page is leaving",
+      /"\/sw\.js" \+ \(site \? "\?site=" \+ encodeURIComponent\(site\) : ""\)/.test(slotJs) && /t === "leaving\?"/.test(slotJs) && /addEventListener\("beforeunload"/.test(slotJs));
   }
 
   section("a client that sends first");

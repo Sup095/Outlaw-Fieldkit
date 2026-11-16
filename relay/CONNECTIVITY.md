@@ -153,7 +153,11 @@ Then in `config.json`:
 
 `start.js` launches the tunnel before the relay binds, and keeps
 serving even if the tunnel dies — a side-car failure must never take
-the relay down with it.
+the relay down with it. Since 0.20.2 it also starts the tunnel again
+when it exits: after 5 s, longer each time it fails quickly (up to 5
+minutes). If the logs show `failed to dial to edge with quic` over and
+over, add `"protocol": "http2"` beside the token: it moves the tunnel
+from UDP to TCP, which networks that drop UDP leave alone.
 
 **5. Point the relay at loopback only.** Once the tunnel is doing the
 listening, the relay does not need to be internet-exposed at all. In

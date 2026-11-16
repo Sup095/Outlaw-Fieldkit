@@ -50,3 +50,8 @@ docker run -d --name "$NAME" --restart unless-stopped \
 
 echo "running at http://$ADDR:$PORT"
 echo "the relay's browser.helpers should list that address"
+
+# Docker gives up on a container whose tailnet address was not there yet
+# at boot; keepalive.sh (every 5 minutes, from this user's crontab) starts
+# it again once the address is back.
+[ -f "$(dirname "$0")/keepalive.sh" ] && sh "$(dirname "$0")/keepalive.sh" install >/dev/null 2>&1 && echo "keep-alive: on (keepalive.sh in your crontab)" || true

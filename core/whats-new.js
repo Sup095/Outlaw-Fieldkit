@@ -10,6 +10,11 @@
   "use strict";
 
   var NOTES = [
+    { v: "0.20.2", items: [
+      "BROWSER lighter mode: signing in to a site with Google, Microsoft, Discord and the like works again. The sign-in now opens once, in the right site's space.",
+      "BROWSER lighter mode: a sign-in that comes back as a form keeps its form, and a sign-in window a site tries to open shows a button to go there.",
+      "Servers: the relay's tunnel restarts by itself if it stops, and the small AI models on the runner come back after a reboot."
+    ] },
     { v: "0.20.1", items: [
       "GAME MODE: Metro Fall has four dead stations. Each is quiet, overrun, camped in by travellers, or an ambush, and it changes while you are away.",
       "GAME MODE: Metro Fall 2 has dead halts on its side lines and in endless runs, which change the same way. Five new Metro Fall quests go with them.",

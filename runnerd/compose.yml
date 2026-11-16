@@ -71,7 +71,9 @@ services:
   tunnel:
     image: cloudflare/cloudflared:latest
     restart: unless-stopped
-    command: tunnel --no-autoupdate run
+    # http2 (TCP), not the default QUIC (UDP): on this line QUIC dropped
+    # and redialled 100+ times a day, and the name blinked each time.
+    command: tunnel --no-autoupdate --protocol http2 run
     environment:
       - TUNNEL_TOKEN=${TUNNEL_TOKEN:-}
     depends_on: [runnerd]
