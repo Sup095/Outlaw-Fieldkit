@@ -593,7 +593,9 @@ stays, as the fallback and for what lens cannot do.
   day). `runnerd/keepalive.sh`, installed by tiny-ai.sh and
   browser-card.sh into the user's crontab, starts the AI models and the
   browser helper again when Docker gave up on them at boot because the
-  tailnet address was not there yet.
+  tailnet address was not there yet. Docker 29 may instead start them
+  without their port ("Up", healthy, unreachable, and a restart does not
+  help); keepalive.sh makes those again through their own script.
 
 **Done in 0.20.1: dead stations.**
 - Metro Fall: four dead stations (Sovetskaya, Smolenskaya, Paveletskaya,
