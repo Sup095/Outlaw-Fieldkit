@@ -68,6 +68,32 @@ record, the lens page finds no slots, runs every site in one shared slot on
 its own origin, as before 0.16.3, and says in a bar that never goes away
 not to sign in to anything.
 
+**Made sturdier in 0.20.3**, after an hour-long run of real browsing:
+
+- Subdomains share their site's space (`en.wikipedia.org` and
+  `en.m.wikipedia.org`, `github.com` and `gist.github.com`); a site you come
+  back to, even after closing FieldKit, finds its space and its sign-in.
+- Whether the slots can be reached is asked twice, and a "no" is no longer
+  kept for the session: if both checks fail, the page keeps asking in the
+  background and turns the spaces on by itself. The map of sites to slots is
+  also kept in memory, so a browser that refuses this frame's storage no
+  longer puts every site in slot 0.
+- A page the slot opens itself (an address typed, a site handed over, a
+  sign-in form posted back) is sent as a document, not a frame: Google
+  answered the frame with "Error 401 (Bad Request)" to every sign-in. Each
+  request also carries the person's languages (`Accept-Language`).
+- Scripts no longer die on Scramjet's own `$scramjet$pushsourcemap` or on a
+  message from a frame it never hooked (Bing's results stayed hidden).
+- A page that cannot be reached because the connection dropped (a laptop
+  waking up, a network change, the server restarting) shows a short note and
+  tries again by itself, instead of Scramjet's error screen.
+- The server lets a person's newest connection in and closes the one used
+  longest ago (still at most four at once), and holds an address back only
+  for failed openings, so a school behind one address is not limited as one
+  person.
+- Searching uses DuckDuckGo's main page: its plain page and most other
+  engines now answer a search through lens with a robot check.
+
 Tests: `node tests/lens-wisp.test.js` (a real WebSocket client, real TCP
 sites on loopback, the relay's real guard, the pass rules, the patch).
 

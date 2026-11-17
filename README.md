@@ -579,6 +579,23 @@ stays, as the fallback and for what lens cannot do.
 - *Next:* a cache for pages you open twice, which the test showed would
   roughly halve what a second visit costs.
 
+**Done in 0.20.3: the lighter mode, tested for an hour.**
+- Google sign-in: a page lens opened itself went out marked as a frame, and
+  Google answered every sign-in, Gmail and Docs with "Error 401". Fixed in
+  Scramjet (lens/patch-scramjet.js, now 11 fixes, folder -fk3), which also
+  sends the person's languages and no longer stops a page's scripts on its
+  own source-map call or on a message from an unhooked frame (Bing).
+- Search: DuckDuckGo's plain page now answers lens with a picture puzzle;
+  its main page works. Google, Brave, Startpage, Mojeek, Ecosia, Yandex
+  and Qwant refuse lens too.
+- Private spaces: one slow first check used to leave the whole session
+  "not private"; it is asked again and comes on by itself. The site map
+  holds in memory where storage is refused. Subdomains share a space.
+- A page lost to a dropped connection tries again by itself (3 s to 60 s).
+- Lens server: a person's newest connection replaces the oldest instead of
+  being refused, and only failed openings count against an address (a
+  school is one address).
+
 **Done in 0.20.2: sign-ins in lighter mode; steadier servers.**
 - Lens: signing in with another site (Google, Microsoft, Discord...) failed.
   The jump to the sign-in site was first sent from the wrong site's slot and

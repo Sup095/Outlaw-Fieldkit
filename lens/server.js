@@ -43,7 +43,8 @@ const { WispServer } = require("./wisp");
 const { Meter } = require("./meter");
 const { Egress } = require("./egress");
 
-const OPENS_PER_MIN = 30;
+const OPENS_PER_MIN = 30;        /* failed openings from one address, a minute */
+const WHO_OPENS_PER_MIN = 120;   /* openings with one person's good pass, a minute */
 
 const DEFAULTS = {
   host: "0.0.0.0",
@@ -169,15 +170,25 @@ function start(opts) {
   const providerTimer = setInterval(pullProvider, PROVIDER_EVERY_MS);
   if (providerTimer.unref) providerTimer.unref();
 
-  const opens = new Map();
-  const tooMany = (ip) => {
+  /* How often connections may be opened (0.20.3). An address used to get
+     OPENS_PER_MIN openings a minute, good passes or not, and a whole
+     school is often one address: a class going from site to site (each
+     site's space opens a connection of its own) used up the minute, and
+     everyone's next page came up blank. Now an address is held back only
+     for openings that FAILED (no pass, a bad one: someone guessing), and
+     a good pass has a minute's allowance of its own, per person. */
+  const recent = (map, key, add) => {
     const now = Date.now();
-    const list = (opens.get(ip) || []).filter((t) => now - t < 60000);
-    list.push(now);
-    opens.set(ip, list);
-    if (opens.size > 5000) opens.clear();
-    return list.length > OPENS_PER_MIN;
+    const list = (map.get(key) || []).filter((t) => now - t < 60000);
+    if (add) list.push(now);
+    if (list.length) map.set(key, list); else map.delete(key);
+    if (map.size > 5000) map.clear();
+    return list.length;
   };
+  const failed = new Map(), byWho = new Map();
+  const tooMany = (ip) => recent(failed, ip, false) >= OPENS_PER_MIN;
+  const failedFrom = (ip) => recent(failed, ip, true);
+  const tooManyFor = (who) => recent(byWho, who, true) > WHO_OPENS_PER_MIN;
 
   const clientDir = config.clientDir ? path.resolve(config.clientDir) + path.sep : "";
   const server = http.createServer((req, res) => {
@@ -265,14 +276,17 @@ function start(opts) {
     const inPath = /^\/wisp\/([A-Za-z0-9_.-]{20,2048})\/$/.exec(url.pathname);
     if (url.pathname !== "/wisp/" && url.pathname !== "/wisp" && !inPath) return refuse(sock, "404 Not Found");
     if (inPath) url.searchParams.set("pass", inPath[1]);
-    if (tooMany(clientIp(req))) return refuse(sock, "429 Too Many Requests");
+    const ip = clientIp(req);
+    if (tooMany(ip)) return refuse(sock, "429 Too Many Requests");
     if (!relayKey.key) { if (relayKey.due && relayKey.due(true)) relayKey.load().catch(() => {}); return refuse(sock, "503 Service Unavailable"); }
     const v = verify(relayKey.key, url.searchParams.get("pass"), Date.now(), passOptions);
     if (!v.ok) {
+      failedFrom(ip);
       if (/signature/.test(v.why) && relayKey.due && relayKey.due(true)) relayKey.load().catch(() => {});
       return refuse(sock, "401 Unauthorized");
     }
-    if (v.claims.what !== "lens" || typeof v.claims.who !== "string" || !v.claims.who) return refuse(sock, "401 Unauthorized");
+    if (v.claims.what !== "lens" || typeof v.claims.who !== "string" || !v.claims.who) { failedFrom(ip); return refuse(sock, "401 Unauthorized"); }
+    if (tooManyFor(v.claims.who)) return refuse(sock, "429 Too Many Requests");
     wisp.handle(req, sock, head, v.claims.who);
   });
 

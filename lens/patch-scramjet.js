@@ -82,6 +82,45 @@ const REALM1_AFTER = 'binaryType:"blob",fkWin:t,barews:a,';
 const REALM2_BEFORE = 'a.addEventListener("message",async e=>{let t=e.data;"string"==typeof t||("byteLength"in t?"blob"===s.binaryType?t=new Blob([t]):Object.setPrototypeOf(t,ArrayBuffer.prototype):"arrayBuffer"in t&&"arraybuffer"===s.binaryType&&Object.setPrototypeOf(t=await t.arrayBuffer(),ArrayBuffer.prototype))';
 const REALM2_AFTER = 'a.addEventListener("message",async e=>{let t=e.data,W=s.fkWin||self;"string"==typeof t||("byteLength"in t?"blob"===s.binaryType?t=new W.Blob([t]):Object.setPrototypeOf(t,W.ArrayBuffer.prototype):"arrayBuffer"in t&&"arraybuffer"===s.binaryType&&Object.setPrototypeOf(t=await t.arrayBuffer(),W.ArrayBuffer.prototype))';
 
+/* A page the slot itself opens (an address typed, a site handed over from
+   another slot, a sign-in form posted back) is the slot's top page, but the
+   browser asks for it as a frame, and Scramjet only calls a navigation a
+   "document" when it can follow a referrer back to one. With none it sent
+   Sec-Fetch-Dest: iframe, and sign-in pages that refuse to be framed answer
+   that with an error: Google's said "Error 401 (Bad Request)" to every
+   sign-in, Gmail and Docs (0.20.3). A navigation whose referrer is not a
+   proxied page is the slot's own, so it goes as a document; frames inside a
+   site's pages have that page as their referrer and are left as they were. */
+const DEST_BEFORE = 'v?(m.set("Sec-Fetch-Dest","document")';
+const DEST_AFTER = '(v||"navigate"===e.mode&&"iframe"===e.destination&&!(e.referrer&&e.referrer.includes(c.$W.prefix)))?(m.set("Sec-Fetch-Dest","document")';
+
+/* A service worker never sees Accept-Language (the browser adds it after),
+   so every proxied request went without one, which no real browser does:
+   sites served the wrong language, and some count it toward "a bot". It is
+   the person's own list, as their browser would send it (0.20.3). */
+const LANG_BEFORE = 'let w=this.cookieStore.getCookies(h,!1);';
+const LANG_AFTER = 'e.headers.has("accept-language")||m.set("Accept-Language",(self.navigator&&navigator.languages&&navigator.languages.length?' +
+  'navigator.languages:["en-US","en"]).slice(0,4).map((l,i)=>i?l+";q=0."+(10-i):l).join(","));' + LANG_BEFORE;
+
+/* Scramjet writes a call to its own $scramjet$pushsourcemap at the top of
+   every script it rewrites, for when the script runs. A script that runs
+   where that is not defined (a fresh frame, a worker, before the page is
+   hooked) stopped there with a ReferenceError, all of it: Bing's script that
+   shows its results never ran, so a search came up blank (0.20.3). The call
+   is now made only when there is something to call. (Turning source maps
+   off instead breaks Scramjet 1.1 elsewhere: "reading 'url'".) */
+const MAP_BEFORE = 'let e=`${n.$W.globals.pushsourcemapfn}([${s.map.join(",")}], "${s.tag}");`';
+const MAP_AFTER = 'let e=`typeof ${n.$W.globals.pushsourcemapfn}=="function"&&${n.$W.globals.pushsourcemapfn}([${s.map.join(",")}], "${s.tag}");`';
+
+/* window.postMessage, hooked: Scramjet reads the sending page's address
+   from the Scramjet client of the realm the message was made in. A message
+   made in a realm Scramjet never hooked (an about:blank frame a page builds
+   for itself) has none, so postMessage threw "reading 'url'" and the page's
+   own message never went: Bing schedules its work that way, and its results
+   stayed hidden (0.20.3). Such a message now goes as this window's. */
+const PM_BEFORE = 'r=t("return globalThis")()[i.pX],n=t("...args","this(...args)");';
+const PM_AFTER = 'r=t("return globalThis")()[i.pX]||globalThis[i.pX],n=t("...args","this(...args)");';
+
 const FIXES = [
   { name: "the cookie wait", before: BEFORE, after: AFTER },
   { name: "the empty url() swallowing a bracket", before: CSS_BEFORE, after: CSS_AFTER },
@@ -89,7 +128,11 @@ const FIXES = [
   { name: "a frame without a Referer", before: REF_BEFORE, after: REF_AFTER },
   { name: "a WebSocket's lost subprotocol", before: WS_BEFORE, after: WS_AFTER },
   { name: "a WebSocket that knows its frame", before: REALM1_BEFORE, after: REALM1_AFTER },
-  { name: "a WebSocket message in its frame's own types", before: REALM2_BEFORE, after: REALM2_AFTER }
+  { name: "a WebSocket message in its frame's own types", before: REALM2_BEFORE, after: REALM2_AFTER },
+  { name: "the slot's own page sent as a frame", before: DEST_BEFORE, after: DEST_AFTER },
+  { name: "no Accept-Language", before: LANG_BEFORE, after: LANG_AFTER },
+  { name: "a script stopped by a missing source map call", before: MAP_BEFORE, after: MAP_AFTER },
+  { name: "a message from a frame Scramjet never hooked", before: PM_BEFORE, after: PM_AFTER }
 ];
 
 function once(text, s) {
@@ -117,4 +160,4 @@ if (require.main === module) {
   console.log("patch-scramjet: " + FIXES.map((f) => f.name).join(" and ") + " fixed in " + file);
 }
 
-module.exports = { patch, patchAll, FIXES, BEFORE, AFTER, CSS_BEFORE, CSS_AFTER, MOD_BEFORE, MOD_AFTER, REF_BEFORE, REF_AFTER, WS_BEFORE, WS_AFTER, REALM1_BEFORE, REALM1_AFTER, REALM2_BEFORE, REALM2_AFTER };
+module.exports = { patch, patchAll, FIXES, BEFORE, AFTER, CSS_BEFORE, CSS_AFTER, MOD_BEFORE, MOD_AFTER, REF_BEFORE, REF_AFTER, WS_BEFORE, WS_AFTER, REALM1_BEFORE, REALM1_AFTER, REALM2_BEFORE, REALM2_AFTER, DEST_BEFORE, DEST_AFTER, LANG_BEFORE, LANG_AFTER, MAP_BEFORE, MAP_AFTER, PM_BEFORE, PM_AFTER };

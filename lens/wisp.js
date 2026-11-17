@@ -110,6 +110,7 @@ class Session {
     this.up = 0;
     this.down = 0;
     this.started = Date.now();
+    this.used = this.started;
     this.lastRefusal = null;
 
     socket.on("message", (data, binary) => this._in(data, binary));
@@ -137,6 +138,7 @@ class Session {
   }
 
   _in(data, binary) {
+    this.used = Date.now();
     /* Wisp is binary only. Text means something else is talking. */
     if (!binary) return this.socket.close(1003, "wisp is binary");
     const p = parse(data);
@@ -339,7 +341,7 @@ class WispServer {
     this.maxPayload = opts.maxPayload || 1024 * 1024;
     this.sessions = new Set();
     this.stats = { sessions: 0, opened: 0, blocked: 0, throttled: 0, invalid: 0, unreachable: 0, pauses: 0, bytesUp: 0, bytesDown: 0,
-      viaProxy: 0, proxyMissed: 0 };
+      viaProxy: 0, proxyMissed: 0, replaced: 0 };
     /* who -> the last site refused for them (never ads: a page asks for
        dozens), so their page can say why a site did not open. In memory,
        a few seconds' worth, and only ever handed back to that person. */
@@ -364,12 +366,22 @@ class WispServer {
      decided this person may use lens. Returns the session, or null
      when the upgrade was refused (the socket is answered either way). */
   handle(req, sock, head, who) {
+    /* A person's connections over the limit: the one used longest ago
+       closes, and this one comes in (0.20.3). Each site's space has a
+       connection of its own, and one left behind lingers a little while
+       its page closes, so going quickly from site to site used to find
+       the limit full and the site just opened came up blank. The newest
+       is the page in front of the person; the limit still holds, so a
+       pass that leaks still cannot hold more than maxPerWho at once. */
     if (who) {
-      let n = 0;
-      for (const s of this.sessions) if (s.who === who) n++;
-      if (n >= this.maxPerWho) {
-        try { sock.end("HTTP/1.1 429 Too Many Requests\r\nConnection: close\r\nContent-Length: 0\r\n\r\n"); } catch (e) {}
-        return null;
+      const mine = [];
+      for (const s of this.sessions) if (s.who === who) mine.push(s);
+      mine.sort((a, b) => a.used - b.used);
+      while (mine.length >= this.maxPerWho) {
+        const old = mine.shift();
+        this.stats.replaced++;
+        try { old.socket.close(1008, "a newer page took its place"); } catch (e) {}
+        old._end();
       }
     }
     if (head && head.length) sock.unshift(head);

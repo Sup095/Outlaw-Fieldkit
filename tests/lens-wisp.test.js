@@ -206,9 +206,13 @@ async function client(port, who) {
     const k = await client(B.port, "cy");
     k.connect(1, "echo.test", ECHO); k.connect(2, "echo.test", ECHO); k.connect(3, "echo.test", ECHO);
     ok("past the streams a person may hold: throttled (0x49)", (await k.closeOf(3)).body[0] === W.WHY.THROTTLED);
+    const firstClosed = new Promise((r) => k.c.on("close", (code) => r(code)));
     let second = null;
     try { second = await client(B.port, "cy"); } catch (e) { second = e; }
-    ok("one more WebSocket than allowed is refused", second instanceof Error && /429/.test(second.message), String(second && second.message));
+    ok("one more WebSocket than allowed comes in, and the one used longest ago closes (0.20.3: the site just opened came up blank)",
+      !(second instanceof Error) && (await Promise.race([firstClosed, sleep(1000)])) === 1008, String(second && second.message));
+    ok("…so the person still holds no more than the limit", [...B.server.sessions].filter((s) => s.who === "cy").length === 1 && B.server.stats.replaced === 1);
+    ok("…and the new one works", !!(await second.want((p) => p.type === W.T.CONTINUE)));
     const other = await client(B.port, "dee");
     ok("…but someone else still gets in", !!(await other.want((p) => p.type === W.T.CONTINUE)));
     const text = await client(B.port, "eve");
@@ -390,6 +394,19 @@ async function client(port, who) {
     let refused = 0;
     for (let i = 0; i < 35; i++) { const r = await tryOpen(url()); if (/429/.test(r.message)) refused++; }
     ok("one address opening too many sockets a minute is slowed", refused > 0);
+    ok("…even with a good pass, once it has failed that often (someone guessing)", /429/.test((await tryOpen(url(pass({ who: "msg:class0" })))).message));
+    {
+      /* A school is one address: a class of people with good passes must all get in (0.20.3). */
+      const L2 = await lens.start({ config: { port: 0, host: "127.0.0.1", dataDir: fs.mkdtempSync(path.join(os.tmpdir(), "lens-class-")) },
+        relayKey: { key: pair.publicKey, async load() { return true; }, due: () => false }, judge, log: () => {}, noPoll: true, lists: null });
+      const u2 = (p) => "ws://127.0.0.1:" + L2.port + "/wisp/?pass=" + encodeURIComponent(p);
+      let through = 0;
+      const socks = [];
+      for (let i = 0; i < 40; i++) { const r = await tryOpen(u2(pass({ who: "msg:class" + i }))); if (!(r instanceof Error)) { through++; socks.push(r); } }
+      ok("forty people with good passes behind one school address all get in", through === 40, through + " of 40");
+      socks.forEach((s) => { try { s.close(1000); } catch (e) {} });
+      L2.server.close();
+    }
 
     /* Rooms (0.16.3): each site on an origin of its own, s0. to s15.<host>. */
     ok("a slot name is s0 to s15 of this lens's own name, nothing else",
@@ -505,6 +522,28 @@ async function client(port, who) {
     ok("…which the old one did not (the test would catch the fix going away)",
       "a{b:var(--x,url()),var(--y)}".replace(old, (t, u) => t.replace(u, "/c/" + u)) !== "a{b:var(--x,url()),var(--y)}");
 
+    /* The page the slot opens itself goes as a document (0.20.3): Google answered a frame with 401. */
+    const destOf = (v, e) => {
+      const m = new Map();
+      const tail = ',m.set("Sec-Fetch-Mode","navigate")):(m.set("Sec-Fetch-Dest",e.destination||"empty"),m.set("Sec-Fetch-Mode",e.mode))';
+      new Function("v", "e", "m", "c", P.DEST_AFTER + tail)(v, e, m, { $W: { prefix: "/c/" } });
+      return m.get("Sec-Fetch-Dest");
+    };
+    const nav = { mode: "navigate", destination: "iframe" };
+    ok("an address typed or handed over (no referrer) goes as a page, not a frame", destOf(false, Object.assign({ referrer: "" }, nav)) === "document");
+    ok("…and one the slot page itself opened", destOf(false, Object.assign({ referrer: "https://s1.lens.example/slot.html" }, nav)) === "document");
+    ok("…while a frame inside a site's page stays a frame", destOf(false, Object.assign({ referrer: "https://s1.lens.example/c/abc" }, nav)) === "iframe");
+    ok("…a picture stays a picture, and Scramjet's own document answer stands",
+      destOf(false, { mode: "no-cors", destination: "image", referrer: "" }) === "image" && destOf(true, Object.assign({ referrer: "https://s1.lens.example/c/abc" }, nav)) === "document");
+    const langOf = (has, langs) => {
+      const m = new Map(), body = P.LANG_AFTER.slice(0, -P.LANG_BEFORE.length);
+      new Function("e", "m", "self", "navigator", body)({ headers: { has: () => has } }, m, { navigator: { languages: langs } }, { languages: langs });
+      return m.get("Accept-Language");
+    };
+    ok("requests carry the person's languages, as their browser would send them",
+      langOf(false, ["en-GB", "en", "ru"]) === "en-GB,en;q=0.9,ru;q=0.8" && langOf(false, []) === "en-US,en;q=0.9");
+    ok("…and one that already has them is left alone", langOf(true, ["en-GB"]) === undefined);
+
     const C = require("../lens/patch-libcurl");
     const lc = "  async init() {\n    if (this.transport)\n      libcurl.transport = this.transport;\n" + C.BEFORE +
       "\n      proxy: this.proxy\n    });\n  }\n  connect() {\n" + C.WS_BEFORE + "\n    };\n  }\n";
@@ -532,7 +571,7 @@ async function client(port, who) {
       new RegExp("node lens/patch-libcurl\\.js lens/client/v/" + curlFolder + "/index\\.mjs").test(docker));
     ok("…in a folder of its own, which lens loads", /-fk\d+$/.test(curlFolder || "") && slotJs.includes("/v/" + curlFolder + "/"), curlFolder);
     ok("the Wisp address ends in /", /"\/wisp\/" \+ encodeURIComponent\(pass\) \+ "\/"/.test(slotJs));
-    ok("searching uses DuckDuckGo's plain page, strict", /html\.duckduckgo\.com\/html\/\?kp=1&q=/.test(js));
+    ok("searching uses DuckDuckGo's main page, strict (its plain page and other engines answer lens with a bot check)", js.indexOf('var SEARCH = "https://duckduckgo.com/?kp=1&q=";') >= 0);
     ok("YouTube is handed to the full mode", /youtube\\\.com/.test(js) && /t: "stream"/.test(js));
     ok("[hidden] hides, whatever display an element has", /\[hidden\]\{display:none!important\}/.test(read("client/lens.css")));
     ok("the pass leaves the address bar at once", /history\.replaceState\(null, "", location\.pathname\)/.test(js));
@@ -673,6 +712,10 @@ async function client(port, who) {
 
     const lensJs = read("client/lens.js"), slotJs = read("client/slot.js"), sw = read("client/sw.js"), page = read("client/index.html");
     ok("the lens page no longer runs Scramjet itself: only slots do", !/<script[^>]*scramjet/i.test(page) && /codec\.js/.test(page));
+    ok("only a yes about spaces is remembered: a failed check is tried again, and spaces come on by themselves later (0.20.3)",
+      /getItem\(ISO_KEY\) === "1"/.test(lensJs) && !/setItem\(ISO_KEY, ok \? "1" : "0"\)/.test(lensJs) && /laterRooms\(30000\)/.test(lensJs) && /rooms = true;/.test(lensJs));
+    ok("the map of sites to spaces holds in memory when the browser refuses storage, so sites do not all land in space 0",
+      /var mapMem = null/.test(lensJs) && /function saveMap\(m\) \{ mapMem = m;/.test(lensJs));
     ok("a slot changing hands is opened once with ?wipe=1", /slot\.html" \+ \(s\.wipe \? "\?wipe=1" : ""\)/.test(lensJs) && /\[\?&\]wipe=1/.test(slotJs));
     ok("a slot listens only to the lens page of its own host", /e\.source !== window\.parent \|\| e\.origin !== TOP/.test(slotJs));
     ok("the lens page listens only to the slot it made", /e\.source !== cur\.el\.contentWindow \|\| e\.origin !== cur\.origin/.test(lensJs));
@@ -707,7 +750,7 @@ async function client(port, who) {
        fetched, and the slot page is a stand-in that answers "leaving?". */
     const vm = require("vm");
     const read = (f) => fs.readFileSync(path.join(__dirname, "..", "lens", f), "utf8");
-    const run = async (site, leaving, req) => {
+    const run = async (site, leaving, req, answer) => {
       let listener = null, fetched = 0, asked = 0;
       const self = {
         location: { href: "https://s3.lens.example/sw.js" + (site ? "?site=" + site : ""), origin: "https://s3.lens.example" },
@@ -723,7 +766,7 @@ async function client(port, who) {
         importScripts() {},
         $scramjetLoadWorker: () => ({ ScramjetServiceWorker: function () {
           this.loadConfig = async () => {}; this.route = (e) => new URL(e.request.url).pathname.indexOf(self.FK_LENS.PREFIX) === 0;
-          this.fetch = async () => { fetched++; return new Response("SCRAMJET"); }; } }) };
+          this.fetch = async () => { fetched++; return answer ? answer() : new Response("SCRAMJET"); }; } }) };
       vm.runInNewContext(read("client/codec.js"), box);
       vm.runInNewContext(read("client/sw.js"), box);
       let out = null;
@@ -759,6 +802,20 @@ async function client(port, who) {
     ok("the same site moving page loads in place, without asking", r.fetched === 1 && r.asked === 0);
     r = await run("", true, nav("https://site-b.com/x"));
     ok("a shared slot (no site of its own) loads as before", r.fetched === 1 && r.asked === 0);
+    /* The connection away (0.20.3): Scramjet's error screen becomes a note that tries again by itself. */
+    const scramErr = () => new Response("<!DOCTYPE html><html><head><title>Scramjet</title></head><body>Message: Request failed with error code 7: Could not connect to server</body></html>",
+      { status: 500, headers: { "content-type": "text/html" } });
+    r = await run("site-a.com", false, nav("https://www.site-a.com/page"), scramErr);
+    ok("a page that could not be reached gets a plain note naming the site, not Scramjet's screen",
+      r.text.indexOf("www.site-a.com did not answer") >= 0 && r.text.indexOf("<title>Scramjet") < 0 && /Could not connect to server/.test(r.text));
+    ok("…which tries again by itself, a few times, then stops and says so",
+      r.text.indexOf("var waits=[3,5,10,20,30,60]") >= 0 && r.text.indexOf("location.reload()") >= 0 && /It still does not answer/.test(r.text) && /TRY AGAIN/.test(r.text));
+    r = await run("site-a.com", false, nav("https://www.site-a.com/<b>x</b>"), scramErr);
+    ok("…and an address cannot write into it", r.text.indexOf("<b>x</b>") < 0);
+    r = await run("site-a.com", false, nav("https://www.site-a.com/form", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: "a=1" }), scramErr);
+    ok("…a form that failed is not sent again by itself", /<title>Scramjet/.test(r.text));
+    r = await run("site-a.com", false, nav("https://www.site-a.com/page"), () => new Response("<title>Real 500</title>", { status: 500, headers: { "content-type": "text/html" } }));
+    ok("…and a site's own error page is shown as it is", /Real 500/.test(r.text));
     const slotJs = read("client/slot.js");
     ok("the slot registers its worker with its site and answers whether its page is leaving",
       /"\/sw\.js" \+ \(site \? "\?site=" \+ encodeURIComponent\(site\) : ""\)/.test(slotJs) && /t === "leaving\?"/.test(slotJs) && /addEventListener\("beforeunload"/.test(slotJs));

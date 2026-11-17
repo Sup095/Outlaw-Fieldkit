@@ -10,6 +10,11 @@
   "use strict";
 
   var NOTES = [
+    { v: "0.20.3", items: [
+      "BROWSER lighter mode: signing in with Google works (Google refused every sign-in through it), and searching works again (DuckDuckGo had started asking for a puzzle).",
+      "BROWSER lighter mode: private spaces come on by themselves if the first check fails, and subdomains share their site's space and sign-in.",
+      "BROWSER lighter mode: a page that drops while the computer wakes or changes network tries again by itself; busy sites like Bing show their results."
+    ] },
     { v: "0.20.2", items: [
       "BROWSER lighter mode: signing in to a site with Google, Microsoft, Discord and the like works again. The sign-in now opens once, in the right site's space.",
       "BROWSER lighter mode: a sign-in that comes back as a form keeps its form, and a sign-in window a site tries to open shows a button to go there.",

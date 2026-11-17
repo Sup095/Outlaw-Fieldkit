@@ -11,7 +11,7 @@
    it had been rewritten; anything else (a script, a page, a worker) is
    refused as a broken link would be, since it would run unwatched. A
    request cut short (a page stopped, a frame closed) ends quietly. */
-importScripts("/v/scramjet-1.1.0-fk2/scramjet.all.js", "/codec.js");
+importScripts("/v/scramjet-1.1.0-fk3/scramjet.all.js", "/codec.js");
 
 const { ScramjetServiceWorker } = $scramjetLoadWorker();
 const scramjet = new ScramjetServiceWorker();
@@ -40,15 +40,17 @@ function realOf(href) {
     return L.CODEC.decode(u.pathname.slice(L.PREFIX.length) + u.search + u.hash);
   } catch (e) { return ""; }
 }
+/* Every slot page of this site is asked (FieldKit open twice on the same
+   site is two of them); one that is leaving is enough. */
 async function pageLeaving() {
   const all = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
-  const slot = all.find((c) => { try { return new URL(c.url).pathname === "/slot.html"; } catch (e) { return false; } });
-  if (!slot) return false;
-  return new Promise((done) => {
+  const slots = all.filter((c) => { try { return new URL(c.url).pathname === "/slot.html"; } catch (e) { return false; } });
+  const ask = (slot) => new Promise((done) => {
     const ch = new MessageChannel(), t = setTimeout(() => done(false), 500);
     ch.port1.onmessage = (e) => { clearTimeout(t); done(!!(e.data && e.data.leaving)); };
-    slot.postMessage({ fk: "sw", t: "leaving?" }, [ch.port2]);
+    try { slot.postMessage({ fk: "sw", t: "leaving?" }, [ch.port2]); } catch (e) { clearTimeout(t); done(false); }
   });
+  return (await Promise.all(slots.map(ask))).some(Boolean);
 }
 async function handOver(to, req) {
   let post = null;
@@ -63,6 +65,37 @@ async function handOver(to, req) {
       "Cross-Origin-Embedder-Policy": "require-corp", "Cross-Origin-Resource-Policy": "same-origin" } });
 }
 
+/* A PAGE THAT COULD NOT BE REACHED (0.20.3). When the connection to the
+   lens server is away (a laptop waking up, a network change, the server
+   restarting), Scramjet answered a page with its own error screen, titled
+   "Scramjet", with a code and a stack, and nothing tried again. A page the
+   person asked for gets a short note instead that tries again by itself
+   (after 3, 5, 10, 20, 30 and 60 s) and has a button to try at once. */
+const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+async function friendlier(res, req) {
+  if (res.status !== 500 || req.mode !== "navigate" || req.method !== "GET" || !/text\/html/.test(res.headers.get("content-type") || "")) return res;
+  let text = "";
+  try { text = await res.clone().text(); } catch (e) { return res; }
+  if (text.indexOf("<title>Scramjet</title>") < 0) return res;
+  const host = (() => { try { return new URL(realOf(req.url)).hostname; } catch (e) { return "this site"; } })();
+  const why = (/Message: ([^\n<]{0,200})/.exec(text) || [])[1] || "";
+  const key = JSON.stringify("fk-retry:" + req.url);
+  const page = "<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width'><title>" + escapeHtml(host) + "</title>" +
+    "<body style='font:15px/1.5 system-ui,sans-serif;margin:0;padding:40px 24px;background:#1e1f22;color:#e6e6e6'>" +
+    "<div style='max-width:560px;margin:auto'><h2 style='margin:0 0 8px'>" + escapeHtml(host) + " did not answer</h2>" +
+    "<p id=say>The connection dropped for a moment (often after the computer wakes up or changes network). Trying again…</p>" +
+    "<p><button id=now style='font:inherit;padding:8px 16px;cursor:pointer'>TRY AGAIN</button></p>" +
+    "<p style='opacity:.55;font-size:12px'>" + escapeHtml(why) + "</p></div><script>" +
+    "var k=" + key + ",n=0;try{var v=String(sessionStorage.getItem(k)||'0|0').split('|');n=Date.now()-Number(v[1])<120000?Number(v[0])||0:0}catch(e){}" +
+    "function again(){try{sessionStorage.setItem(k,(n+1)+'|'+Date.now())}catch(e){}location.reload()}" +
+    "document.getElementById('now').onclick=function(){n=0;again()};" +
+    "var waits=[3,5,10,20,30,60];if(n<waits.length){var s=waits[n];document.getElementById('say').textContent='The connection dropped for a moment (often after the computer wakes up or changes network). Trying again in '+s+' s…';setTimeout(again,s*1000)}" +
+    "else{document.getElementById('say').textContent='It still does not answer. The site may be down or blocked here, or this network may be blocking the lens.'}" +
+    "</script></body>";
+  return new Response(page, { status: 503, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store",
+    "Cross-Origin-Embedder-Policy": "require-corp", "Cross-Origin-Resource-Policy": "same-origin" } });
+}
+
 async function handleRequest(event) {
   try {
     await scramjet.loadConfig();
@@ -72,7 +105,7 @@ async function handleRequest(event) {
         const to = realOf(req.url);
         if (/^https?:/i.test(to) && L.siteOf(to) !== SITE && await pageLeaving()) return await handOver(to, req);
       }
-      return await scramjet.fetch(event);
+      return await friendlier(await scramjet.fetch(event), req);
     }
     const req = event.request, u = new URL(req.url);
     if (u.origin === self.location.origin) return await fetch(req);

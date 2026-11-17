@@ -38,10 +38,13 @@
   var L = self.FK_LENS, CODEC = L.CODEC, siteOf = L.siteOf;
   var PASS_KEY = "fk.lens.pass", SLOTS_KEY = "fk.lens.slots.v1", ISO_KEY = "fk.lens.rooms";
   var SLOTS = 16;
-  /* DuckDuckGo's plain page, strict safe search: a tenth of the main
-     page's bytes, against the month's allowance. Any other engine is an
-     address away. */
-  var SEARCH = "https://html.duckduckgo.com/html/?kp=1&q=";
+  /* DuckDuckGo's main page, strict safe search (0.20.3). Its plain page
+     (html.duckduckgo.com, used until 0.20.2) now answers every search
+     through lens with "bots use DuckDuckGo too" and a picture puzzle; the
+     main page gives results. Measured in a real browser through lens:
+     Google, Brave, Startpage, Mojeek, Ecosia, Yandex and Qwant refuse too,
+     and Bing hides its results. Any other engine is an address away. */
+  var SEARCH = "https://duckduckgo.com/?kp=1&q=";
   var RENEW_MS = 10 * 60 * 1000;
   var embedded = window.parent !== window;
   function unmask(x) { return x ? CODEC.decode(x) : ""; }
@@ -98,18 +101,40 @@
   var rooms = false, ready = false;
   function slotOrigin(n) { return n < 0 ? location.origin : location.protocol + "//s" + n + "." + location.host; }
 
-  async function probeRooms() {
-    try { var k = sessionStorage.getItem(ISO_KEY); if (k === "1" || k === "0") return k === "1"; } catch (e) {}
-    if (/^s\d{1,2}\./.test(location.host) || /^[\d.]+(:\d+)?$/.test(location.host) || /^\[/.test(location.host)) return false;
-    var ok = false;
+  /* Only a yes is remembered (0.20.3). A no used to be kept for the whole
+     session, so one slow answer (a busy network, a slot's certificate being
+     made on first use) left every site sharing one space, marked not
+     private, until FieldKit was closed. Now it asks twice, a few seconds
+     apart, and if both fail it keeps asking in the background: the spaces
+     come on by themselves for the next site opened. */
+  async function probeOnce(ms) {
     try {
-      var ctl = new AbortController(), t = setTimeout(function () { ctl.abort(); }, 5000);
+      var ctl = new AbortController(), t = setTimeout(function () { ctl.abort(); }, ms);
       var r = await fetch(slotOrigin(0) + "/lens/status", { cache: "no-store", mode: "cors", signal: ctl.signal });
       clearTimeout(t);
-      ok = r.ok && !!(await r.json()).up;
-    } catch (e) { ok = false; }
-    try { sessionStorage.setItem(ISO_KEY, ok ? "1" : "0"); } catch (e) {}
+      return r.ok && !!(await r.json()).up;
+    } catch (e) { return false; }
+  }
+  function noSlotNames() { return /^s\d{1,2}\./.test(location.host) || /^[\d.]+(:\d+)?$/.test(location.host) || /^\[/.test(location.host); }
+  async function probeRooms() {
+    try { if (sessionStorage.getItem(ISO_KEY) === "1") return true; } catch (e) {}
+    if (noSlotNames()) return false;
+    var ok = await probeOnce(8000);
+    if (!ok) { await new Promise(function (r) { setTimeout(r, 2000); }); ok = await probeOnce(12000); }
+    if (ok) { try { sessionStorage.setItem(ISO_KEY, "1"); } catch (e) {} }
+    else laterRooms(30000);
     return ok;
+  }
+  function laterRooms(wait) {
+    setTimeout(async function () {
+      if (rooms) return;
+      if (await probeOnce(12000)) {
+        rooms = true;
+        try { sessionStorage.setItem(ISO_KEY, "1"); } catch (e) {}
+        showMode();
+        say("Sites have spaces of their own again. The next site you open gets its own.", "ok");
+      } else laterRooms(Math.min(wait * 2, 300000));
+    }, wait);
   }
 
   function showMode() {
@@ -126,11 +151,20 @@
   }
 
   /* ---- the slots ----------------------------------------------------- */
+  /* Kept in memory as well (0.20.3): a browser that refuses this frame its
+     storage (every cookie blocked, some managed Chromebooks) used to read
+     back an empty map each time, so every site was given space 0, wiped,
+     and a site you came back to had forgotten you. Now the map holds for
+     as long as the page is open, and across visits where storage works. */
+  var mapMem = null;
   function loadMap() {
-    try { var m = JSON.parse(localStorage.getItem(SLOTS_KEY) || "{}"); return m && typeof m === "object" ? m : {}; }
-    catch (e) { return {}; }
+    try {
+      var m = JSON.parse(localStorage.getItem(SLOTS_KEY) || "null");
+      if (m && typeof m === "object") return (mapMem = m);
+    } catch (e) {}
+    return mapMem ? JSON.parse(JSON.stringify(mapMem)) : {};
   }
-  function saveMap(m) { try { localStorage.setItem(SLOTS_KEY, JSON.stringify(m)); } catch (e) {} }
+  function saveMap(m) { mapMem = m; try { localStorage.setItem(SLOTS_KEY, JSON.stringify(m)); } catch (e) {} }
 
   /* The slot for a site: the one it had, or a free one, or the one used
      longest ago. A slot that changes hands is wiped first. */
