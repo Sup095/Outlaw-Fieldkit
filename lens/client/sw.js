@@ -79,18 +79,30 @@ async function friendlier(res, req) {
   if (text.indexOf("<title>Scramjet</title>") < 0) return res;
   const host = (() => { try { return new URL(realOf(req.url)).hostname; } catch (e) { return "this site"; } })();
   const why = (/Message: ([^\n<]{0,200})/.exec(text) || [])[1] || "";
+  /* What went wrong decides what is said, and whether trying again helps:
+     a secure connection the lens cannot make (libcurl 35, 60 and the like:
+     a site whose encryption it does not speak) and a name that does not
+     exist will not come right by themselves; a dropped connection will. */
+  const code = Number((/error code (\d+)/.exec(why) || [])[1] || 0);
+  const kind = [35, 51, 53, 54, 58, 59, 60, 64, 66, 77, 80, 82, 83, 90, 91].indexOf(code) >= 0 || /SSL|TLS|certificate/i.test(why) ? "tls"
+    : code === 6 || /resolve host/i.test(why) ? "dns" : "net";
+  const head = kind === "tls" ? "The lighter mode cannot open " + host + " securely" : kind === "dns" ? host + " was not found" : host + " did not answer";
+  const say = kind === "tls" ? "This site uses a kind of secure connection the lighter mode cannot make. Open it in BROWSER's FULL MODE if you have it, or in your own browser."
+    : kind === "dns" ? "There is no site at this address. Check the spelling."
+    : "The connection dropped for a moment (often after the computer wakes up or changes network). Trying again…";
   const key = JSON.stringify("fk-retry:" + req.url);
   const page = "<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width'><title>" + escapeHtml(host) + "</title>" +
     "<body style='font:15px/1.5 system-ui,sans-serif;margin:0;padding:40px 24px;background:#1e1f22;color:#e6e6e6'>" +
-    "<div style='max-width:560px;margin:auto'><h2 style='margin:0 0 8px'>" + escapeHtml(host) + " did not answer</h2>" +
-    "<p id=say>The connection dropped for a moment (often after the computer wakes up or changes network). Trying again…</p>" +
+    "<div style='max-width:560px;margin:auto'><h2 style='margin:0 0 8px'>" + escapeHtml(head) + "</h2>" +
+    "<p id=say>" + escapeHtml(say) + "</p>" +
     "<p><button id=now style='font:inherit;padding:8px 16px;cursor:pointer'>TRY AGAIN</button></p>" +
     "<p style='opacity:.55;font-size:12px'>" + escapeHtml(why) + "</p></div><script>" +
     "var k=" + key + ",n=0;try{var v=String(sessionStorage.getItem(k)||'0|0').split('|');n=Date.now()-Number(v[1])<120000?Number(v[0])||0:0}catch(e){}" +
     "function again(){try{sessionStorage.setItem(k,(n+1)+'|'+Date.now())}catch(e){}location.reload()}" +
     "document.getElementById('now').onclick=function(){n=0;again()};" +
+    (kind !== "net" ? "" :
     "var waits=[3,5,10,20,30,60];if(n<waits.length){var s=waits[n];document.getElementById('say').textContent='The connection dropped for a moment (often after the computer wakes up or changes network). Trying again in '+s+' s…';setTimeout(again,s*1000)}" +
-    "else{document.getElementById('say').textContent='It still does not answer. The site may be down or blocked here, or this network may be blocking the lens.'}" +
+    "else{document.getElementById('say').textContent='It still does not answer. The site may be down or blocked here, or this network may be blocking the lens.'}") +
     "</script></body>";
   return new Response(page, { status: 503, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store",
     "Cross-Origin-Embedder-Policy": "require-corp", "Cross-Origin-Resource-Policy": "same-origin" } });

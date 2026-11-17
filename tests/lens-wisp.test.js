@@ -810,6 +810,13 @@ async function client(port, who) {
       r.text.indexOf("www.site-a.com did not answer") >= 0 && r.text.indexOf("<title>Scramjet") < 0 && /Could not connect to server/.test(r.text));
     ok("…which tries again by itself, a few times, then stops and says so",
       r.text.indexOf("var waits=[3,5,10,20,30,60]") >= 0 && r.text.indexOf("location.reload()") >= 0 && /It still does not answer/.test(r.text) && /TRY AGAIN/.test(r.text));
+    const errOf = (msg) => () => new Response("<!DOCTYPE html><html><head><title>Scramjet</title></head><body>Message: " + msg + "</body></html>",
+      { status: 500, headers: { "content-type": "text/html" } });
+    r = await run("site-a.com", false, nav("https://www.gnu.org/"), errOf("Request failed with error code 35: SSL connect error"));
+    ok("…a site whose secure connection lens cannot make says so, points to FULL MODE, and does not keep trying",
+      r.text.indexOf("cannot open www.gnu.org securely") >= 0 && r.text.indexOf("FULL MODE") >= 0 && r.text.indexOf("var waits=") < 0);
+    r = await run("site-a.com", false, nav("https://no-such-site.site-a.com/"), errOf("Request failed with error code 6: Could not resolve host"));
+    ok("…an address with no site says so, and does not keep trying", r.text.indexOf("was not found") >= 0 && r.text.indexOf("var waits=") < 0);
     r = await run("site-a.com", false, nav("https://www.site-a.com/<b>x</b>"), scramErr);
     ok("…and an address cannot write into it", r.text.indexOf("<b>x</b>") < 0);
     r = await run("site-a.com", false, nav("https://www.site-a.com/form", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: "a=1" }), scramErr);
