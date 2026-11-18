@@ -68,6 +68,22 @@ record, the lens page finds no slots, runs every site in one shared slot on
 its own origin, as before 0.16.3, and says in a bar that never goes away
 not to sign in to anything.
 
+**YouTube's own player (0.20.6):** a video address (watch, youtu.be,
+live, embed; not Shorts) opens `watch.html` instead, served without
+cross-origin isolation, which loads YouTube's IFrame API player
+(youtube-nocookie host, the embed Google Slides uses). BROWSER shows it in
+its own frame beside the lens page; the video streams from YouTube to the
+browser, not through lens, and nothing is hidden from a network filter.
+Errors 101/150 (embedding turned off) show a link to YouTube.
+
+**Kept spaces and the watchdog (0.20.6):** the last three slots stay
+loaded, hidden and paused. A slot that does not say hello in 12 s is
+reloaded once, then the site opens in the shared slot with the warning;
+spaces are asked for again (s0 and the slot that failed) and the page
+moves back to its own. The shared slot's worker claims the lens page too,
+so `sw.js` passes `sN.<host>/lens/status` straight out. A yes about
+spaces is kept a week.
+
 **YouTube (0.20.5):** searching, browsing, Shorts and short clips play.
 A longer video stops after about a minute with "Something went wrong"
 (`ump.spsrejectfailure`): YouTube's player checks it runs in an ordinary

@@ -579,6 +579,20 @@ stays, as the fallback and for what lens cannot do.
 - *Next:* a cache for pages you open twice, which the test showed would
   roughly halve what a second visit costs.
 
+**Done in 0.20.6: YouTube in its own player; spaces kept and watched.**
+- A YouTube video opened in the lighter mode plays in YouTube's own
+  embedded player (the one Google Slides uses), shown by BROWSER from the
+  lens server's `watch.html`. The video comes straight from YouTube, so it
+  plays whole where YouTube's player is allowed; nothing is hidden from a
+  network's filter. A video whose owner turns embedding off shows a link.
+- The last three sites stay open, hidden: going back to one shows it at
+  once, as it was; a hidden one stops playing.
+- A site's space that does not load is tried again, then the site opens in
+  the shared space with the warning; when the spaces (and the one that
+  failed) answer again, the page moves back to its own space by itself.
+- The check for spaces is kept a week, and runs beside the server check,
+  so the lighter mode starts sooner.
+
 **Done in 0.20.5: videos and games, tested for an hour.**
 - YouTube stops a video after about a minute in the lighter mode and in
   FULL MODE alike ("Something went wrong", `ump.spsrejectfailure`): its

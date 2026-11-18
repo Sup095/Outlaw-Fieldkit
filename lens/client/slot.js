@@ -271,6 +271,15 @@
     f.remove();
   }
 
+  /* Kept open but out of sight (lens.js, openSlot): what plays is paused,
+     in the page and the frames it holds, so a hidden site is not heard. */
+  function pauseAll(w) {
+    try {
+      [].forEach.call(w.document.querySelectorAll("video, audio"), function (v) { try { v.pause(); } catch (x) {} });
+      for (var i = 0; i < w.frames.length; i++) pauseAll(w.frames[i]);
+    } catch (x) {}
+  }
+
   /* Back and forward inside this slot while it has somewhere to go;
      otherwise the lens page moves to the site before or after. */
   function move(dir) {
@@ -295,6 +304,7 @@
     else if (m.t === "back") move(-1);
     else if (m.t === "forward") move(1);
     else if (m.t === "reload" && frame) frame.reload();
+    else if (m.t === "hide" && frame) pauseAll(frame.frame.contentWindow);
   });
 
   /* The worker asks whether this slot's page is the one leaving. */

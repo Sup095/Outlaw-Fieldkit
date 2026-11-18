@@ -371,6 +371,16 @@ async function client(port, who) {
     const page = await get("/");
     ok("the client's page is served, isolated", page.code === 200 && page.body === "<p>lens</p>" && page.h["cross-origin-embedder-policy"] === "require-corp");
     ok("nothing outside the client folder is", (await get("/..%2fsecret.txt")).code === 404 && (await get("/%2e%2e/secret.txt")).code === 404);
+    /* YouTube's own player (0.20.6) needs a page without the isolation, that names its site. */
+    fs.writeFileSync(path.join(client, "watch.html"), "<p>watch</p>");
+    const wp = await get("/watch.html");
+    ok("the video page is served without the isolation that keeps YouTube's player out",
+      wp.code === 200 && !wp.h["cross-origin-embedder-policy"] && !wp.h["cross-origin-opener-policy"] && wp.h["cross-origin-resource-policy"] === "cross-origin");
+    ok("…naming its site to YouTube's player, and letting nothing else run",
+      wp.h["referrer-policy"] === "strict-origin-when-cross-origin" && /default-src 'none'/.test(wp.h["content-security-policy"] || "") &&
+      /frame-src https:\/\/www\.youtube-nocookie\.com https:\/\/www\.youtube\.com;/.test(wp.h["content-security-policy"] || "") &&
+      /script-src 'self' https:\/\/www\.youtube\.com https:\/\/s\.ytimg\.com;/.test(wp.h["content-security-policy"] || ""));
+    ok("…while every other page keeps it", (await get("/")).h["cross-origin-embedder-policy"] === "require-corp" && !(await get("/")).h["content-security-policy"]);
     const head = await new Promise((r) => http.request("http://127.0.0.1:" + L.port + "/", { method: "HEAD" }, (res) => {
       let b = ""; res.on("data", (d) => b += d); res.on("end", () => r({ code: res.statusCode, body: b }));
     }).end());
@@ -637,8 +647,8 @@ async function client(port, who) {
     ok("a YouTube video the player stops is told once, with where it stopped (0.20.4)",
       /if \(site === "youtube\.com"\) setInterval\(watchYouTube, 2000\);/.test(slotJs) && /spsreject/.test(slotJs) &&
       /yt\.told = u;\s*tell\(\{ t: "ytstop", url: u, at: Math\.floor\(yt\.t\) \}\)/.test(slotJs));
-    ok("…and the lens page says why, offering the video's own address at that second",
-      /m\.t === "ytstop"/.test(js) && /searchParams\.set\("t", sec \+ "s"\)/.test(js) && /OPEN IN MY OWN BROWSER/.test(js) && /"noopener"/.test(js));
+    ok("…and it goes on in YouTube's own player, from that second (0.20.6)",
+      /m\.t === "ytstop"/.test(js) && /if \(sec > 0\) sv\.t = sec;/.test(js) && /showWatch\(vu, sv\)/.test(js));
     ok("…nothing pretends the full mode would play it", !/fullHere/.test(js));
     ok("[hidden] hides, whatever display an element has", /\[hidden\]\{display:none!important\}/.test(read("client/lens.css")));
     ok("the pass leaves the address bar at once", /history\.replaceState\(null, "", location\.pathname\)/.test(js));
@@ -736,7 +746,7 @@ async function client(port, who) {
     const page = fs.readFileSync(path.join(__dirname, "..", "lens", "client", "index.html"), "utf8");
     const srv = fs.readFileSync(path.join(__dirname, "..", "lens", "server.js"), "utf8");
     ok("the server says whether YouTube can play here", /youtube: !!\(egress && egress\.usable\(\)\)/.test(srv));
-    ok("…and the page plays it here when so, handing it over only when not", /youtubeHere = !!\(st && st\.youtube\)/.test(js) && /if \(youtubeHere \|\| !HANDOFF/.test(js));
+    ok("…and the page plays it here when so, handing it over only when not", /youtubeHere = !!\(both\[0\] && both\[0\]\.youtube\)/.test(js) && /if \(vid\) \{ showWatch\(u, vid\); return true; \}\s*if \(youtubeHere\) return false;/.test(js));
     const slotJs = fs.readFileSync(path.join(__dirname, "..", "lens", "client", "slot.js"), "utf8");
     ok("the bar says, before anything loads, whether sites here are kept apart",
       /id="warn"[^>]*>Starting…/.test(page) && /⚠ Not private: do not sign in to anything here/.test(js) && /Each site here has a space of its own/.test(js));
@@ -753,6 +763,35 @@ async function client(port, who) {
       !/curl[^\n]*\| *(sh|bash)/.test(start + fs.readFileSync(path.join(__dirname, "..", "lens", "warp", "Dockerfile"), "utf8")));
     const deploy = fs.readFileSync(path.join(__dirname, "..", "tools", "make-deploy.js"), "utf8");
     ok("the deploy carries egress and the WARP container", /"lens\/egress\.js"/.test(deploy) && /"lens\/warp\/start\.sh"/.test(deploy) && /"lens\/warp\/socks\.js"/.test(deploy));
+
+    /* YouTube videos in YouTube's own embedded player (0.20.6). */
+    ok("the deploy carries the video page", /"lens\/client\/watch\.html"/.test(deploy) && /"lens\/client\/watch\.js"/.test(deploy));
+    const vStart = js.indexOf("  function videoOf(u) {"), vEnd = js.indexOf("  function watchPage(vid) {");
+    const videoOf = vStart > 0 && vEnd > vStart ? new Function(js.slice(vStart, vEnd) + "\nreturn videoOf;")() : () => null;
+    const vo = (u) => JSON.stringify(videoOf(u));
+    ok("a video's address is read from every form YouTube writes it in",
+      vo("https://www.youtube.com/watch?v=dQw4w9WgXcQ") === '{"v":"dQw4w9WgXcQ","t":0,"list":""}' &&
+      vo("https://youtu.be/dQw4w9WgXcQ?t=90") === '{"v":"dQw4w9WgXcQ","t":90,"list":""}' &&
+      vo("https://m.youtube.com/watch?v=dQw4w9WgXcQ&t=1m30s&list=PLabc_123") === '{"v":"dQw4w9WgXcQ","t":90,"list":"PLabc_123"}' &&
+      vo("https://www.youtube.com/live/dQw4w9WgXcQ") === '{"v":"dQw4w9WgXcQ","t":0,"list":""}' &&
+      vo("https://www.youtube.com/embed/dQw4w9WgXcQ?start=42") === '{"v":"dQw4w9WgXcQ","t":42,"list":""}');
+    ok("…and not from a search, a channel, Shorts or a bad id (those stay in the lighter mode)",
+      videoOf("https://www.youtube.com/results?search_query=x") === null && videoOf("https://www.youtube.com/@channel") === null &&
+      videoOf("https://www.youtube.com/shorts/dQw4w9WgXcQ") === null && videoOf("https://www.youtube.com/watch?v=short") === null &&
+      videoOf("https://www.youtube.com/watch?v=dQw4w9WgXc%22") === null);
+    ok("a video page found by a click inside YouTube is handed over too, and the slot steps back",
+      /if \(handOff\(u\)\) \{ post\(\{ t: "back" \}\); return; \}/.test(js) && /tell\(\{ t: "watch", url: w, video: u \}\)/.test(js));
+    const wjs = fs.readFileSync(path.join(__dirname, "..", "lens", "client", "watch.js"), "utf8");
+    const whtml = fs.readFileSync(path.join(__dirname, "..", "lens", "client", "watch.html"), "utf8");
+    ok("the video page is YouTube's own player, by YouTube's IFrame API, unchanged",
+      /s\.src = "https:\/\/www\.youtube\.com\/iframe_api"/.test(wjs) && /new window\.YT\.Player\("player"/.test(wjs) && /host: "https:\/\/www\.youtube-nocookie\.com"/.test(wjs) &&
+      /<meta name="referrer" content="strict-origin-when-cross-origin">/.test(whtml));
+    ok("…takes only a real video id, and says plainly when a video's owner keeps it on YouTube",
+      /var ID = \/\^\[A-Za-z0-9_-\]\{11\}\$\/;/.test(wjs) && /if \(!ID\.test\(v\)\) return note\(/.test(wjs) && /150: \["Its owner shows it on YouTube only"/.test(wjs));
+    const brw = fs.readFileSync(path.join(__dirname, "..", "modules", "browser.js"), "utf8");
+    ok("BROWSER shows only the lens server's own video page, and BACK returns to the page underneath",
+      /if \(w\.origin !== origin \|\| w\.pathname !== "\/watch\.html"\) return;/.test(brw) && /if \(m\.t === "watch"\) return openWatch\(m\.url, m\.video\);/.test(brw) &&
+      /btn\("BACK", "back to the page", closeWatch\)/.test(brw) && /frame\.style\.display = "none";/.test(brw));
   }
 
   section("the lens page: each site in a space of its own");
@@ -784,8 +823,26 @@ async function client(port, who) {
     ok("the map of sites to spaces holds in memory when the browser refuses storage, so sites do not all land in space 0",
       /var mapMem = null/.test(lensJs) && /function saveMap\(m\) \{ mapMem = m;/.test(lensJs));
     ok("a slot changing hands is opened once with ?wipe=1", /slot\.html" \+ \(s\.wipe \? "\?wipe=1" : ""\)/.test(lensJs) && /\[\?&\]wipe=1/.test(slotJs));
+    ok("the last three sites stay open, hidden, and one coming back is shown as it was (0.20.6)",
+      /var KEEP = 3, live = \[\];/.test(lensJs) && /while \(live\.length >= KEEP\) forget\(live\[0\]\);/.test(lensJs) &&
+      /if \(o\.kept && how === "history" && !form && o\.slot\.url === u\)/.test(lensJs));
+    ok("…a kept one whose space changes hands is closed before it is wiped, and a hidden one stops playing",
+      /live\.slice\(\)\.forEach\(function \(x\) \{ if \(x\.n === s\.n\) forget\(x\); \}\);/.test(lensJs) &&
+      /t: "hide"/.test(lensJs) && /m\.t === "hide" && frame\) pauseAll\(/.test(slotJs) && /querySelectorAll\("video, audio"\)/.test(slotJs));
+    ok("a slot that never loads is tried again, then the site opens in the shared space, said, while spaces are looked for again",
+      /if \(s\.tries < 1\) \{/.test(lensJs) && /from\.hello = true;\s*clearTimeout\(from\.dog\);/.test(lensJs) &&
+      /rooms = false;[\s\S]{0,140}showMode\(\);\s*laterRooms\(30000\);/.test(lensJs) && /until the green bar comes back/.test(lensJs));
+    ok("…spaces come back only when the space that failed answers too, and the page in the shared space moves to its own",
+      /badSlot = s\.n;/.test(lensJs) && /badSlot <= 0 \|\| await probeOnce\(12000, badSlot\)/.test(lensJs) &&
+      /if \(cur && cur\.n < 0 && at >= 0 && trail\[at\]\) \{ forget\(cur\); open\(trail\[at\]\.url, "history"\); \}/.test(lensJs));
+    ok("…and the shared space's worker, which also takes the lens page, lets that check for the spaces go out as it is",
+      /u\.pathname === "\/lens\/status" && \/\^s\\d\{1,2\}\\\.\/\.test\(u\.hostname\) && u\.host\.slice\(u\.host\.indexOf\("\."\) \+ 1\) === self\.location\.host\) return await fetch\(req\);/.test(sw));
+    ok("a yes about spaces is kept a week, so FieldKit opened again starts at once, and is checked again quietly",
+      /var WEEK = 7 \* 24 \* 3600 \* 1000;/.test(lensJs) && /Date\.now\(\) - seen < WEEK/.test(lensJs) && /localStorage\.setItem\(ISO_KEEP/.test(lensJs) &&
+      /var both = await Promise\.all\(\[/.test(lensJs));
     ok("a slot listens only to the lens page of its own host", /e\.source !== window\.parent \|\| e\.origin !== TOP/.test(slotJs));
-    ok("the lens page listens only to the slot it made", /e\.source !== cur\.el\.contentWindow \|\| e\.origin !== cur\.origin/.test(lensJs));
+    ok("the lens page listens only to the slots it made, and only the one shown speaks for the page",
+      /e\.source === live\[i\]\.el\.contentWindow && e\.origin === live\[i\]\.origin/.test(lensJs) && /if \(!from\) return;/.test(lensJs) && /if \(from !== cur\) return;/.test(lensJs));
     ok("…and a slot cannot name another site in the address bar", /rooms && cur\.site && siteOf\(u\) !== cur\.site\) return/.test(lensJs));
     ok("…nor send it anywhere but http(s)", /if \(!\/\^https\?:\\\/\\\/\/i\.test\(to\)\) return;/.test(lensJs) && /open\(to, m\.replace \? "replace" : "new", cleanPost\(m\.post\)\)/.test(lensJs));
     ok("…and a site's script opening a sign-in window for another site leaves the page, with a button to go there",

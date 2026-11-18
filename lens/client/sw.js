@@ -121,6 +121,10 @@ async function handleRequest(event) {
     }
     const req = event.request, u = new URL(req.url);
     if (u.origin === self.location.origin) return await fetch(req);
+    /* The shared space's worker also takes over the lens page (same
+       origin, clients.claim), so the lens page's check for the spaces
+       (sN.<host>/lens/status) comes through here: it goes out as it is. */
+    if (u.pathname === "/lens/status" && /^s\d{1,2}\./.test(u.hostname) && u.host.slice(u.host.indexOf(".") + 1) === self.location.host) return await fetch(req);
     if ((u.protocol !== "https:" && u.protocol !== "http:") || req.method !== "GET" || RESCUE.indexOf(req.destination) < 0) return Response.error();
     const through = new Request(self.location.origin + L.PREFIX + L.CODEC.encode(u.href), { method: "GET", headers: req.headers });
     return await scramjet.fetch({ request: through, clientId: event.clientId });

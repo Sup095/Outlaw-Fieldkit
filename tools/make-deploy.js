@@ -198,7 +198,7 @@ const LENS = ["lens/server.js", "lens/wisp.js", "lens/meter.js", "lens/egress.js
   "lens/warp/Dockerfile", "lens/warp/start.sh", "lens/warp/socks.js",
   "lens/patch-scramjet.js", "lens/patch-libcurl.js", "lens/config.example.json", "lens/vendor/package.json", "lens/vendor/package-lock.json",
   "lens/client/index.html", "lens/client/lens.js", "lens/client/lens.css", "lens/client/sw.js",
-  "lens/client/codec.js", "lens/client/slot.html", "lens/client/slot.js"];
+  "lens/client/codec.js", "lens/client/slot.html", "lens/client/slot.js", "lens/client/watch.html", "lens/client/watch.js"];
 const lensOut = path.join(OUT, "lens");
 fs.rmSync(lensOut, { recursive: true, force: true });
 for (const f of RELAY_CODE) {

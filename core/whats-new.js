@@ -10,6 +10,10 @@
   "use strict";
 
   var NOTES = [
+    { v: "0.20.6", items: [
+      "BROWSER lighter mode: YouTube videos play in YouTube's own player, as in Google Slides, the whole way through. Videos that forbid it show a link.",
+      "BROWSER lighter mode: your last three sites stay open, so going back is instant, and a site's private space that fails comes back by itself."
+    ] },
     { v: "0.20.5", items: [
       "BROWSER lighter mode: YouTube Shorts, itch.io and CrazyGames games tested for an hour. Pages that send accented headers no longer fail.",
       "BROWSER: YouTube stops longer videos after about a minute in both modes (it allows only ordinary browsers); you now get a button to open it in your own."

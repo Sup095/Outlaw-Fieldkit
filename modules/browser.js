@@ -1845,6 +1845,8 @@
 
     function post(m) {
       m.fk = "lens";
+      /* Moving the page from this panel (a bookmark, back) leaves a video. */
+      if (m.t === "go" || m.t === "back" || m.t === "forward") closeWatch();
       try { frame.contentWindow.postMessage(m, origin); } catch (e) {}
     }
     function say(text, level) { stat.textContent = text; stat.className = "br-status" + (level ? " " + level : ""); }
@@ -1959,10 +1961,55 @@
     }, 25000);
     view.stopTimer = function () { clearTimeout(readyTimer); };
 
+    /* A YouTube video, in YouTube's own embedded player (0.20.6,
+       lens/client/watch.js): YouTube stops a video played through lens
+       after a minute, and its embedded player is how YouTube lets any page
+       show one. The lens page stays where it was underneath; BACK returns
+       to it. Only the lens server's own watch page is shown here. */
+    var watchBox = el("div", { class: "br-watch", style: { display: "none" } });
+    var watchFrame = null;
+    function closeWatch() {
+      if (!watchFrame) return;
+      watchFrame = null;
+      ui.clear(watchBox);
+      watchBox.style.display = "none";
+      frame.style.display = "";
+    }
+    function openWatch(u, video) {
+      var w;
+      try { w = new URL(String(u || "")); } catch (e) { return; }
+      if (w.origin !== origin || w.pathname !== "/watch.html") return;
+      ui.clear(watchBox);
+      watchFrame = el("iframe", {
+        class: "br-frame", src: w.href, allowfullscreen: true,
+        allow: "autoplay; encrypted-media; picture-in-picture; fullscreen",
+        referrerpolicy: "strict-origin-when-cross-origin",
+        /* YouTube's player needs its own scripts and storage; "watch on
+           YouTube" opens a real tab, outside this panel. */
+        sandbox: "allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-presentation"
+      });
+      watchBox.appendChild(el("div", { class: "br-ask" }, [
+        el("span", { class: "br-ask-t", text: "YouTube's own player: the video comes straight from YouTube, not through the lighter mode." }),
+        btn("BACK", "back to the page", closeWatch)
+      ]));
+      watchBox.appendChild(watchFrame);
+      frame.style.display = "none";
+      watchBox.style.display = "flex";
+      if (video) noteVisit(String(video), "YouTube video");
+      say("YouTube video", "ok");
+    }
+
     view.onMsg = function (e) {
+      if (watchFrame && e.source === watchFrame.contentWindow && e.origin === origin) {
+        var wm = e.data;
+        if (wm && wm.fk === "watch" && wm.t === "ready" && wm.title) say(String(wm.title).slice(0, 120), "ok");
+        else if (wm && wm.fk === "watch" && wm.t === "error") say(String(wm.head || "this video did not play").slice(0, 120), "warn");
+        return;
+      }
       if (e.source !== frame.contentWindow || e.origin !== origin) return;
       var m = e.data;
       if (!m || m.fk !== "lens" || typeof m.t !== "string") return;
+      if (m.t === "watch") return openWatch(m.url, m.video);
       if (m.t === "ready" || m.t === "failed" || m.t === "expired") { view.ready = true; view.stopTimer(); }
       if (m.t === "ready") {
         say(lens.near ? "lighter mode — close to this month's allowance; it moves to the full mode by itself when that runs out" : "lighter mode", lens.near ? "warn" : "ok");
@@ -1993,7 +2040,7 @@
     };
     window.addEventListener("message", view.onMsg);
 
-    host.appendChild(el("div", { class: "br-wrap" }, [bar, placesBar, notes, frame, stat, buildNote(true, true)]));
+    host.appendChild(el("div", { class: "br-wrap" }, [bar, placesBar, notes, frame, watchBox, stat, buildNote(true, true)]));
     loadPlaces().catch(function () {});
     frame.src = lens.page + "#p=" + encodeURIComponent(lens.pass);
   }
@@ -2545,6 +2592,7 @@
       ".br-eng-d{font-size:10px;color:var(--fg-dim);flex:1;line-height:1.4}",
       ".br-eng-cur{font-size:9px;letter-spacing:.12em;color:var(--pass)}",
       ".br-frame{flex:1;width:100%;border:1px solid var(--line);background:#0c100e;min-height:0}",
+      ".br-watch{flex:1;flex-direction:column;min-height:0}",
       ".br-status{font-size:10px;color:var(--fg-dim);letter-spacing:.06em;",
       "  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
       ".br-status.bad{color:var(--fail)}",

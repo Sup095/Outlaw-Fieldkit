@@ -258,6 +258,19 @@ function start(opts) {
          everything the last site kept in this origin is cleared, its
          service worker included, before the new one loads. */
       if (rel === "slot.html" && url.searchParams.get("wipe") === "1") head["Clear-Site-Data"] = "\"storage\"";
+      /* YouTube's own embedded player (client/watch.js, 0.20.6). The
+         isolation the lens page needs would keep it out, and YouTube's
+         player asks the page holding it to name its site; nothing but
+         YouTube's player and this page's own script may run here. */
+      if (rel === "watch.html" || rel === "watch.js") {
+        delete head["Cross-Origin-Opener-Policy"];
+        delete head["Cross-Origin-Embedder-Policy"];
+        head["Cross-Origin-Resource-Policy"] = "cross-origin";
+        head["Referrer-Policy"] = "strict-origin-when-cross-origin";
+        head["Content-Security-Policy"] = "default-src 'none'; script-src 'self' https://www.youtube.com https://s.ytimg.com; " +
+          "frame-src https://www.youtube-nocookie.com https://www.youtube.com; style-src 'unsafe-inline'; img-src 'self' https: data:; " +
+          "connect-src 'self'; base-uri 'none'; form-action 'none'";
+      }
       res.writeHead(200, head);
       res.end(req.method === "HEAD" ? undefined : body);
     });

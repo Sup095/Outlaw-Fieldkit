@@ -36,7 +36,7 @@
   "use strict";
 
   var L = self.FK_LENS, CODEC = L.CODEC, siteOf = L.siteOf;
-  var PASS_KEY = "fk.lens.pass", SLOTS_KEY = "fk.lens.slots.v1", ISO_KEY = "fk.lens.rooms";
+  var PASS_KEY = "fk.lens.pass", SLOTS_KEY = "fk.lens.slots.v1", ISO_KEY = "fk.lens.rooms", ISO_KEEP = "fk.lens.rooms.at";
   var SLOTS = 16;
   /* DuckDuckGo's main page, strict safe search (0.20.3). Its plain page
      (html.duckduckgo.com, used until 0.20.2) now answers every search
@@ -107,31 +107,50 @@
      private, until FieldKit was closed. Now it asks twice, a few seconds
      apart, and if both fail it keeps asking in the background: the spaces
      come on by themselves for the next site opened. */
-  async function probeOnce(ms) {
+  async function probeOnce(ms, n) {
     try {
       var ctl = new AbortController(), t = setTimeout(function () { ctl.abort(); }, ms);
-      var r = await fetch(slotOrigin(0) + "/lens/status", { cache: "no-store", mode: "cors", signal: ctl.signal });
+      var r = await fetch(slotOrigin(n || 0) + "/lens/status", { cache: "no-store", mode: "cors", signal: ctl.signal });
       clearTimeout(t);
       return r.ok && !!(await r.json()).up;
     } catch (e) { return false; }
   }
   function noSlotNames() { return /^s\d{1,2}\./.test(location.host) || /^[\d.]+(:\d+)?$/.test(location.host) || /^\[/.test(location.host); }
+  /* A yes is also kept for a week (0.20.6), so a page opened again starts
+     at once, with spaces, instead of waiting on the check; it is asked
+     again quietly, and a slot that then does not load is caught by its
+     watchdog (openSlot), which turns the spaces off until they answer. */
+  var WEEK = 7 * 24 * 3600 * 1000;
+  function keepRooms() { try { sessionStorage.setItem(ISO_KEY, "1"); localStorage.setItem(ISO_KEEP, String(Date.now())); } catch (e) {} }
   async function probeRooms() {
-    try { if (sessionStorage.getItem(ISO_KEY) === "1") return true; } catch (e) {}
     if (noSlotNames()) return false;
+    try { if (sessionStorage.getItem(ISO_KEY) === "1") return true; } catch (e) {}
+    try {
+      var seen = Number(localStorage.getItem(ISO_KEEP) || 0);
+      if (seen && Date.now() - seen < WEEK) {
+        setTimeout(function () { probeOnce(12000).then(function (ok) { if (ok) keepRooms(); }); }, 4000);
+        return true;
+      }
+    } catch (e) {}
     var ok = await probeOnce(8000);
     if (!ok) { await new Promise(function (r) { setTimeout(r, 2000); }); ok = await probeOnce(12000); }
-    if (ok) { try { sessionStorage.setItem(ISO_KEY, "1"); } catch (e) {} }
+    if (ok) keepRooms();
     else laterRooms(30000);
     return ok;
   }
+  var badSlot = -1;
   function laterRooms(wait) {
     setTimeout(async function () {
       if (rooms) return;
-      if (await probeOnce(12000)) {
+      /* the space that failed is asked too, so a page is not sent back to it while it still fails */
+      if (await probeOnce(12000) && (badSlot <= 0 || await probeOnce(12000, badSlot))) {
+        badSlot = -1;
         rooms = true;
-        try { sessionStorage.setItem(ISO_KEY, "1"); } catch (e) {}
+        keepRooms();
         showMode();
+        /* The page open in the shared space moves to a space of its own,
+           so the green bar is true of what is on the screen. */
+        if (cur && cur.n < 0 && at >= 0 && trail[at]) { forget(cur); open(trail[at].url, "history"); }
         say("Sites have spaces of their own again. The next site you open gets its own.", "ok");
       } else laterRooms(Math.min(wait * 2, 300000));
     }, wait);
@@ -184,29 +203,90 @@
     return { n: n, wipe: true };
   }
 
-  var cur = null;           /* { n, site, origin, el, up, queue } */
+  var cur = null;           /* { n, site, origin, el, up, queue, url, title } */
+  /* The last few sites stay open, hidden (0.20.6): going back to one shows
+     it at once, where it was left (a half-filled form, a place in a long
+     page, a sign-in), instead of starting its slot and loading its page
+     again. A hidden one is told to pause what it plays. */
+  var KEEP = 3, live = [];
   function drop() {
-    if (cur) { try { cur.el.remove(); } catch (e) {} }
+    live.forEach(function (s) { clearTimeout(s.dog); try { s.el.remove(); } catch (e) {} });
+    live = [];
     cur = null;
   }
-  function post(msg) {
-    if (!cur) return;
+  function forget(s) {
+    clearTimeout(s.dog);
+    try { s.el.remove(); } catch (e) {}
+    live = live.filter(function (x) { return x !== s; });
+    if (cur === s) cur = null;
+  }
+  function hideSlot(s) {
+    s.el.hidden = true;
+    try { if (s.up) s.el.contentWindow.postMessage({ fk: "slot", t: "hide" }, s.origin); } catch (e) {}
+  }
+  function post(msg) { if (cur) sendTo(cur, msg); }
+  function sendTo(s, msg) {
     msg.fk = "slot";
-    if (!cur.up && msg.t !== "init") { cur.queue.push(msg); return; }
-    try { cur.el.contentWindow.postMessage(msg, cur.origin); } catch (e) {}
+    if (!s.up && msg.t !== "init") { s.queue.push(msg); return; }
+    try { s.el.contentWindow.postMessage(msg, s.origin); } catch (e) {}
   }
 
   function openSlot(site) {
-    var s = rooms ? slotFor(site) : { n: -1, wipe: false };
-    drop();
+    var s = rooms ? slotFor(site) : { n: -1, wipe: false }, owner = rooms ? site : "";
+    if (!s.wipe) {
+      for (var i = 0; i < live.length; i++) {
+        if (live[i].n !== s.n || live[i].site !== owner) continue;
+        var k = live.splice(i, 1)[0];
+        if (cur && cur !== k) hideSlot(cur);
+        live.push(k);
+        cur = k;
+        k.el.hidden = false;
+        return { slot: k, kept: true };
+      }
+    }
+    /* A kept frame on a number that changes hands goes, before it is wiped. */
+    live.slice().forEach(function (x) { if (x.n === s.n) forget(x); });
+    if (cur) hideSlot(cur);
+    while (live.length >= KEEP) forget(live[0]);
     var el = document.createElement("iframe");
     el.setAttribute("allow", "fullscreen; autoplay; clipboard-write; gamepad");
     el.setAttribute("allowfullscreen", "");
     el.className = "slot";
-    cur = { n: s.n, site: rooms ? site : "", origin: slotOrigin(s.n), el: el, up: false, queue: [] };
-    el.src = cur.origin + "/slot.html" + (s.wipe ? "?wipe=1" : "");
+    cur = { n: s.n, site: owner, origin: slotOrigin(s.n), el: el, up: false, queue: [], url: "", title: "", tries: 0 };
+    cur.src = cur.origin + "/slot.html" + (s.wipe ? "?wipe=1" : "");
+    el.src = cur.src;
+    live.push(cur);
     view.appendChild(el);
-    return cur;
+    watchdog(cur);
+    return { slot: cur, kept: false };
+  }
+
+  /* A slot that never loads (its name not found, its certificate not made,
+     a network that blocks it) used to leave a blank page for good. It is
+     tried once more; if that fails too, the site opens in the shared space
+     for now, said plainly, and the spaces are looked for again in the
+     background (laterRooms), coming back on by themselves. */
+  function watchdog(s) {
+    clearTimeout(s.dog);
+    s.dog = setTimeout(function () {
+      if (s.hello || live.indexOf(s) < 0) return;
+      if (s.tries < 1) {
+        s.tries++;
+        s.el.src = s.src + (s.src.indexOf("?") < 0 ? "?" : "&") + "again=1";
+        return watchdog(s);
+      }
+      if (s.n < 0) return fail("Lens could not start here: its page did not load.");
+      var u = at >= 0 && trail[at] ? trail[at].url : "";
+      forget(s);
+      badSlot = s.n;
+      rooms = false;
+      try { sessionStorage.removeItem(ISO_KEY); localStorage.removeItem(ISO_KEEP); } catch (e) {}
+      showMode();
+      laterRooms(30000);
+      if (u) open(u, "history");
+      say("This site's own space did not load on this network, so it opened in the shared space. Do not sign in to anything " +
+        "until the green bar comes back; spaces are looked for again by themselves.", "warn", true);
+    }, s.tries ? 15000 : 12000);
   }
 
   /* ---- history across slots ----------------------------------------- */
@@ -228,7 +308,15 @@
     say("");
     start.hidden = true;
     addr.value = u;
-    if (!cur || (rooms && cur.site !== site)) openSlot(site);
+    if (!cur || (rooms && cur.site !== site)) {
+      var o = openSlot(site);
+      /* Back or forward to a site still open on that very page: shown as
+         it was, not loaded again. */
+      if (o.kept && how === "history" && !form && o.slot.url === u) {
+        tell({ t: "nav", url: u, title: o.slot.title });
+        return;
+      }
+    }
     post({ t: "go", url: u, post: form || null });
     setTimeout(function () { why(hostOf(u)); }, 5000);
   }
@@ -248,17 +336,29 @@
   /* ---- messages from the slot ---------------------------------------- */
   var warnedFor = "";
   window.addEventListener("message", function (e) {
-    if (!cur || e.source !== cur.el.contentWindow || e.origin !== cur.origin) return;
+    var from = null;
+    for (var i = 0; i < live.length; i++) if (e.source === live[i].el.contentWindow && e.origin === live[i].origin) from = live[i];
+    if (!from) return;
     var m = e.data;
     if (!m || m.fk !== "slot") return;
+    /* A slot starting while another is shown (the person moved on) still
+       gets going; only the one shown speaks for the page. */
     if (m.t === "hello") {
-      cur.up = false;
-      try { cur.el.contentWindow.postMessage({ fk: "slot", t: "init", pass: pass, site: cur.site }, cur.origin); } catch (x) {}
-    } else if (m.t === "ready") {
-      cur.up = true;
-      var q = cur.queue; cur.queue = [];
-      q.forEach(post);
-    } else if (m.t === "failed") {
+      from.hello = true;
+      clearTimeout(from.dog);
+      from.up = false;
+      try { from.el.contentWindow.postMessage({ fk: "slot", t: "init", pass: pass, site: from.site }, from.origin); } catch (x) {}
+      return;
+    }
+    if (m.t === "ready") {
+      from.up = true;
+      var q = from.queue; from.queue = [];
+      q.forEach(function (x) { sendTo(from, x); });
+      if (from !== cur) hideSlot(from);
+      return;
+    }
+    if (from !== cur) return;
+    if (m.t === "failed") {
       fail(String(m.why || "Lens could not start here.") + (embedded ? " Try TAB above to open it in a tab of its own." : ""));
     } else if (m.t === "nav" || m.t === "loaded") {
       var u = String(m.url || "");
@@ -268,6 +368,8 @@
       if (rooms && cur.site && siteOf(u) !== cur.site) return;
       if (handOff(u)) { post({ t: "back" }); return; }
       if (at >= 0) trail[at] = { url: u };
+      cur.url = u;
+      if (m.title) cur.title = String(m.title);
       if (document.activeElement !== addr) addr.value = u;
       /* The tab's title stays FieldKit's: a monitor reads titles too. */
       tell({ t: "nav", url: u, title: String(m.title || "") });
@@ -293,12 +395,14 @@
       open(to, m.replace ? "replace" : "new", cleanPost(m.post));
     } else if (m.t === "ytstop") {
       /* YouTube stopped a video in this slot (above, handOff). */
+      /* Missed on the way in (a video started from a page's own player):
+         it goes on in YouTube's own player, from where it stopped. */
       var vu = String(m.url || ""), sec = Math.floor(Number(m.at) || 0);
       if (!HANDOFF.test(hostOf(vu)) || !/^https:\/\//i.test(vu)) return;
-      try { var x = new URL(vu); if (sec > 0) x.searchParams.set("t", sec + "s"); vu = x.href; } catch (e2) { return; }
-      say("YouTube stopped this video after about a minute: it plays longer videos only in an ordinary browser, which lens is not " +
-        "(nor is FULL MODE). Shorts and short clips play here.", "warn", true,
-        { label: "OPEN IN MY OWN BROWSER", run: function () { window.open(vu, "_blank", "noopener"); } });
+      var sv = videoOf(vu);
+      if (!sv) return;
+      if (sec > 0) sv.t = sec;
+      showWatch(vu, sv);
     } else if (m.t === "moved") {
       moved(m);
     } else if (m.t === "password") {
@@ -328,11 +432,13 @@
     if (!pass) return fail("This page needs to be opened from BROWSER in FieldKit, which signs you in to it.");
     if (passLeft() <= 0) return expired();
     if (!("serviceWorker" in navigator)) return fail("This browser does not allow the service worker lens needs.");
-    try {
-      var st = await fetch("/lens/status", { cache: "no-store" }).then(function (r) { return r.json(); });
-      youtubeHere = !!(st && st.youtube);
-    } catch (e) { youtubeHere = false; }
-    rooms = await probeRooms();
+    /* Both asked at once: the page is ready as soon as the slower answers. */
+    var both = await Promise.all([
+      fetch("/lens/status", { cache: "no-store" }).then(function (r) { return r.json(); }).catch(function () { return null; }),
+      probeRooms()
+    ]);
+    youtubeHere = !!(both[0] && both[0].youtube);
+    rooms = both[1];
     showMode();
     ready = true;
     state.textContent = "Ready.";
@@ -377,11 +483,41 @@
      YouTube stops a longer video after about a minute ("Something went
      wrong", ump.spsrejectfailure): its player checks it is in an ordinary
      browser, and neither a page run through lens nor FULL MODE's headless
-     one is. Nothing here gets round that check; the slot sees the stop
-     and the person is told why, with the video's own address to open in
-     their own browser (0.20.4). */
+     one is. Nothing here gets round that check. A video plays instead in
+     YouTube's own embedded player (watch.html, 0.20.6), which runs in this
+     browser straight from YouTube, as a video put in any page does. */
+  function videoOf(u) {
+    try {
+      var x = new URL(u), h = x.hostname.toLowerCase(), id = "";
+      if (/(^|\.)youtu\.be$/.test(h)) id = x.pathname.slice(1).split("/")[0];
+      else if (x.pathname === "/watch") id = x.searchParams.get("v") || "";
+      else { var m = /^\/(live|embed|v)\/([^/?#]+)/.exec(x.pathname); if (m) id = m[2]; }
+      if (!/^[A-Za-z0-9_-]{11}$/.test(id)) return null;
+      /* t=90, t=90s, t=1m30s, start=90 */
+      var ts = String(x.searchParams.get("t") || x.searchParams.get("start") || ""), at = 0, p;
+      if (/^\d+s?$/.test(ts)) at = parseInt(ts, 10);
+      else if ((p = /^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$/.exec(ts))) at = (+p[1] || 0) * 3600 + (+p[2] || 0) * 60 + (+p[3] || 0);
+      var list = x.searchParams.get("list") || "";
+      return { v: id, t: at, list: /^[A-Za-z0-9_-]{2,64}$/.test(list) ? list : "" };
+    } catch (e) { return null; }
+  }
+  function watchPage(vid) {
+    return location.origin + "/watch.html?v=" + vid.v + (vid.t ? "&t=" + vid.t : "") + (vid.list ? "&list=" + vid.list : "");
+  }
+  function showWatch(u, vid) {
+    var w = watchPage(vid);
+    if (embedded) {
+      tell({ t: "watch", url: w, video: u });
+      say("");
+    } else {
+      location.assign(w);
+    }
+  }
   function handOff(u) {
-    if (youtubeHere || !HANDOFF.test(hostOf(u))) return false;
+    if (!HANDOFF.test(hostOf(u))) return false;
+    var vid = videoOf(u);
+    if (vid) { showWatch(u, vid); return true; }
+    if (youtubeHere) return false;
     if (embedded) {
       tell({ t: "stream", url: u });
       say("YouTube opens in BROWSER's full mode, which can play it.", "warn");
