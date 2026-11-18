@@ -68,6 +68,14 @@ record, the lens page finds no slots, runs every site in one shared slot on
 its own origin, as before 0.16.3, and says in a bar that never goes away
 not to sign in to anything.
 
+**Fixed in 0.20.4:** a header a site sends as UTF-8 bytes (one of
+Wikipedia's pictures has one) made the libcurl transport throw inside
+libcurl's own callback, and libcurl stopped for good: the page never
+finished and every later request, to every site, hung. Such a header now
+goes on as its bytes, as a browser passes it, and an answer that still
+cannot be made fails only its own request (`patch-libcurl.js`, fixes 3 and
+4; `patch-scramjet.js`, fix 12).
+
 **Made sturdier in 0.20.3**, after an hour-long run of real browsing:
 
 - Subdomains share their site's space (`en.wikipedia.org` and

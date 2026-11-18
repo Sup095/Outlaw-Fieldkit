@@ -45,9 +45,39 @@ const WS_AFTER = [
   "      onopen(socket.protocol || \"\");"
 ].join("\n");
 
+/* 3. A header past Latin-1 (0.20.4). libcurl hands headers over as text
+      decoded from UTF-8, so a header a site sent as UTF-8 bytes (a file
+      name, a title) has letters a Response cannot carry, and making the
+      Response threw. It threw inside libcurl's own data callback, which
+      stopped libcurl for good: every later request, to every site, hung.
+      On Wikipedia (one of its pictures sends such a header) the first page
+      never finished and nothing after it opened. The fix: such a value is
+      passed on as its bytes, as a browser does; and a Response that still
+      cannot be made fails that one request, which is let go of, instead
+      of throwing into libcurl. */
+const HDR_BEFORE = "      response_info.statusText = status_messages[response_info.status] || \"\";";
+const HDR_AFTER = [
+  HDR_BEFORE,
+  "      if (Array.isArray(response_info.headers)) response_info.headers = response_info.headers.map((h) =>",
+  "        Array.isArray(h) ? h.map((s) => typeof s === \"string\" && /[^\\x00-\\xff]/.test(s) ? unescape(encodeURIComponent(s)) : s) : h);"
+].join("\n");
+const MAKE_BEFORE = "          let response = this.constructor.create_response(stream, JSON.parse(response_json));";
+const MAKE_AFTER = [
+  "          let response;",
+  "          try {",
+  "            response = this.constructor.create_response(stream, JSON.parse(response_json));",
+  "          } catch (e) {",
+  "            try { stream.cancel(); } catch (x) {}",
+  "            reject(e);",
+  "            return;",
+  "          }"
+].join("\n");
+
 const FIXES = [
   { name: "init() waits for the WebAssembly", before: BEFORE, after: AFTER },
-  { name: "the WebSocket subprotocol is passed on", before: WS_BEFORE, after: WS_AFTER }
+  { name: "the WebSocket subprotocol is passed on", before: WS_BEFORE, after: WS_AFTER },
+  { name: "a header past Latin-1 is passed on as its bytes", before: HDR_BEFORE, after: HDR_AFTER },
+  { name: "a Response that cannot be made fails only its request", before: MAKE_BEFORE, after: MAKE_AFTER }
 ];
 
 function patch(text) {
@@ -72,4 +102,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { patch, FIXES, BEFORE, AFTER, WS_BEFORE, WS_AFTER };
+module.exports = { patch, FIXES, BEFORE, AFTER, WS_BEFORE, WS_AFTER, HDR_BEFORE, HDR_AFTER, MAKE_BEFORE, MAKE_AFTER };

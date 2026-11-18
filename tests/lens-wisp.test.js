@@ -546,7 +546,8 @@ async function client(port, who) {
 
     const C = require("../lens/patch-libcurl");
     const lc = "  async init() {\n    if (this.transport)\n      libcurl.transport = this.transport;\n" + C.BEFORE +
-      "\n      proxy: this.proxy\n    });\n  }\n  connect() {\n" + C.WS_BEFORE + "\n    };\n  }\n";
+      "\n      proxy: this.proxy\n    });\n  }\n  connect() {\n" + C.WS_BEFORE + "\n    };\n  }\n" +
+      "  request_async() {\n" + C.MAKE_BEFORE + "\n  }\n  static create_response() {\n" + C.HDR_BEFORE + "\n  }\n";
     const lcFixed = C.patch(lc);
     ok("the transport waits for its WebAssembly before making a session", !!lcFixed && lcFixed.includes("!libcurl.ready") &&
       lcFixed.indexOf("!libcurl.ready") < lcFixed.indexOf("new libcurl.HTTPSession"));
@@ -554,6 +555,48 @@ async function client(port, who) {
     ok("…and passes on a WebSocket's subprotocol", lcFixed.includes('onopen(socket.protocol || "")'));
     ok("…in a file with Windows line ends too", !!C.patch(lc.replace(/\n/g, "\r\n")));
     ok("…and refuses a transport it does not know", C.patch("other code") === null && C.patch(lcFixed) === null);
+
+    /* A header sent as UTF-8 bytes (0.20.4): it stopped libcurl, and every
+       later request to every site hung (Wikipedia never finished a page). */
+    const TM = "attachment; filename=Straßenbahn™.jpg";
+    const hdrs = new Function("response_info", "status_messages", C.HDR_AFTER + "\nreturn response_info;")(
+      { status: 200, headers: [["content-disposition", TM], ["x-plain", "café ok"]] }, { 200: "OK" });
+    let made = null;
+    try { made = new Response(null, { status: 200, headers: hdrs.headers }); } catch (e) { made = null; }
+    ok("a header past Latin-1 no longer stops the Response being made", !!made, hdrs.headers[0][1]);
+    ok("…it goes on as its UTF-8 bytes, as a browser passes it",
+      made && Buffer.from(made.headers.get("content-disposition"), "latin1").toString("utf8") === TM);
+    ok("…and a Latin-1 header is left exactly as it was", hdrs.headers[1][1] === "café ok" && hdrs.statusText === "OK");
+    let threw = false;
+    try { new Response(null, { headers: [["content-disposition", TM]] }); } catch (e) { threw = true; }
+    ok("…(which the unfixed one could not: the test would catch the fix going away)", threw);
+    const makeOnce = (create) => {
+      const seen = { cancelled: false, rejected: null, resolved: false };
+      const stream = { cancel() { seen.cancelled = true; } };
+      const fn = new Function("stream", "response_json", "reject", "resolve", C.MAKE_AFTER + "\nresolve(response);");
+      try { fn.call({ constructor: { create_response: create } }, stream, "{}", (e) => { seen.rejected = e; }, () => { seen.resolved = true; }); }
+      catch (e) { seen.escaped = e; }
+      return seen;
+    };
+    const bad = makeOnce(() => { throw new TypeError("cannot"); });
+    ok("a Response that still cannot be made fails only its own request", !bad.escaped && bad.rejected instanceof TypeError && !bad.resolved);
+    ok("…and lets go of what it was being sent", bad.cancelled);
+    const good = makeOnce(() => ({}));
+    ok("…while one that can be made goes through as before", good.resolved && !good.rejected && !good.cancelled);
+
+    /* The same, where Scramjet makes the page's answer from the transport's. */
+    const sjAnswer = async (headers, status, body) => {
+      const w = function (b, h, s, st) { this.responseBody = b; this.responseHeaders = h; this.status = s; this.statusText = st; };
+      const AF = Object.getPrototypeOf(async function () {}).constructor;
+      return new AF("w", "y", "v", "l", "n", "e", "h", "f", "g", "a", P.HDR_AFTER)(w, body || null, headers, { status: status || 200, statusText: "" },
+        "image", new URL("https://upload.example/x.jpg"), {}, { dispatchEvent() {} }, () => true, { Sn: async () => {} });
+    };
+    const sjOk = await sjAnswer({ "content-disposition": TM, "content-type": "image/jpeg" });
+    ok("Scramjet's answer carries such a header too", sjOk instanceof Response &&
+      Buffer.from(sjOk.headers.get("content-disposition"), "latin1").toString("utf8") === TM);
+    let cancelled = false, sjErr = null;
+    try { await sjAnswer({}, 1000, new ReadableStream({ cancel() { cancelled = true; } })); } catch (e) { sjErr = e; }
+    ok("…and an answer it cannot make lets go of the body before it fails", sjErr instanceof RangeError && cancelled);
 
     const dir = path.join(__dirname, "..", "lens");
     const read = (f) => fs.readFileSync(path.join(dir, f), "utf8");

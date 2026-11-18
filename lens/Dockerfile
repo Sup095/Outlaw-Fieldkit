@@ -18,15 +18,15 @@ COPY lens/ lens/
 # The block list fixed at build (StevenBlack, MIT), so a lens server that
 # has not yet fetched the live lists still blocks (relay/blocklist.js).
 RUN cd relay && node fetch-adblock.js && cd .. && chown -R root:root /opt/fieldkit && chmod -R a+rX /opt/fieldkit
-COPY --from=vendor /v/node_modules/@mercuryworkshop/scramjet/dist/ lens/client/v/scramjet-1.1.0-fk3/
+COPY --from=vendor /v/node_modules/@mercuryworkshop/scramjet/dist/ lens/client/v/scramjet-1.1.0-fk4/
 COPY --from=vendor /v/node_modules/@mercuryworkshop/bare-mux/dist/ lens/client/v/bare-mux-2.1.9/
-COPY --from=vendor /v/node_modules/@mercuryworkshop/libcurl-transport/dist/ lens/client/v/libcurl-transport-1.5.2-fk1/
+COPY --from=vendor /v/node_modules/@mercuryworkshop/libcurl-transport/dist/ lens/client/v/libcurl-transport-1.5.2-fk2/
 # Our fixes to Scramjet and to the libcurl transport (lens/patch-scramjet.js
 # and lens/patch-libcurl.js say what each is for). The build stops if any
 # does not fit. Hence "-fkN" in their folders: browsers keep v/ for 30
-# days, so a changed file needs a new name; the next change is -fk4 / -fk2.
-RUN node lens/patch-scramjet.js lens/client/v/scramjet-1.1.0-fk3/scramjet.all.js
-RUN node lens/patch-libcurl.js lens/client/v/libcurl-transport-1.5.2-fk1/index.mjs lens/client/v/libcurl-transport-1.5.2-fk1/index.js
+# days, so a changed file needs a new name; the next change is -fk5 / -fk3.
+RUN node lens/patch-scramjet.js lens/client/v/scramjet-1.1.0-fk4/scramjet.all.js
+RUN node lens/patch-libcurl.js lens/client/v/libcurl-transport-1.5.2-fk2/index.mjs lens/client/v/libcurl-transport-1.5.2-fk2/index.js
 ENV NODE_ENV=production FK_LENS_CONFIG=/etc/lens/config.json
 USER node
 EXPOSE 8080

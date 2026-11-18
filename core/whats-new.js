@@ -10,6 +10,9 @@
   "use strict";
 
   var NOTES = [
+    { v: "0.20.4", items: [
+      "BROWSER lighter mode: Wikipedia (or any site sending an accented file name) no longer freezes it; links, typed addresses and back work again."
+    ] },
     { v: "0.20.3", items: [
       "BROWSER lighter mode: signing in with Google works (Google refused every sign-in through it), and searching works again (DuckDuckGo had started asking for a puzzle).",
       "BROWSER lighter mode: private spaces come on by themselves if the first check fails, and subdomains share their site's space and sign-in.",

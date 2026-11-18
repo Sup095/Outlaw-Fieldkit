@@ -121,6 +121,21 @@ const MAP_AFTER = 'let e=`typeof ${n.$W.globals.pushsourcemapfn}=="function"&&${
 const PM_BEFORE = 'r=t("return globalThis")()[i.pX],n=t("...args","this(...args)");';
 const PM_AFTER = 'r=t("return globalThis")()[i.pX]||globalThis[i.pX],n=t("...args","this(...args)");';
 
+/* A header the site sent as UTF-8 bytes (a file name, a title) reaches the
+   worker as text with letters past Latin-1, which a Response cannot carry:
+   making the page's answer threw, and the body that answer held was never
+   read. Over HTTP/2 one unread body stalls the whole connection, so every
+   later request to that site hung: on Wikipedia the page never finished
+   and no link, typed address or back worked (0.20.4). Such a value is sent
+   on as its bytes, as a browser does, and an answer that still cannot be
+   made lets go of its body. */
+const HDR_BEFORE = 'let E=new w(y,v,l.status,l.statusText,n,e,l,h);return f.dispatchEvent(E),g(l)||await (0,a.Sn)(e.toString()),new Response(E.responseBody,{headers:E.responseHeaders,status:E.status,statusText:E.statusText})';
+const HDR_AFTER = 'let E=new w(y,v,l.status,l.statusText,n,e,l,h);f.dispatchEvent(E),g(l)||await (0,a.Sn)(e.toString());' +
+  'let fkH=E.responseHeaders,fkL=s=>"string"==typeof s&&/[^\\x00-\\xff]/.test(s)?unescape(encodeURIComponent(s)):s;' +
+  'if(fkH&&"object"==typeof fkH&&!(fkH instanceof Headers))for(let k in fkH)fkH[k]=fkL(fkH[k]);' +
+  'try{return new Response(E.responseBody,{headers:fkH,status:E.status,statusText:fkL(E.statusText)})}' +
+  'catch(fkX){try{E.responseBody&&"function"==typeof E.responseBody.cancel&&E.responseBody.cancel()}catch(fkQ){}throw fkX}';
+
 const FIXES = [
   { name: "the cookie wait", before: BEFORE, after: AFTER },
   { name: "the empty url() swallowing a bracket", before: CSS_BEFORE, after: CSS_AFTER },
@@ -132,7 +147,8 @@ const FIXES = [
   { name: "the slot's own page sent as a frame", before: DEST_BEFORE, after: DEST_AFTER },
   { name: "no Accept-Language", before: LANG_BEFORE, after: LANG_AFTER },
   { name: "a script stopped by a missing source map call", before: MAP_BEFORE, after: MAP_AFTER },
-  { name: "a message from a frame Scramjet never hooked", before: PM_BEFORE, after: PM_AFTER }
+  { name: "a message from a frame Scramjet never hooked", before: PM_BEFORE, after: PM_AFTER },
+  { name: "a header past Latin-1 stalling the site", before: HDR_BEFORE, after: HDR_AFTER }
 ];
 
 function once(text, s) {
@@ -160,4 +176,4 @@ if (require.main === module) {
   console.log("patch-scramjet: " + FIXES.map((f) => f.name).join(" and ") + " fixed in " + file);
 }
 
-module.exports = { patch, patchAll, FIXES, BEFORE, AFTER, CSS_BEFORE, CSS_AFTER, MOD_BEFORE, MOD_AFTER, REF_BEFORE, REF_AFTER, WS_BEFORE, WS_AFTER, REALM1_BEFORE, REALM1_AFTER, REALM2_BEFORE, REALM2_AFTER, DEST_BEFORE, DEST_AFTER, LANG_BEFORE, LANG_AFTER, MAP_BEFORE, MAP_AFTER, PM_BEFORE, PM_AFTER };
+module.exports = { patch, patchAll, FIXES, BEFORE, AFTER, CSS_BEFORE, CSS_AFTER, MOD_BEFORE, MOD_AFTER, REF_BEFORE, REF_AFTER, WS_BEFORE, WS_AFTER, REALM1_BEFORE, REALM1_AFTER, REALM2_BEFORE, REALM2_AFTER, DEST_BEFORE, DEST_AFTER, LANG_BEFORE, LANG_AFTER, MAP_BEFORE, MAP_AFTER, PM_BEFORE, PM_AFTER, HDR_BEFORE, HDR_AFTER };

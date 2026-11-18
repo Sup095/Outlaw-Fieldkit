@@ -23,7 +23,7 @@
 (function () {
   "use strict";
 
-  var V = { scram: "/v/scramjet-1.1.0-fk3/", mux: "/v/bare-mux-2.1.9/", curl: "/v/libcurl-transport-1.5.2-fk1/" };
+  var V = { scram: "/v/scramjet-1.1.0-fk4/", mux: "/v/bare-mux-2.1.9/", curl: "/v/libcurl-transport-1.5.2-fk2/" };
   var L = self.FK_LENS, CODEC = L.CODEC, PREFIX = L.PREFIX, siteOf = L.siteOf;
 
   /* A slot that was just given to another site is opened once with

@@ -579,6 +579,14 @@ stays, as the fallback and for what lens cannot do.
 - *Next:* a cache for pages you open twice, which the test showed would
   roughly halve what a second visit costs.
 
+**Done in 0.20.4: a frozen lighter mode.**
+- One header a site sends as UTF-8 bytes (a Wikipedia picture's file name)
+  made the libcurl transport throw inside libcurl's own callback, which
+  stopped it for good: the page never finished, and no link, typed address
+  or back worked, on any site, until the page was reloaded. Fixed in
+  lens/patch-libcurl.js (4 fixes, folder -fk2) and in Scramjet's own answer
+  (patch-scramjet.js, 12 fixes, folder -fk4).
+
 **Done in 0.20.3: the lighter mode, tested for an hour.**
 - Google sign-in: a page lens opened itself went out marked as a frame, and
   Google answered every sign-in, Gmail and Docs with "Error 401". Fixed in
