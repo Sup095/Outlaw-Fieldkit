@@ -291,6 +291,14 @@
         return;
       }
       open(to, m.replace ? "replace" : "new", cleanPost(m.post));
+    } else if (m.t === "ytstop") {
+      /* YouTube stopped a video in this slot (above, handOff). */
+      var vu = String(m.url || ""), sec = Math.floor(Number(m.at) || 0);
+      if (!HANDOFF.test(hostOf(vu)) || !/^https:\/\//i.test(vu)) return;
+      try { var x = new URL(vu); if (sec > 0) x.searchParams.set("t", sec + "s"); vu = x.href; } catch (e2) { return; }
+      say("YouTube stopped this video after about a minute: it plays longer videos only in an ordinary browser, which lens is not " +
+        "(nor is FULL MODE). Shorts and short clips play here.", "warn", true,
+        { label: "OPEN IN MY OWN BROWSER", run: function () { window.open(vu, "_blank", "noopener"); } });
     } else if (m.t === "moved") {
       moved(m);
     } else if (m.t === "password") {
@@ -365,6 +373,13 @@
      on a tab of its own, said. */
   var HANDOFF = /(^|\.)(youtube\.com|youtu\.be|youtube-nocookie\.com)$/;
   var youtubeHere = false;
+  /* Where YouTube is let in, searching, browsing and Shorts work, but
+     YouTube stops a longer video after about a minute ("Something went
+     wrong", ump.spsrejectfailure): its player checks it is in an ordinary
+     browser, and neither a page run through lens nor FULL MODE's headless
+     one is. Nothing here gets round that check; the slot sees the stop
+     and the person is told why, with the video's own address to open in
+     their own browser (0.20.4). */
   function handOff(u) {
     if (youtubeHere || !HANDOFF.test(hostOf(u))) return false;
     if (embedded) {

@@ -23,7 +23,7 @@
 (function () {
   "use strict";
 
-  var V = { scram: "/v/scramjet-1.1.0-fk4/", mux: "/v/bare-mux-2.1.9/", curl: "/v/libcurl-transport-1.5.2-fk2/" };
+  var V = { scram: "/v/scramjet-1.1.0-fk5/", mux: "/v/bare-mux-2.1.9/", curl: "/v/libcurl-transport-1.5.2-fk3/" };
   var L = self.FK_LENS, CODEC = L.CODEC, PREFIX = L.PREFIX, siteOf = L.siteOf;
 
   /* A slot that was just given to another site is opened once with
@@ -76,6 +76,30 @@
     }
     ready = true;
     tell({ t: "ready" });
+    if (site === "youtube.com") setInterval(watchYouTube, 2000);
+  }
+
+  /* YouTube's player stops a video here after about a minute, with
+     "Something went wrong" (lens.js, handOff, says why). Where it stopped
+     is kept, so the address the lens page offers starts there; the page
+     is told once per video. Other errors (a video taken down, a
+     private one) are left to say what they say. */
+  var yt = { url: "", t: 0, told: "" };
+  function watchYouTube() {
+    if (!frame) return;
+    var d = null, u = "";
+    try { d = frame.frame.contentDocument; u = String(frame.url || ""); } catch (x) { return; }
+    if (!d || !/^https:\/\//i.test(u)) return;
+    var v = d.querySelector("#movie_player video");
+    if (yt.url !== u) { yt.url = u; yt.t = 0; }
+    if (v && v.currentTime > 0) yt.t = v.currentTime;
+    var err = d.querySelector(".ytp-error");
+    if (!err || !err.offsetParent || yt.told === u) return;
+    var why = "";
+    try { var p = d.querySelector("#movie_player"); why = String(p && p.getDebugText ? p.getDebugText(true) : ""); } catch (x) {}
+    if (!/spsreject|SPS_UMP|confirm you.re not a bot/i.test(why + " " + err.textContent)) return;
+    yt.told = u;
+    tell({ t: "ytstop", url: u, at: Math.floor(yt.t) });
   }
 
   function hostOf(u) { try { return new URL(u).hostname.toLowerCase(); } catch (e) { return ""; } }

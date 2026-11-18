@@ -73,11 +73,26 @@ const MAKE_AFTER = [
   "          }"
 ].join("\n");
 
+/* 5. The same on the way out (0.20.4): a request's header past Latin-1 (a
+      cookie YouTube sets with such letters) made the Request the transport
+      builds only to read the body from throw, and that request failed. It
+      is built from a copy holding the bytes; the headers sent are the
+      page's own, which libcurl sends as UTF-8, as a browser would. */
+const OPT_BEFORE = "      let request_obj = new Request(\"http://127.0.0.1/\", params);";
+const OPT_AFTER = [
+  "      let fk_h = params.headers, fk_p = params;",
+  "      if (fk_h && typeof fk_h === \"object\" && !(fk_h instanceof Headers) && !Array.isArray(fk_h))",
+  "        fk_p = Object.assign({}, params, { headers: Object.fromEntries(Object.entries(fk_h).map(([k, v]) =>",
+  "          [k, typeof v === \"string\" && /[^\\x00-\\xff]/.test(v) ? unescape(encodeURIComponent(v)) : v])) });",
+  "      let request_obj = new Request(\"http://127.0.0.1/\", fk_p);"
+].join("\n");
+
 const FIXES = [
   { name: "init() waits for the WebAssembly", before: BEFORE, after: AFTER },
   { name: "the WebSocket subprotocol is passed on", before: WS_BEFORE, after: WS_AFTER },
   { name: "a header past Latin-1 is passed on as its bytes", before: HDR_BEFORE, after: HDR_AFTER },
-  { name: "a Response that cannot be made fails only its request", before: MAKE_BEFORE, after: MAKE_AFTER }
+  { name: "a Response that cannot be made fails only its request", before: MAKE_BEFORE, after: MAKE_AFTER },
+  { name: "a request header past Latin-1 is sent as UTF-8", before: OPT_BEFORE, after: OPT_AFTER }
 ];
 
 function patch(text) {
@@ -102,4 +117,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { patch, FIXES, BEFORE, AFTER, WS_BEFORE, WS_AFTER, HDR_BEFORE, HDR_AFTER, MAKE_BEFORE, MAKE_AFTER };
+module.exports = { patch, FIXES, BEFORE, AFTER, WS_BEFORE, WS_AFTER, HDR_BEFORE, HDR_AFTER, MAKE_BEFORE, MAKE_AFTER, OPT_BEFORE, OPT_AFTER };

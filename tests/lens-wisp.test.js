@@ -547,7 +547,8 @@ async function client(port, who) {
     const C = require("../lens/patch-libcurl");
     const lc = "  async init() {\n    if (this.transport)\n      libcurl.transport = this.transport;\n" + C.BEFORE +
       "\n      proxy: this.proxy\n    });\n  }\n  connect() {\n" + C.WS_BEFORE + "\n    };\n  }\n" +
-      "  request_async() {\n" + C.MAKE_BEFORE + "\n  }\n  static create_response() {\n" + C.HDR_BEFORE + "\n  }\n";
+      "  request_async() {\n" + C.MAKE_BEFORE + "\n  }\n  static create_response() {\n" + C.HDR_BEFORE + "\n  }\n" +
+      "  static async create_options(params) {\n" + C.OPT_BEFORE + "\n  }\n";
     const lcFixed = C.patch(lc);
     ok("the transport waits for its WebAssembly before making a session", !!lcFixed && lcFixed.includes("!libcurl.ready") &&
       lcFixed.indexOf("!libcurl.ready") < lcFixed.indexOf("new libcurl.HTTPSession"));
@@ -598,6 +599,23 @@ async function client(port, who) {
     try { await sjAnswer({}, 1000, new ReadableStream({ cancel() { cancelled = true; } })); } catch (e) { sjErr = e; }
     ok("…and an answer it cannot make lets go of the body before it fails", sjErr instanceof RangeError && cancelled);
 
+    /* A request carrying such a header (a cookie YouTube set), on the way out (0.20.4). */
+    const Bare = new Function("return class { " + P.REQ_AFTER + "q=0;return { r: r, t: t }; } }")();
+    const sent = { method: "POST", body: "x=1", headers: { cookie: "a=" + TM, "content-type": "text/plain" } };
+    let reqMade = null;
+    try { reqMade = await new Bare().fetch("https://req.example/", sent); } catch (e) { reqMade = null; }
+    ok("bare-mux makes the request although a header is past Latin-1", !!reqMade && reqMade.r.method === "POST" && (await reqMade.r.text()) === "x=1");
+    ok("…and hands the page's own headers on, to be sent as UTF-8", reqMade && reqMade.t === sent && reqMade.t.headers.cookie === "a=" + TM);
+    let reqThrew = false;
+    try { new Request("https://req.example/", sent); } catch (e) { reqThrew = true; }
+    ok("…(which the unfixed one could not)", reqThrew);
+    const AF2 = Object.getPrototypeOf(async function () {}).constructor;
+    const opt = { method: "POST", body: "y=2", headers: { cookie: "b=" + TM } };
+    let optMade = null;
+    try { optMade = await new AF2("params", C.OPT_AFTER + "\nreturn request_obj;")(opt); } catch (e) { optMade = null; }
+    ok("the transport reads such a request's body too", !!optMade && (await optMade.text()) === "y=2");
+    ok("…and leaves its headers as the page set them", opt.headers.cookie === "b=" + TM);
+
     const dir = path.join(__dirname, "..", "lens");
     const read = (f) => fs.readFileSync(path.join(dir, f), "utf8");
     const docker = read("Dockerfile"), js = read("client/lens.js"), sw = read("client/sw.js");
@@ -616,6 +634,12 @@ async function client(port, who) {
     ok("the Wisp address ends in /", /"\/wisp\/" \+ encodeURIComponent\(pass\) \+ "\/"/.test(slotJs));
     ok("searching uses DuckDuckGo's main page, strict (its plain page and other engines answer lens with a bot check)", js.indexOf('var SEARCH = "https://duckduckgo.com/?kp=1&q=";') >= 0);
     ok("YouTube is handed to the full mode", /youtube\\\.com/.test(js) && /t: "stream"/.test(js));
+    ok("a YouTube video the player stops is told once, with where it stopped (0.20.4)",
+      /if \(site === "youtube\.com"\) setInterval\(watchYouTube, 2000\);/.test(slotJs) && /spsreject/.test(slotJs) &&
+      /yt\.told = u;\s*tell\(\{ t: "ytstop", url: u, at: Math\.floor\(yt\.t\) \}\)/.test(slotJs));
+    ok("…and the lens page says why, offering the video's own address at that second",
+      /m\.t === "ytstop"/.test(js) && /searchParams\.set\("t", sec \+ "s"\)/.test(js) && /OPEN IN MY OWN BROWSER/.test(js) && /"noopener"/.test(js));
+    ok("…nothing pretends the full mode would play it", !/fullHere/.test(js));
     ok("[hidden] hides, whatever display an element has", /\[hidden\]\{display:none!important\}/.test(read("client/lens.css")));
     ok("the pass leaves the address bar at once", /history\.replaceState\(null, "", location\.pathname\)/.test(js));
   }

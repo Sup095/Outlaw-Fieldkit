@@ -11,7 +11,7 @@
    it had been rewritten; anything else (a script, a page, a worker) is
    refused as a broken link would be, since it would run unwatched. A
    request cut short (a page stopped, a frame closed) ends quietly. */
-importScripts("/v/scramjet-1.1.0-fk4/scramjet.all.js", "/codec.js");
+importScripts("/v/scramjet-1.1.0-fk5/scramjet.all.js", "/codec.js");
 
 const { ScramjetServiceWorker } = $scramjetLoadWorker();
 const scramjet = new ScramjetServiceWorker();

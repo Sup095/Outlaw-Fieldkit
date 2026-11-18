@@ -136,6 +136,16 @@ const HDR_AFTER = 'let E=new w(y,v,l.status,l.statusText,n,e,l,h);f.dispatchEven
   'try{return new Response(E.responseBody,{headers:fkH,status:E.status,statusText:fkL(E.statusText)})}' +
   'catch(fkX){try{E.responseBody&&"function"==typeof E.responseBody.cancel&&E.responseBody.cancel()}catch(fkQ){}throw fkX}';
 
+/* The other way: a header a page's request carries past Latin-1 (a cookie
+   YouTube sets with such letters in it) made bare-mux's fetch throw while
+   it made a Request it only reads the method and body from, so that request
+   failed (0.20.4). The Request is made from a copy holding the bytes; the
+   headers handed to the transport are the page's own, which it sends as
+   UTF-8, as a browser would. */
+const REQ_BEFORE = "async fetch(e,t){let r=new Request(e,t),";
+const REQ_AFTER = "async fetch(e,t){let r=new Request(e,t&&t.headers&&\"object\"==typeof t.headers&&!(t.headers instanceof Headers)&&!Array.isArray(t.headers)?" +
+  "Object.assign({},t,{headers:Object.fromEntries(Object.entries(t.headers).map(([k,v])=>[k,\"string\"==typeof v&&/[^\\x00-\\xff]/.test(v)?unescape(encodeURIComponent(v)):v]))}):t),";
+
 const FIXES = [
   { name: "the cookie wait", before: BEFORE, after: AFTER },
   { name: "the empty url() swallowing a bracket", before: CSS_BEFORE, after: CSS_AFTER },
@@ -148,7 +158,8 @@ const FIXES = [
   { name: "no Accept-Language", before: LANG_BEFORE, after: LANG_AFTER },
   { name: "a script stopped by a missing source map call", before: MAP_BEFORE, after: MAP_AFTER },
   { name: "a message from a frame Scramjet never hooked", before: PM_BEFORE, after: PM_AFTER },
-  { name: "a header past Latin-1 stalling the site", before: HDR_BEFORE, after: HDR_AFTER }
+  { name: "a header past Latin-1 stalling the site", before: HDR_BEFORE, after: HDR_AFTER },
+  { name: "a request header past Latin-1 failing the request", before: REQ_BEFORE, after: REQ_AFTER }
 ];
 
 function once(text, s) {
@@ -176,4 +187,4 @@ if (require.main === module) {
   console.log("patch-scramjet: " + FIXES.map((f) => f.name).join(" and ") + " fixed in " + file);
 }
 
-module.exports = { patch, patchAll, FIXES, BEFORE, AFTER, CSS_BEFORE, CSS_AFTER, MOD_BEFORE, MOD_AFTER, REF_BEFORE, REF_AFTER, WS_BEFORE, WS_AFTER, REALM1_BEFORE, REALM1_AFTER, REALM2_BEFORE, REALM2_AFTER, DEST_BEFORE, DEST_AFTER, LANG_BEFORE, LANG_AFTER, MAP_BEFORE, MAP_AFTER, PM_BEFORE, PM_AFTER, HDR_BEFORE, HDR_AFTER };
+module.exports = { patch, patchAll, FIXES, BEFORE, AFTER, CSS_BEFORE, CSS_AFTER, MOD_BEFORE, MOD_AFTER, REF_BEFORE, REF_AFTER, WS_BEFORE, WS_AFTER, REALM1_BEFORE, REALM1_AFTER, REALM2_BEFORE, REALM2_AFTER, DEST_BEFORE, DEST_AFTER, LANG_BEFORE, LANG_AFTER, MAP_BEFORE, MAP_AFTER, PM_BEFORE, PM_AFTER, HDR_BEFORE, HDR_AFTER, REQ_BEFORE, REQ_AFTER };

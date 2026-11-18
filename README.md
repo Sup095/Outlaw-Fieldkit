@@ -579,6 +579,20 @@ stays, as the fallback and for what lens cannot do.
 - *Next:* a cache for pages you open twice, which the test showed would
   roughly halve what a second visit costs.
 
+**Done in 0.20.5: videos and games, tested for an hour.**
+- YouTube stops a video after about a minute in the lighter mode and in
+  FULL MODE alike ("Something went wrong", `ump.spsrejectfailure`): its
+  player checks it runs in an ordinary browser, and neither a page run
+  through lens nor a headless Chromium is one. Nothing here gets round
+  that check. Searching, browsing, Shorts and short clips play; when a
+  video stops, the lighter mode says why and offers the video's address,
+  at the second it stopped, to open in the person's own browser.
+- A request header past Latin-1 (a cookie YouTube sets) made the request
+  fail; it is now sent as UTF-8 (patch-scramjet.js fix 13, folder -fk5;
+  patch-libcurl.js fix 5, folder -fk3).
+- itch.io and CrazyGames games (one of them multiplayer) ran for 40-50
+  minutes each in the lighter mode.
+
 **Done in 0.20.4: a frozen lighter mode.**
 - One header a site sends as UTF-8 bytes (a Wikipedia picture's file name)
   made the libcurl transport throw inside libcurl's own callback, which

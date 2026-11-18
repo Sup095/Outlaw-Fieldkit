@@ -10,6 +10,10 @@
   "use strict";
 
   var NOTES = [
+    { v: "0.20.5", items: [
+      "BROWSER lighter mode: YouTube Shorts, itch.io and CrazyGames games tested for an hour. Pages that send accented headers no longer fail.",
+      "BROWSER: YouTube stops longer videos after about a minute in both modes (it allows only ordinary browsers); you now get a button to open it in your own."
+    ] },
     { v: "0.20.4", items: [
       "BROWSER lighter mode: Wikipedia (or any site sending an accented file name) no longer freezes it; links, typed addresses and back work again."
     ] },

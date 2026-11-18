@@ -68,6 +68,17 @@ record, the lens page finds no slots, runs every site in one shared slot on
 its own origin, as before 0.16.3, and says in a bar that never goes away
 not to sign in to anything.
 
+**YouTube (0.20.5):** searching, browsing, Shorts and short clips play.
+A longer video stops after about a minute with "Something went wrong"
+(`ump.spsrejectfailure`): YouTube's player checks it runs in an ordinary
+browser, and a page run through lens is not one (nor is FULL MODE's
+headless Chromium, which gets the same answer). Nothing here gets round
+that check. The slot sees the stop and the lens page says why, with a
+button that opens the video, at the second it stopped, in the person's
+own browser. A request header past Latin-1 (a cookie YouTube sets) is
+sent as UTF-8 instead of failing the request (`patch-scramjet.js` fix 13,
+`patch-libcurl.js` fix 5).
+
 **Fixed in 0.20.4:** a header a site sends as UTF-8 bytes (one of
 Wikipedia's pictures has one) made the libcurl transport throw inside
 libcurl's own callback, and libcurl stopped for good: the page never
